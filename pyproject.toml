@@ -1,0 +1,55 @@
+[project]
+name = "neoguard"
+version = "0.1.0"
+description = "Production-grade monitoring platform"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "asyncpg>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.35",
+    "alembic>=1.14.0",
+    "clickhouse-connect>=0.8.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "orjson>=3.10.0",
+    "httpx>=0.28.0",
+    "psutil>=6.1.0",
+    "structlog>=24.4.0",
+    "python-ulid>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "T20", "SIM", "TCH"]
+ignore = ["S101", "S608", "S110"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/neoguard/collector/*" = ["T201"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
