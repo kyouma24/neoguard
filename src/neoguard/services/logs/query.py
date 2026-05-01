@@ -4,10 +4,14 @@ from neoguard.models.logs import LogEntry, LogQuery, LogQueryResult, LogSeverity
 
 
 async def query_logs(q: LogQuery) -> LogQueryResult:
-    tenant_id = q.tenant_id or "default"
+    tenant_id = q.tenant_id
 
-    conditions = ["tenant_id = {tenant_id:String}"]
-    params: dict = {"tenant_id": tenant_id}
+    conditions: list[str] = []
+    params: dict = {}
+
+    if tenant_id:
+        conditions.append("tenant_id = {tenant_id:String}")
+        params["tenant_id"] = tenant_id
 
     if q.service:
         conditions.append("service = {service:String}")
@@ -29,7 +33,7 @@ async def query_logs(q: LogQuery) -> LogQueryResult:
         conditions.append("message ILIKE {query:String}")
         params["query"] = f"%{q.query}%"
 
-    where = " AND ".join(conditions)
+    where = (" AND ".join(conditions)) if conditions else "1 = 1"
 
     client = await get_clickhouse()
 

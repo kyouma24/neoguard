@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required
 from neoguard.models.dashboards import Dashboard, DashboardCreate, DashboardUpdate
 from neoguard.services.dashboards import (
     create_dashboard,
@@ -16,22 +16,24 @@ router = APIRouter(prefix="/api/v1/dashboards", tags=["dashboards"])
 @router.post("", status_code=201)
 async def create(
     data: DashboardCreate,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_tenant_id_required),
 ) -> Dashboard:
     return await create_dashboard(tenant_id, data)
 
 
 @router.get("")
 async def list_all(
-    tenant_id: str = Depends(get_tenant_id),
+    limit: int = 50,
+    offset: int = 0,
+    tenant_id: str | None = Depends(get_tenant_id),
 ) -> list[Dashboard]:
-    return await list_dashboards(tenant_id)
+    return await list_dashboards(tenant_id, limit=min(limit, 500), offset=offset)
 
 
 @router.get("/{dashboard_id}")
 async def get_one(
     dashboard_id: str,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str | None = Depends(get_tenant_id),
 ) -> Dashboard:
     dash = await get_dashboard(tenant_id, dashboard_id)
     if not dash:
@@ -43,7 +45,7 @@ async def get_one(
 async def update(
     dashboard_id: str,
     data: DashboardUpdate,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_tenant_id_required),
 ) -> Dashboard:
     dash = await update_dashboard(tenant_id, dashboard_id, data)
     if not dash:
@@ -54,7 +56,7 @@ async def update(
 @router.delete("/{dashboard_id}", status_code=204)
 async def delete(
     dashboard_id: str,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_tenant_id_required),
 ) -> None:
     deleted = await delete_dashboard(tenant_id, dashboard_id)
     if not deleted:

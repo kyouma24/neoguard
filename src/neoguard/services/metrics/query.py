@@ -42,7 +42,7 @@ async def query_metrics(q: MetricQuery) -> list[MetricQueryResult]:
 
     bucket_sql = INTERVAL_TO_BUCKET.get(q.interval)
     source = _pick_source_table(q.start, q.end, q.interval)
-    tenant_id = q.tenant_id or "default"
+    tenant_id = q.tenant_id
 
     pool = await get_pool()
 
@@ -54,24 +54,46 @@ async def query_metrics(q: MetricQuery) -> list[MetricQueryResult]:
 async def _query_raw(
     pool: asyncpg.Pool,
     q: MetricQuery,
-    tenant_id: str,
+    tenant_id: str | None,
     agg: str,
     bucket_sql: str | None,
 ) -> list[MetricQueryResult]:
     time_col = f"time_bucket('{bucket_sql}', time)" if bucket_sql else "time"
 
-    tags_filter, params = _build_tags_filter(q.tags, param_offset=3)
+    base_params: list = []
+    conditions: list[str] = []
+    idx = 1
+
+    if tenant_id:
+        conditions.append(f"tenant_id = ${idx}")
+        base_params.append(tenant_id)
+        idx += 1
+
+    conditions.append(f"name = ${idx}")
+    base_params.append(q.name)
+    idx += 1
+
+    conditions.append(f"time >= ${idx}")
+    base_params.append(q.start)
+    idx += 1
+
+    conditions.append(f"time < ${idx}")
+    base_params.append(q.end)
+    idx += 1
+
+    tags_filter, tag_params = _build_tags_filter(q.tags, param_offset=idx - 2)
     where_tags = f" AND {tags_filter}" if tags_filter else ""
 
+    where = " AND ".join(conditions)
     sql = f"""
         SELECT {time_col} AS bucket, tags, {agg}(value) AS agg_value
         FROM metrics
-        WHERE tenant_id = $1 AND name = $2 AND time >= $3 AND time < $4 {where_tags}
+        WHERE {where} {where_tags}
         GROUP BY bucket, tags
         ORDER BY bucket
     """
 
-    all_params: list = [tenant_id, q.name, q.start, q.end, *params]
+    all_params: list = [*base_params, *tag_params]
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *all_params)
@@ -82,7 +104,7 @@ async def _query_raw(
 async def _query_aggregate(
     pool: asyncpg.Pool,
     q: MetricQuery,
-    tenant_id: str,
+    tenant_id: str | None,
     source: str,
     agg: str,
     bucket_sql: str | None,
@@ -91,9 +113,6 @@ async def _query_aggregate(
 
     time_col = f"time_bucket('{bucket_sql}', bucket)" if bucket_sql else "bucket"
 
-    tags_filter, params = _build_tags_filter(q.tags, param_offset=3)
-    where_tags = f" AND {tags_filter}" if tags_filter else ""
-
     if agg == "count":
         select_agg = "SUM(sample_count)"
     elif agg == "sum":
@@ -101,15 +120,40 @@ async def _query_aggregate(
     else:
         select_agg = f"{agg.upper()}({agg_col})"
 
+    base_params: list = []
+    conditions: list[str] = []
+    idx = 1
+
+    if tenant_id:
+        conditions.append(f"tenant_id = ${idx}")
+        base_params.append(tenant_id)
+        idx += 1
+
+    conditions.append(f"name = ${idx}")
+    base_params.append(q.name)
+    idx += 1
+
+    conditions.append(f"bucket >= ${idx}")
+    base_params.append(q.start)
+    idx += 1
+
+    conditions.append(f"bucket < ${idx}")
+    base_params.append(q.end)
+    idx += 1
+
+    tags_filter, tag_params = _build_tags_filter(q.tags, param_offset=idx - 2)
+    where_tags = f" AND {tags_filter}" if tags_filter else ""
+
+    where = " AND ".join(conditions)
     sql = f"""
         SELECT {time_col} AS ts, tags, {select_agg} AS agg_value
         FROM {source}
-        WHERE tenant_id = $1 AND name = $2 AND bucket >= $3 AND bucket < $4 {where_tags}
+        WHERE {where} {where_tags}
         GROUP BY ts, tags
         ORDER BY ts
     """
 
-    all_params: list = [tenant_id, q.name, q.start, q.end, *params]
+    all_params: list = [*base_params, *tag_params]
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *all_params)

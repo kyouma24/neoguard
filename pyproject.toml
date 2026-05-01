@@ -17,6 +17,23 @@ dependencies = [
     "psutil>=6.1.0",
     "structlog>=24.4.0",
     "python-ulid>=3.0.0",
+    "boto3>=1.35.0",
+    "aioboto3>=13.0.0",
+    "croniter>=5.0.0",
+    "aiohttp>=3.10.0",
+    "azure-identity>=1.17.0",
+    "azure-mgmt-compute>=33.0.0",
+    "azure-mgmt-network>=27.0.0",
+    "azure-mgmt-storage>=21.0.0",
+    "azure-mgmt-sql>=3.0.0",
+    "azure-mgmt-web>=7.0.0",
+    "azure-mgmt-containerservice>=33.0.0",
+    "azure-mgmt-monitor>=6.0.0",
+    "azure-mgmt-resource>=23.0.0",
+    "azure-mgmt-redis>=14.0.0",
+    "azure-mgmt-cosmosdb>=9.0.0",
+    "azure-mgmt-dns>=8.0.0",
+    "azure-mgmt-keyvault>=10.0.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +44,7 @@ dev = [
     "httpx>=0.28.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
+    "aioresponses>=0.7.6",
 ]
 
 [build-system]

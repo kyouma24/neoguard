@@ -28,6 +28,6 @@ async def init_clickhouse() -> AsyncClient:
 async def close_clickhouse() -> None:
     global _client
     if _client:
-        _client.close()
+        await _client.close()
         _client = None
         await log.ainfo("ClickHouse client closed")

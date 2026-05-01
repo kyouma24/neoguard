@@ -29,6 +29,12 @@ class Settings(BaseSettings):
 
     alert_eval_interval_sec: int = 15
 
+    auth_enabled: bool = False
+    auth_bootstrap_token: str = ""
+
+    telemetry_enabled: bool = True
+    telemetry_interval_sec: int = 15
+
     @property
     def dsn(self) -> str:
         return (

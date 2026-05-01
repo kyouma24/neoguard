@@ -1,12 +1,26 @@
 import type {
   AlertEvent,
   AlertRule,
+  APIKey,
+  APIKeyCreate,
+  APIKeyCreated,
+  AWSAccount,
+  AWSAccountCreate,
+  AzureSubscription,
+  AzureSubscriptionCreate,
   Dashboard,
   HealthStatus,
   LogQuery,
   LogQueryResult,
   MetricQuery,
   MetricQueryResult,
+  NotificationChannel,
+  NotificationChannelCreate,
+  Resource,
+  ResourceSummary,
+  Silence,
+  SilenceCreate,
+  SystemStats,
 } from "../types";
 
 const BASE = "/api/v1";
@@ -69,6 +83,120 @@ export const api = {
       const query = qs.toString();
       return request<AlertEvent[]>(`${BASE}/alerts/events${query ? `?${query}` : ""}`);
     },
+    listSilences: () => request<Silence[]>(`${BASE}/alerts/silences`),
+    getSilence: (id: string) => request<Silence>(`${BASE}/alerts/silences/${id}`),
+    createSilence: (data: SilenceCreate) =>
+      request<Silence>(`${BASE}/alerts/silences`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateSilence: (id: string, data: Partial<Silence>) =>
+      request<Silence>(`${BASE}/alerts/silences/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteSilence: (id: string) =>
+      request<void>(`${BASE}/alerts/silences/${id}`, { method: "DELETE" }),
+  },
+
+  resources: {
+    list: (params?: {
+      resource_type?: string;
+      provider?: string;
+      account_id?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const qs = new URLSearchParams();
+      if (params?.resource_type) qs.set("resource_type", params.resource_type);
+      if (params?.provider) qs.set("provider", params.provider);
+      if (params?.account_id) qs.set("account_id", params.account_id);
+      if (params?.status) qs.set("status", params.status);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.offset) qs.set("offset", String(params.offset));
+      const query = qs.toString();
+      return request<Resource[]>(`${BASE}/resources${query ? `?${query}` : ""}`);
+    },
+    get: (id: string) => request<Resource>(`${BASE}/resources/${id}`),
+    summary: () => request<ResourceSummary>(`${BASE}/resources/summary`),
+  },
+
+  aws: {
+    listAccounts: () => request<AWSAccount[]>(`${BASE}/aws/accounts`),
+    getAccount: (id: string) => request<AWSAccount>(`${BASE}/aws/accounts/${id}`),
+    createAccount: (data: AWSAccountCreate) =>
+      request<AWSAccount>(`${BASE}/aws/accounts`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateAccount: (id: string, data: Partial<AWSAccountCreate> & { enabled?: boolean }) =>
+      request<AWSAccount>(`${BASE}/aws/accounts/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteAccount: (id: string) =>
+      request<void>(`${BASE}/aws/accounts/${id}`, { method: "DELETE" }),
+  },
+
+  azure: {
+    listSubscriptions: () => request<AzureSubscription[]>(`${BASE}/azure/subscriptions`),
+    getSubscription: (id: string) => request<AzureSubscription>(`${BASE}/azure/subscriptions/${id}`),
+    createSubscription: (data: AzureSubscriptionCreate) =>
+      request<AzureSubscription>(`${BASE}/azure/subscriptions`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateSubscription: (id: string, data: Partial<AzureSubscriptionCreate> & { enabled?: boolean }) =>
+      request<AzureSubscription>(`${BASE}/azure/subscriptions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteSubscription: (id: string) =>
+      request<void>(`${BASE}/azure/subscriptions/${id}`, { method: "DELETE" }),
+  },
+
+  notifications: {
+    listChannels: () => request<NotificationChannel[]>(`${BASE}/notifications/channels`),
+    getChannel: (id: string) => request<NotificationChannel>(`${BASE}/notifications/channels/${id}`),
+    createChannel: (data: NotificationChannelCreate) =>
+      request<NotificationChannel>(`${BASE}/notifications/channels`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateChannel: (id: string, data: Partial<NotificationChannelCreate>) =>
+      request<NotificationChannel>(`${BASE}/notifications/channels/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteChannel: (id: string) =>
+      request<void>(`${BASE}/notifications/channels/${id}`, { method: "DELETE" }),
+    testChannel: (id: string) =>
+      request<{ success: boolean; meta?: Record<string, unknown> }>(
+        `${BASE}/notifications/channels/${id}/test`,
+        { method: "POST" },
+      ),
+  },
+
+  apiKeys: {
+    list: () => request<APIKey[]>(`${BASE}/auth/keys`),
+    get: (id: string) => request<APIKey>(`${BASE}/auth/keys/${id}`),
+    create: (data: APIKeyCreate) =>
+      request<APIKeyCreated>(`${BASE}/auth/keys`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: { name?: string; scopes?: string[]; rate_limit?: number; enabled?: boolean; expires_at?: string | null }) =>
+      request<APIKey>(`${BASE}/auth/keys/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<void>(`${BASE}/auth/keys/${id}`, { method: "DELETE" }),
+  },
+
+  system: {
+    stats: () => request<SystemStats>(`${BASE}/system/stats`),
   },
 
   dashboards: {

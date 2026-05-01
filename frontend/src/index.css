@@ -19,6 +19,7 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --error: #ef4444;
+  --danger: #ef4444;
   --info: #3b82f6;
   --radius: 8px;
   --radius-sm: 4px;
@@ -171,4 +172,8 @@ input, select, textarea {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }

@@ -30,23 +30,37 @@ async def create_alert_rule(tenant_id: str, data: AlertRuleCreate) -> AlertRule:
     return _row_to_rule(row)
 
 
-async def get_alert_rule(tenant_id: str, rule_id: str) -> AlertRule | None:
+async def get_alert_rule(tenant_id: str | None, rule_id: str) -> AlertRule | None:
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM alert_rules WHERE id = $1 AND tenant_id = $2",
-            rule_id, tenant_id,
-        )
+        if tenant_id:
+            row = await conn.fetchrow(
+                "SELECT * FROM alert_rules WHERE id = $1 AND tenant_id = $2",
+                rule_id, tenant_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                "SELECT * FROM alert_rules WHERE id = $1", rule_id,
+            )
     return _row_to_rule(row) if row else None
 
 
-async def list_alert_rules(tenant_id: str) -> list[AlertRule]:
+async def list_alert_rules(
+    tenant_id: str | None, limit: int = 50, offset: int = 0,
+) -> list[AlertRule]:
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM alert_rules WHERE tenant_id = $1 ORDER BY created_at DESC",
-            tenant_id,
-        )
+        if tenant_id:
+            rows = await conn.fetch(
+                "SELECT * FROM alert_rules WHERE tenant_id = $1"
+                f" ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}",
+                tenant_id,
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT * FROM alert_rules"
+                f" ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}",
+            )
     return [_row_to_rule(r) for r in rows]
 
 
@@ -93,14 +107,19 @@ async def delete_alert_rule(tenant_id: str, rule_id: str) -> bool:
 
 
 async def list_alert_events(
-    tenant_id: str,
+    tenant_id: str | None,
     rule_id: str | None = None,
     status: AlertStatus | None = None,
     limit: int = 50,
 ) -> list[AlertEvent]:
-    conditions = ["tenant_id = $1"]
-    params: list = [tenant_id]
-    idx = 2
+    conditions: list[str] = []
+    params: list = []
+    idx = 1
+
+    if tenant_id:
+        conditions.append(f"tenant_id = ${idx}")
+        params.append(tenant_id)
+        idx += 1
 
     if rule_id:
         conditions.append(f"rule_id = ${idx}")
@@ -112,7 +131,7 @@ async def list_alert_events(
         params.append(status.value)
         idx += 1
 
-    where = " AND ".join(conditions)
+    where = (" AND ".join(conditions)) if conditions else "TRUE"
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -129,6 +148,11 @@ async def list_alert_events(
         value=r["value"],
         threshold=r["threshold"],
         message=r["message"],
+        notification_meta=(
+            orjson.loads(r["notification_meta"])
+            if isinstance(r["notification_meta"], str)
+            else r["notification_meta"]
+        ) if r.get("notification_meta") else {},
         fired_at=r["fired_at"],
         resolved_at=r["resolved_at"],
     ) for r in rows]

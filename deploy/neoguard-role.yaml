@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: NeoGuard monitoring role with read-only access for resource discovery and CloudWatch metrics
+
+Parameters:
+  ExternalId:
+    Type: String
+    Default: neoguard-monitoring-2026
+    Description: External ID for assume-role trust policy
+  TrustedAccountId:
+    Type: String
+    Default: ''
+    Description: AWS account ID allowed to assume this role (leave empty for same-account)
+
+Conditions:
+  SameAccount: !Equals [!Ref TrustedAccountId, '']
+
+Resources:
+  NeoGuardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NeoGuardCollectorRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !If
+                - SameAccount
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${TrustedAccountId}:root'
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      Policies:
+        - PolicyName: NeoGuardDiscoveryPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EC2Discovery
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeVpnConnections
+                  - ec2:DescribeRegions
+                Resource: '*'
+              - Sid: RDSDiscovery
+                Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
+                Resource: '*'
+              - Sid: LambdaDiscovery
+                Effect: Allow
+                Action:
+                  - lambda:ListFunctions
+                  - lambda:GetFunction
+                Resource: '*'
+              - Sid: ELBDiscovery
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTags
+                Resource: '*'
+              - Sid: DynamoDBDiscovery
+                Effect: Allow
+                Action:
+                  - dynamodb:ListTables
+                  - dynamodb:DescribeTable
+                Resource: '*'
+              - Sid: SQSDiscovery
+                Effect: Allow
+                Action:
+                  - sqs:ListQueues
+                  - sqs:GetQueueAttributes
+                Resource: '*'
+              - Sid: SNSDiscovery
+                Effect: Allow
+                Action:
+                  - sns:ListTopics
+                  - sns:GetTopicAttributes
+                Resource: '*'
+              - Sid: ECSDiscovery
+                Effect: Allow
+                Action:
+                  - ecs:ListClusters
+                  - ecs:DescribeClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                Resource: '*'
+              - Sid: ElastiCacheDiscovery
+                Effect: Allow
+                Action:
+                  - elasticache:DescribeCacheClusters
+                  - elasticache:DescribeReplicationGroups
+                Resource: '*'
+              - Sid: S3Discovery
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketEncryption
+                  - s3:GetBucketLifecycleConfiguration
+                  - s3:GetBucketPublicAccessBlock
+                Resource: '*'
+              - Sid: KinesisDiscovery
+                Effect: Allow
+                Action:
+                  - kinesis:ListStreams
+                  - kinesis:DescribeStreamSummary
+                  - kinesis:ListStreamConsumers
+                Resource: '*'
+              - Sid: APIGatewayDiscovery
+                Effect: Allow
+                Action:
+                  - apigateway:GET
+                Resource: '*'
+              - Sid: CloudFrontDiscovery
+                Effect: Allow
+                Action:
+                  - cloudfront:ListDistributions
+                Resource: '*'
+              - Sid: StepFunctionsDiscovery
+                Effect: Allow
+                Action:
+                  - states:ListStateMachines
+                Resource: '*'
+              - Sid: RedshiftDiscovery
+                Effect: Allow
+                Action:
+                  - redshift:DescribeClusters
+                Resource: '*'
+              - Sid: OpenSearchDiscovery
+                Effect: Allow
+                Action:
+                  - es:ListDomainNames
+                  - es:DescribeDomain
+                  - es:DescribeElasticsearchDomain
+                Resource: '*'
+              - Sid: EKSDiscovery
+                Effect: Allow
+                Action:
+                  - eks:ListClusters
+                  - eks:DescribeCluster
+                  - eks:ListNodegroups
+                Resource: '*'
+              - Sid: EFSDiscovery
+                Effect: Allow
+                Action:
+                  - efs:DescribeFileSystems
+                  - efs:DescribeMountTargets
+                Resource: '*'
+              - Sid: FSxDiscovery
+                Effect: Allow
+                Action:
+                  - fsx:DescribeFileSystems
+                Resource: '*'
+              - Sid: Route53Discovery
+                Effect: Allow
+                Action:
+                  - route53:ListHostedZones
+                  - route53:ListTagsForResource
+                Resource: '*'
+              - Sid: CloudWatchMetrics
+                Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:ListMetrics
+                Resource: '*'
+              - Sid: TagsRead
+                Effect: Allow
+                Action:
+                  - tag:GetResources
+                Resource: '*'
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt NeoGuardRole.Arn
+    Description: Role ARN to configure in NeoGuard
+  ExternalId:
+    Value: !Ref ExternalId
+    Description: External ID to configure in NeoGuard

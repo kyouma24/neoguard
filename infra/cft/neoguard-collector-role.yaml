@@ -1,0 +1,183 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  NeoGuard Collector IAM Role — grants read-only access for infrastructure
+  discovery and CloudWatch metrics collection. No write permissions.
+
+Parameters:
+  ExternalId:
+    Type: String
+    Description: Unique external ID provided by NeoGuard during onboarding
+    AllowedPattern: '^ng-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}$'
+    ConstraintDescription: Must be a NeoGuard-generated external ID (ng-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX)
+  NeoGuardAccountId:
+    Type: String
+    Default: '271547278517'
+    Description: AWS Account ID where NeoGuard is deployed (trust target)
+
+Resources:
+  NeoGuardCollectorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NeoGuardCollectorRole
+      Description: Read-only cross-account role for NeoGuard monitoring platform
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${NeoGuardAccountId}:root'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Policies:
+        - PolicyName: NeoGuardDiscoveryPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EC2ReadOnly
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeVpnConnections
+                  - ec2:DescribeRegions
+                Resource: '*'
+              - Sid: RDSReadOnly
+                Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
+                Resource: '*'
+              - Sid: LambdaReadOnly
+                Effect: Allow
+                Action:
+                  - lambda:ListFunctions
+                  - lambda:ListTags
+                Resource: '*'
+              - Sid: ELBReadOnly
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                Resource: '*'
+              - Sid: DynamoDBReadOnly
+                Effect: Allow
+                Action:
+                  - dynamodb:ListTables
+                  - dynamodb:DescribeTable
+                Resource: '*'
+              - Sid: SQSReadOnly
+                Effect: Allow
+                Action:
+                  - sqs:ListQueues
+                  - sqs:GetQueueAttributes
+                Resource: '*'
+              - Sid: ECSReadOnly
+                Effect: Allow
+                Action:
+                  - ecs:ListClusters
+                  - ecs:DescribeClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                Resource: '*'
+              - Sid: ElastiCacheReadOnly
+                Effect: Allow
+                Action:
+                  - elasticache:DescribeCacheClusters
+                Resource: '*'
+              - Sid: S3ReadOnly
+                Effect: Allow
+                Action:
+                  - s3:ListBuckets
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketEncryption
+                  - s3:GetPublicAccessBlock
+                  - s3:GetBucketLifecycleConfiguration
+                Resource: '*'
+              - Sid: SNSReadOnly
+                Effect: Allow
+                Action:
+                  - sns:ListTopics
+                  - sns:GetTopicAttributes
+                Resource: '*'
+              - Sid: CloudFrontReadOnly
+                Effect: Allow
+                Action:
+                  - cloudfront:ListDistributions
+                Resource: '*'
+              - Sid: APIGatewayReadOnly
+                Effect: Allow
+                Action:
+                  - apigateway:GET
+                Resource: '*'
+              - Sid: KinesisReadOnly
+                Effect: Allow
+                Action:
+                  - kinesis:ListStreams
+                  - kinesis:DescribeStreamSummary
+                  - kinesis:ListStreamConsumers
+                Resource: '*'
+              - Sid: RedshiftReadOnly
+                Effect: Allow
+                Action:
+                  - redshift:DescribeClusters
+                Resource: '*'
+              - Sid: OpenSearchReadOnly
+                Effect: Allow
+                Action:
+                  - es:ListDomainNames
+                  - es:DescribeDomains
+                Resource: '*'
+              - Sid: StepFunctionsReadOnly
+                Effect: Allow
+                Action:
+                  - states:ListStateMachines
+                  - states:DescribeStateMachine
+                Resource: '*'
+              - Sid: Route53ReadOnly
+                Effect: Allow
+                Action:
+                  - route53:ListHostedZones
+                  - route53:ListTagsForResource
+                Resource: '*'
+              - Sid: EFSReadOnly
+                Effect: Allow
+                Action:
+                  - elasticfilesystem:DescribeFileSystems
+                  - elasticfilesystem:DescribeMountTargets
+                Resource: '*'
+              - Sid: FSxReadOnly
+                Effect: Allow
+                Action:
+                  - fsx:DescribeFileSystems
+                Resource: '*'
+              - Sid: EKSReadOnly
+                Effect: Allow
+                Action:
+                  - eks:ListClusters
+                  - eks:DescribeCluster
+                  - eks:ListNodegroups
+                Resource: '*'
+              - Sid: CloudWatchReadOnly
+                Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:ListMetrics
+                Resource: '*'
+      Tags:
+        - Key: ManagedBy
+          Value: NeoGuard
+        - Key: Purpose
+          Value: Infrastructure monitoring and metrics collection
+
+Outputs:
+  RoleArn:
+    Description: IAM Role ARN — paste this into NeoGuard onboarding wizard
+    Value: !GetAtt NeoGuardCollectorRole.Arn
+  ExternalId:
+    Description: External ID used for this role
+    Value: !Ref ExternalId

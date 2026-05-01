@@ -1,0 +1,83 @@
+from fastapi import APIRouter, Depends, HTTPException
+
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.models.resources import Resource, ResourceCreate, ResourceUpdate
+from neoguard.services.resources.crud import (
+    create_resource,
+    delete_resource,
+    get_resource,
+    get_resource_summary,
+    list_resources,
+    update_resource,
+)
+
+router = APIRouter(prefix="/api/v1/resources", tags=["resources"])
+
+
+@router.get("", response_model=list[Resource])
+async def list_all(
+    resource_type: str | None = None,
+    provider: str | None = None,
+    account_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> list[Resource]:
+    return await list_resources(
+        tenant_id,
+        resource_type=resource_type,
+        provider=provider,
+        account_id=account_id,
+        status=status,
+        limit=min(limit, 500),
+        offset=offset,
+    )
+
+
+@router.get("/summary")
+async def summary(
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> dict:
+    return await get_resource_summary(tenant_id)
+
+
+@router.post("", response_model=Resource, status_code=201)
+async def create(
+    data: ResourceCreate,
+    tenant_id: str = Depends(get_tenant_id_required),
+) -> Resource:
+    return await create_resource(tenant_id, data)
+
+
+@router.get("/{resource_id}", response_model=Resource)
+async def get_one(
+    resource_id: str,
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> Resource:
+    res = await get_resource(tenant_id, resource_id)
+    if not res:
+        raise HTTPException(404, "Resource not found")
+    return res
+
+
+@router.patch("/{resource_id}", response_model=Resource)
+async def update(
+    resource_id: str,
+    data: ResourceUpdate,
+    tenant_id: str = Depends(get_tenant_id_required),
+) -> Resource:
+    res = await update_resource(tenant_id, resource_id, data)
+    if not res:
+        raise HTTPException(404, "Resource not found")
+    return res
+
+
+@router.delete("/{resource_id}", status_code=204)
+async def delete(
+    resource_id: str,
+    tenant_id: str = Depends(get_tenant_id_required),
+) -> None:
+    deleted = await delete_resource(tenant_id, resource_id)
+    if not deleted:
+        raise HTTPException(404, "Resource not found")

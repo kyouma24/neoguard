@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import time
 from datetime import UTC, datetime
 
 from neoguard.core.config import settings
@@ -18,6 +19,9 @@ class LogBatchWriter:
         self._running = False
         self._total_written = 0
         self._total_dropped = 0
+        self._flush_count = 0
+        self._last_flush_duration_ms: float = 0.0
+        self._last_flush_at: float = 0.0
 
     async def start(self) -> None:
         self._running = True
@@ -75,6 +79,7 @@ class LogBatchWriter:
             batch = self._buffer
             self._buffer = []
 
+        flush_start = time.monotonic()
         try:
             client = await get_clickhouse()
             await client.insert(
@@ -89,6 +94,10 @@ class LogBatchWriter:
         except Exception as e:
             self._total_dropped += len(batch)
             await log.aerror("Log flush failed", error=str(e), dropped=len(batch))
+        finally:
+            self._flush_count += 1
+            self._last_flush_duration_ms = (time.monotonic() - flush_start) * 1000
+            self._last_flush_at = time.monotonic()
 
     @property
     def stats(self) -> dict:
@@ -96,6 +105,9 @@ class LogBatchWriter:
             "buffer_size": len(self._buffer),
             "total_written": self._total_written,
             "total_dropped": self._total_dropped,
+            "flush_count": self._flush_count,
+            "last_flush_duration_ms": round(self._last_flush_duration_ms, 2),
+            "last_flush_at": self._last_flush_at,
         }
 
 

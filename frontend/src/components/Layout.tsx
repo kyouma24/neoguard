@@ -5,16 +5,20 @@ import {
   BarChart3,
   FileText,
   LayoutDashboard,
+  Server,
+  Settings,
   Shield,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
 const navItems = [
   { to: "/", icon: Activity, label: "Overview" },
+  { to: "/infrastructure", icon: Server, label: "Infrastructure" },
   { to: "/metrics", icon: BarChart3, label: "Metrics" },
   { to: "/logs", icon: FileText, label: "Logs" },
   { to: "/alerts", icon: AlertTriangle, label: "Alerts" },
   { to: "/dashboards", icon: LayoutDashboard, label: "Dashboards" },
+  { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {

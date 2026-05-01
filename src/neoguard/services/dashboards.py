@@ -27,23 +27,37 @@ async def create_dashboard(tenant_id: str, data: DashboardCreate) -> Dashboard:
     return _row_to_dashboard(row)
 
 
-async def get_dashboard(tenant_id: str, dashboard_id: str) -> Dashboard | None:
+async def get_dashboard(tenant_id: str | None, dashboard_id: str) -> Dashboard | None:
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM dashboards WHERE id = $1 AND tenant_id = $2",
-            dashboard_id, tenant_id,
-        )
+        if tenant_id:
+            row = await conn.fetchrow(
+                "SELECT * FROM dashboards WHERE id = $1 AND tenant_id = $2",
+                dashboard_id, tenant_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                "SELECT * FROM dashboards WHERE id = $1", dashboard_id,
+            )
     return _row_to_dashboard(row) if row else None
 
 
-async def list_dashboards(tenant_id: str) -> list[Dashboard]:
+async def list_dashboards(
+    tenant_id: str | None, limit: int = 50, offset: int = 0,
+) -> list[Dashboard]:
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM dashboards WHERE tenant_id = $1 ORDER BY updated_at DESC",
-            tenant_id,
-        )
+        if tenant_id:
+            rows = await conn.fetch(
+                "SELECT * FROM dashboards WHERE tenant_id = $1 ORDER BY updated_at DESC"
+                f" LIMIT {limit} OFFSET {offset}",
+                tenant_id,
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT * FROM dashboards ORDER BY updated_at DESC"
+                f" LIMIT {limit} OFFSET {offset}",
+            )
     return [_row_to_dashboard(r) for r in rows]
 
 

@@ -94,6 +94,78 @@ class CollectorAgent:
             metrics.append(_m("system.load.5", avg5, tags))
             metrics.append(_m("system.load.15", avg15, tags))
 
+        metrics.extend(self._collect_disk_io(tags))
+        metrics.extend(self._collect_processes(tags))
+        metrics.extend(self._collect_tcp(tags))
+
+        return metrics
+
+    def _collect_disk_io(self, tags: dict) -> list[dict]:
+        metrics: list[dict] = []
+        try:
+            counters = psutil.disk_io_counters(perdisk=True)
+            if not counters:
+                return metrics
+            for disk, io in counters.items():
+                dtags = {**tags, "device": disk}
+                metrics.append(_m("system.disk.read_bytes", float(io.read_bytes), dtags, "counter"))
+                metrics.append(
+                    _m("system.disk.write_bytes", float(io.write_bytes), dtags, "counter")
+                )
+                metrics.append(_m("system.disk.read_count", float(io.read_count), dtags, "counter"))
+                metrics.append(
+                    _m("system.disk.write_count", float(io.write_count), dtags, "counter")
+                )
+                if hasattr(io, "read_time"):
+                    metrics.append(
+                        _m("system.disk.read_time_ms", float(io.read_time), dtags, "counter")
+                    )
+                    metrics.append(
+                        _m("system.disk.write_time_ms", float(io.write_time), dtags, "counter")
+                    )
+        except Exception:
+            pass
+        return metrics
+
+    def _collect_processes(self, tags: dict) -> list[dict]:
+        metrics: list[dict] = []
+        try:
+            pids = psutil.pids()
+            metrics.append(_m("system.process.count", float(len(pids)), tags))
+
+            top_cpu: list[tuple[str, float, float]] = []
+            for proc in psutil.process_iter(["name", "cpu_percent", "memory_percent"]):
+                try:
+                    info = proc.info
+                    cpu = info.get("cpu_percent") or 0.0
+                    mem = info.get("memory_percent") or 0.0
+                    name = info.get("name") or "unknown"
+                    top_cpu.append((name, cpu, mem))
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            top_cpu.sort(key=lambda x: x[1], reverse=True)
+            for name, cpu, mem in top_cpu[:10]:
+                ptags = {**tags, "process": name}
+                metrics.append(_m("system.process.cpu_percent", cpu, ptags))
+                metrics.append(_m("system.process.memory_percent", mem, ptags))
+        except Exception:
+            pass
+        return metrics
+
+    def _collect_tcp(self, tags: dict) -> list[dict]:
+        metrics: list[dict] = []
+        try:
+            conns = psutil.net_connections(kind="tcp")
+            states: dict[str, int] = {}
+            for c in conns:
+                st = c.status if c.status else "NONE"
+                states[st] = states.get(st, 0) + 1
+            for state, count in states.items():
+                stags = {**tags, "state": state}
+                metrics.append(_m("system.tcp.connections", float(count), stags))
+        except (psutil.AccessDenied, OSError):
+            pass
         return metrics
 
     async def _ship(self, client: httpx.AsyncClient, metrics: list[dict]) -> None:
