@@ -558,7 +558,7 @@ async def _discover_ecs(account: AWSAccount, region: str, tenant_id: str) -> int
 
         svc_paginator = ecs.get_paginator("list_services")
         svc_pages = await asyncio.to_thread(
-            lambda ca=cluster_arn: list(svc_paginator.paginate(cluster=ca)),
+            lambda ca=cluster_arn, sp=svc_paginator: list(sp.paginate(cluster=ca)),
         )
         for svc_page in svc_pages:
             svc_arns = svc_page.get("serviceArns", [])

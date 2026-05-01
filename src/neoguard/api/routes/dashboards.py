@@ -61,3 +61,21 @@ async def delete(
     deleted = await delete_dashboard(tenant_id, dashboard_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Dashboard not found")
+
+
+@router.post("/{dashboard_id}/duplicate", status_code=201, response_model=Dashboard)
+async def duplicate(
+    dashboard_id: str,
+    tenant_id: str = Depends(get_tenant_id_required),
+) -> Dashboard:
+    original = await get_dashboard(tenant_id, dashboard_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    from neoguard.models.dashboards import DashboardCreate
+
+    copy = DashboardCreate(
+        name=f"{original.name} (copy)",
+        description=original.description,
+        panels=original.panels,
+    )
+    return await create_dashboard(tenant_id, copy)

@@ -1,0 +1,28 @@
+import { Meta } from '@storybook/blocks';
+
+<Meta title="Primitives/Overview" />
+
+# Primitives
+
+Atomic building blocks. Each primitive depends only on tokens, never on other components.
+
+## Inventory
+
+- **Badge** — small label, neutral by default
+- **Button** — variants: primary, secondary, ghost, danger, brand, brandInverse
+- **ChatBubble** — single message bubble (user|bot, optional intent/confidence/timestamp)
+- **Chip** — removable tag
+- **Input** — text input with label/error
+- **Label** — form field label
+- **ProgressBar** — clamped 0–100, optional caption
+- **Select** — native select with options
+- **StatusBadge** — tone-driven status pill (neutral|success|warning|danger|info|pending)
+- **Textarea** — multi-line text input
+- **Typography** — text-style helpers
+
+## Rules
+
+- Primitives never import other components — only tokens.
+- All styling via CSS Modules + token CSS vars (`var(--color-primary-500, #fallback)`).
+- All primitives accept a `testId` prop and forward refs.
+- No domain entity names appear in primitive code.

@@ -1,0 +1,75 @@
+.inputWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.label {
+  font-family: var(--typography-font-family-primary);
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-medium);
+  color: var(--color-neutral-700);
+  line-height: var(--typography-line-height-normal);
+}
+
+.required {
+  color: var(--color-brand-magenta);
+  margin-left: 0.125rem;
+}
+
+.input {
+  font-family: var(--typography-font-family-primary);
+  font-size: var(--typography-font-size-base);
+  font-weight: var(--typography-font-weight-regular);
+  line-height: var(--typography-line-height-normal);
+  padding: 0.625rem 1.25rem;
+  border: 0.0625rem solid var(--color-neutral-300);
+  border-radius: var(--border-radius-full);
+  background-color: transparent;
+  color: var(--color-neutral-900);
+  transition: border-color var(--transition-normal-duration) var(--transition-normal-easing),
+              box-shadow var(--transition-normal-duration) var(--transition-normal-easing);
+}
+
+.input::placeholder {
+  color: var(--color-neutral-400);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-brand-indigo);
+  box-shadow: 0 0 0 0.1875rem var(--color-primary-100);
+}
+
+.input:hover:not(:disabled):not(.error) {
+  border-color: var(--color-neutral-400);
+}
+
+.input:disabled {
+  background-color: var(--color-neutral-100);
+  color: var(--color-neutral-500);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.input.error {
+  border-color: var(--color-danger-500);
+}
+
+.input.error:focus {
+  border-color: var(--color-danger-500);
+  box-shadow: 0 0 0 var(--spacing-xs) rgba(239, 68, 68, 0.1);
+}
+
+.input.error:hover:not(:disabled) {
+  border-color: var(--color-danger-600);
+}
+
+.errorMessage {
+  font-family: var(--typography-font-family-primary);
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-regular);
+  color: var(--color-danger-500);
+  line-height: var(--typography-line-height-normal);
+  margin-top: calc(var(--spacing-xs) * -1);
+}

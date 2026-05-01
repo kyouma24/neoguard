@@ -1,0 +1,36 @@
+/* Global Styles */
+
+@import './design-tokens.css';
+
+/* Base HTML and Body Styling */
+html {
+  font-family: var(--typography-font-family-primary);
+  font-size: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--color-neutral-900);
+  background-color: var(--color-neutral-0);
+  font-size: var(--typography-font-size-base);
+  font-weight: var(--typography-font-weight-regular);
+  line-height: var(--typography-line-height-normal);
+}
+
+/* Reset default styles */
+* {
+  box-sizing: border-box;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  padding: 0;
+}
+
+p {
+  margin: 0;
+  padding: 0;
+}

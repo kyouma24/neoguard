@@ -9,6 +9,8 @@ class ChannelType(StrEnum):
     SLACK = "slack"
     EMAIL = "email"
     FRESHDESK = "freshdesk"
+    PAGERDUTY = "pagerduty"
+    MSTEAMS = "msteams"
 
 
 _REQUIRED_CONFIG_KEYS: dict[str, list[str]] = {
@@ -16,6 +18,8 @@ _REQUIRED_CONFIG_KEYS: dict[str, list[str]] = {
     "slack": ["webhook_url"],
     "email": ["smtp_host", "to"],
     "freshdesk": ["domain", "api_key"],
+    "pagerduty": ["routing_key"],
+    "msteams": ["webhook_url"],
 }
 
 
@@ -32,8 +36,9 @@ def validate_channel_config(channel_type: str, config: dict) -> None:
             "Freshdesk domain should not include protocol "
             "(use 'company.freshdesk.com', not 'https://company.freshdesk.com')"
         )
-    if channel_type in ("webhook", "slack"):
-        url_key = "url" if channel_type == "webhook" else "webhook_url"
+    url_types = {"webhook": "url", "slack": "webhook_url", "msteams": "webhook_url"}
+    if channel_type in url_types:
+        url_key = url_types[channel_type]
         url_val = config.get(url_key, "")
         if url_val and not url_val.startswith(("http://", "https://")):
             raise ValueError(f"'{url_key}' must start with http:// or https://")

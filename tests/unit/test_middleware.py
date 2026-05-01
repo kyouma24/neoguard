@@ -163,7 +163,7 @@ class TestAuthMiddleware:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/v1/metrics")
         assert resp.status_code == 401
-        assert resp.json()["error"] == "missing_api_key"
+        assert resp.json()["error"] == "authentication_required"
 
     @patch("neoguard.api.middleware.auth.validate_api_key", new_callable=AsyncMock)
     @patch("neoguard.api.middleware.auth.settings")

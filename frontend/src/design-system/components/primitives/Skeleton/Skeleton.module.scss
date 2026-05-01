@@ -1,0 +1,44 @@
+@use '../../../styles/tokens' as *;
+
+.skeleton {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    $neutral-100 0%,
+    $neutral-200 50%,
+    $neutral-100 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.text {
+  border-radius: $radius-sm;
+  height: 0.875rem;
+}
+
+.rect {
+  border-radius: $radius-md;
+}
+
+.circle {
+  border-radius: 50%;
+}
+
+.line {
+  margin-bottom: 0.375rem;
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

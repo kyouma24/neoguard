@@ -28,9 +28,18 @@ class Settings(BaseSettings):
     log_flush_interval_ms: int = 500
 
     alert_eval_interval_sec: int = 15
+    alert_default_cooldown_sec: int = 300
+    alert_state_persistence: bool = True
+    alert_flap_threshold: int = 6
+    alert_flap_window_sec: int = 3600
 
-    auth_enabled: bool = False
+    redis_url: str = "redis://localhost:6379/0"
+
+    auth_enabled: bool = True
     auth_bootstrap_token: str = ""
+    session_secret: str = "change-me-in-production"  # noqa: S105
+    session_ttl_seconds: int = 2592000  # 30 days
+    session_cookie_name: str = "neoguard_session"
 
     telemetry_enabled: bool = True
     telemetry_interval_sec: int = 15

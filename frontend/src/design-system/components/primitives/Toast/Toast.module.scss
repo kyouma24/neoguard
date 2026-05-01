@@ -1,0 +1,75 @@
+@use '../../../styles/tokens' as *;
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  min-width: 16rem;
+  max-width: 24rem;
+  padding: 0.75rem 1rem;
+  background: $neutral-0;
+  border: 0.0625rem solid $neutral-200;
+  border-left-width: 0.25rem;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-lg;
+  font-size: 0.875rem;
+  animation: slideIn 200ms ease-out;
+  pointer-events: auto;
+}
+
+.info    { border-left-color: $primary-500; }
+.success { border-left-color: $success; }
+.warning { border-left-color: $warning; }
+.danger  { border-left-color: $danger; }
+
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 600;
+  color: $neutral-900;
+}
+
+.message {
+  color: $neutral-700;
+  word-wrap: break-word;
+}
+
+.dismiss {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.125rem;
+  color: $neutral-500;
+  border-radius: $radius-full;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  &:hover {
+    background: $neutral-100;
+    color: $neutral-800;
+  }
+}
+
+.viewport {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(0.5rem); }
+  to   { opacity: 1; transform: translateX(0); }
+}

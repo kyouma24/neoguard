@@ -1,0 +1,24 @@
+import { Meta } from '@storybook/blocks';
+
+<Meta title="Patterns/Overview" />
+
+# Patterns
+
+Full UX patterns. Compose primitives + composite into ready-to-drop UI. Most generic possible — apps wire data and callbacks.
+
+## Inventory
+
+- **DataTable** — generic typed table with custom cell renderers and row-click
+
+## When to add a pattern
+
+A pattern earns its place in DS when ALL of:
+
+1. The same arrangement of primitives recurs in 3+ screens, AND
+2. The arrangement is generic (no domain entity names), AND
+3. Apps benefit from controlling data + callbacks rather than re-implementing layout.
+
+## Rules
+
+- Patterns may import primitives and composite.
+- No domain entity names. If `DataTable` rendered "Lead" or "Campaign" anywhere, it would belong in `apps/voice-ui`, not here.

@@ -1,0 +1,49 @@
+.root {
+  padding: var(--spacing-xl, 2rem);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--typography-font-family-primary, 'Poppins', sans-serif);
+}
+
+.filterRow {
+  margin-bottom: var(--spacing-md, 1rem);
+}
+
+.paginationRow {
+  margin-top: var(--spacing-sm, 0.5rem);
+}
+
+.bulkBanner {
+  padding: var(--spacing-sm, 0.75rem) var(--spacing-md, 1rem);
+  background: var(--color-primary-50, #ecebff);
+  border: 0.0625rem solid var(--color-primary-200, #a6a2f5);
+  border-radius: var(--border-radius-lg, 0.5rem);
+  color: var(--color-primary-700, #0d0a70);
+  font-size: var(--typography-font-size-sm, 0.875rem);
+  margin-bottom: var(--spacing-sm, 0.75rem);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md, 1rem);
+}
+
+.errorPanel {
+  padding: var(--spacing-2xl, 3rem) var(--spacing-md, 1rem);
+  text-align: center;
+  background: var(--color-danger-50, #fef2f2);
+  border: 0.0625rem solid var(--color-danger-200, #fecaca);
+  border-radius: var(--border-radius-lg, 0.5rem);
+  color: var(--color-danger-700, #b91c1c);
+}
+
+.errorTitle {
+  font-size: var(--typography-font-size-base, 1rem);
+  font-weight: var(--typography-font-weight-semibold, 600);
+  margin-bottom: var(--spacing-sm, 0.5rem);
+}
+
+.errorMessage {
+  font-size: var(--typography-font-size-sm, 0.875rem);
+  margin-bottom: var(--spacing-md, 1rem);
+}

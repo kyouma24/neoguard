@@ -74,6 +74,14 @@ def app():
     return a
 
 
+@pytest.fixture(autouse=True)
+def _disable_auth():
+    with patch("neoguard.api.deps.settings") as mock_settings:
+        mock_settings.auth_enabled = False
+        mock_settings.default_tenant_id = "default"
+        yield
+
+
 class TestSystemStats:
     @patch("neoguard.api.routes.system.orchestrator")
     @patch("neoguard.api.routes.system.alert_engine")

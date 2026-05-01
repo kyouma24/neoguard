@@ -1,15 +1,20 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
   BarChart3,
   FileText,
   LayoutDashboard,
+  LogOut,
   Server,
   Settings,
   Shield,
+  ShieldCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useAuth } from "../contexts/AuthContext";
+import { TenantSwitcher } from "./TenantSwitcher";
+import styles from "./Layout.module.scss";
 
 const navItems = [
   { to: "/", icon: Activity, label: "Overview" },
@@ -22,58 +27,98 @@ const navItems = [
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
+  const { user, logout, isImpersonating, endImpersonation } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
+  };
+
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <nav
-        style={{
-          width: 220,
-          background: "var(--bg-secondary)",
-          borderRight: "1px solid var(--border)",
-          padding: "16px 0",
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "0 20px 24px",
-            borderBottom: "1px solid var(--border)",
-            marginBottom: 16,
-          }}
-        >
-          <Shield size={24} color="var(--accent)" />
-          <span style={{ fontSize: 18, fontWeight: 700 }}>NeoGuard</span>
+    <div className={styles.layout}>
+      <nav className={styles.sidebar}>
+        <div className={styles.logo}>
+          <Shield size={24} color="var(--color-primary-500)" />
+          <span className={styles.logoText}>NeoGuard</span>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div className={styles.nav}>
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
-              style={({ isActive }) => ({
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 20px",
-                color: isActive ? "var(--accent)" : "var(--text-secondary)",
-                background: isActive ? "rgba(99, 91, 255, 0.1)" : "transparent",
-                borderLeft: isActive ? "3px solid var(--accent)" : "3px solid transparent",
-                fontSize: 14,
-                fontWeight: isActive ? 600 : 400,
-                transition: "all 0.15s",
-              })}
+              className={({ isActive }) =>
+                `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+              }
             >
               <Icon size={18} />
               {label}
             </NavLink>
           ))}
+          {user?.is_super_admin && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+              }
+            >
+              <ShieldCheck size={18} />
+              Admin
+            </NavLink>
+          )}
         </div>
+
+        {user && (
+          <div className={styles.userSection}>
+            <TenantSwitcher />
+            <div className={styles.userInfo}>
+              <span className={styles.userName}>{user.name}</span>
+              <span className={styles.userEmail}>{user.email}</span>
+            </div>
+            <button className={styles.logoutBtn} onClick={handleLogout} title="Sign out">
+              <LogOut size={16} />
+              Sign out
+            </button>
+          </div>
+        )}
       </nav>
 
-      <main style={{ flex: 1, padding: 24, overflowY: "auto" }}>
+      <main className={styles.main}>
+        {isImpersonating && (
+          <div style={{
+            background: "#fbbf24",
+            color: "#78350f",
+            padding: "8px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: 13,
+            fontWeight: 600,
+            borderBottom: "1px solid #f59e0b",
+          }}>
+            <span>Viewing as {user?.name} ({user?.email}) — read-only mode</span>
+            <button
+              onClick={async () => {
+                await endImpersonation();
+                navigate("/admin");
+              }}
+              style={{
+                background: "#78350f",
+                color: "#fbbf24",
+                border: "none",
+                borderRadius: 4,
+                padding: "4px 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              End Impersonation
+            </button>
+          </div>
+        )}
         {children}
       </main>
     </div>

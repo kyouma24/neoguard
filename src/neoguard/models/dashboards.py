@@ -6,10 +6,11 @@ from pydantic import BaseModel, Field
 
 class PanelType(StrEnum):
     TIMESERIES = "timeseries"
+    AREA = "area"
     STAT = "stat"
-    TABLE = "table"
-    LOG = "log"
-    ALERT_LIST = "alert_list"
+    TOP_LIST = "top_list"
+    PIE = "pie"
+    TEXT = "text"
 
 
 class PanelDefinition(BaseModel):
@@ -20,6 +21,8 @@ class PanelDefinition(BaseModel):
     tags: dict[str, str] = Field(default_factory=dict)
     aggregation: str = "avg"
     query: str | None = None
+    display_options: dict = Field(default_factory=dict)
+    content: str = ""
     width: int = Field(default=6, ge=1, le=12)
     height: int = Field(default=4, ge=1, le=12)
     position_x: int = Field(default=0, ge=0, le=11)

@@ -21,6 +21,10 @@ dependencies = [
     "aioboto3>=13.0.0",
     "croniter>=5.0.0",
     "aiohttp>=3.10.0",
+    "redis[hiredis]>=5.0.0",
+    "argon2-cffi>=23.1.0",
+    "uuid-utils>=0.9.0",
+    "email-validator>=2.0.0",
     "azure-identity>=1.17.0",
     "azure-mgmt-compute>=33.0.0",
     "azure-mgmt-network>=27.0.0",
@@ -53,7 +57,7 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 target-version = "py311"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "T20", "SIM", "TCH"]
@@ -61,6 +65,7 @@ ignore = ["S101", "S608", "S110"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/neoguard/collector/*" = ["T201"]
+"tests/*" = ["S105"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

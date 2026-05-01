@@ -1,0 +1,128 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-neutral-0, #ffffff);
+  border: 0.0625rem solid var(--color-neutral-200, #e5e7eb);
+  border-radius: var(--border-radius-xl, 0.875rem);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.searchSlot {
+  flex: 1 1 15rem;
+  min-width: 12.5rem;
+  max-width: 22.5rem;
+}
+
+.addBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--border-radius-full, 9999px);
+  background: transparent;
+  border: 0.0625rem dashed var(--color-neutral-300, #d4d4d8);
+  color: var(--color-neutral-600, #6b6b80);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.addBtn:hover {
+  background: var(--color-neutral-50, #fafafa);
+  color: var(--color-neutral-800, #27272a);
+  border-color: var(--color-neutral-400, #a1a1aa);
+}
+
+.statusRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-neutral-600, #6b6b80);
+}
+
+.right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.clearLink {
+  background: transparent;
+  border: none;
+  color: var(--color-neutral-600, #6b6b80);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  font-family: inherit;
+}
+
+.clearLink:hover {
+  color: var(--color-primary-600, #100d8a);
+}
+
+.picker {
+  width: 20rem;
+  max-height: 22.5rem;
+  overflow-y: auto;
+}
+
+.pickerSearch {
+  padding: 0.25rem 0.5rem 0.5rem 0.5rem;
+  border-bottom: 0.0625rem solid var(--color-neutral-200, #e5e7eb);
+  margin-bottom: 0.25rem;
+}
+
+.pickerGroup {
+  padding: 0.5rem 0.5rem 0.25rem 0.5rem;
+}
+
+.pickerGroupLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-neutral-500, #71717a);
+  margin-bottom: 0.25rem;
+}
+
+.pickerItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--border-radius-lg, 0.5rem);
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.pickerItem:hover {
+  background: var(--color-neutral-100, #f5f5f5);
+}
+
+.pickerItemLabel {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-neutral-900, #18181b);
+}
+
+.pickerItemDescription {
+  font-size: 0.6875rem;
+  color: var(--color-neutral-500, #71717a);
+}

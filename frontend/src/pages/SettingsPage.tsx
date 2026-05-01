@@ -10,16 +10,15 @@ import {
   Eye,
   EyeOff,
   Key,
-  Bell,
   Plus,
   Power,
   Send,
   Trash2,
   X,
-  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useApi } from "../hooks/useApi";
+import { usePermissions } from "../hooks/usePermissions";
 import { api } from "../services/api";
 import type {
   AWSAccount,
@@ -30,8 +29,24 @@ import type {
   APIKeyCreate,
   APIKeyCreated,
 } from "../types";
+import {
+  PageHeader,
+  Card,
+  Button,
+  StatusBadge,
+  Badge,
+  Input,
+  NativeSelect,
+  Tabs,
+  Modal,
+  ConfirmDialog,
+  EmptyState,
+  ProgressBar,
+} from "../design-system";
 
-type SettingsTab = "cloud" | "notifications" | "apikeys";
+import { TeamTab } from "../components/TeamTab";
+
+type SettingsTab = "cloud" | "notifications" | "apikeys" | "team";
 
 // ─── AWS default regions (matches backend core/regions.py) ────────────────
 const AWS_REGIONS: { code: string; name: string }[] = [
@@ -119,20 +134,34 @@ function generateExternalId(): string {
 
 
 const CHANNEL_TYPES = [
-  { value: "webhook" as const, label: "Webhook", configFields: [{ key: "url", label: "URL", placeholder: "https://example.com/webhook" }] },
-  { value: "slack" as const, label: "Slack", configFields: [{ key: "webhook_url", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/..." }] },
+  { value: "webhook" as const, label: "Webhook", configFields: [
+    { key: "url", label: "URL", placeholder: "https://example.com/webhook" },
+    { key: "signing_secret", label: "HMAC Signing Secret (optional)", placeholder: "your-signing-secret" },
+  ]},
+  { value: "slack" as const, label: "Slack", configFields: [
+    { key: "webhook_url", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/..." },
+    { key: "channel", label: "Channel (optional)", placeholder: "#alerts" },
+  ]},
   { value: "email" as const, label: "Email", configFields: [
     { key: "smtp_host", label: "SMTP Host", placeholder: "smtp.gmail.com" },
     { key: "smtp_port", label: "SMTP Port", placeholder: "587" },
     { key: "from", label: "From Address", placeholder: "neoguard@example.com" },
     { key: "to", label: "To Address(es)", placeholder: "ops@example.com" },
-    { key: "username", label: "Username", placeholder: "user@example.com" },
-    { key: "password", label: "Password", placeholder: "app-password" },
+    { key: "smtp_user", label: "Username", placeholder: "user@example.com" },
+    { key: "smtp_pass", label: "Password", placeholder: "app-password" },
   ]},
   { value: "freshdesk" as const, label: "Freshdesk", configFields: [
     { key: "domain", label: "Domain", placeholder: "company.freshdesk.com" },
     { key: "api_key", label: "API Key", placeholder: "your-freshdesk-api-key" },
+    { key: "email", label: "Requester Email (optional)", placeholder: "alerts@company.com" },
     { key: "group_id", label: "Group ID (optional)", placeholder: "12345" },
+    { key: "type", label: "Ticket Type (optional)", placeholder: "Incident" },
+  ]},
+  { value: "pagerduty" as const, label: "PagerDuty", configFields: [
+    { key: "routing_key", label: "Routing Key", placeholder: "your-pagerduty-integration-key" },
+  ]},
+  { value: "msteams" as const, label: "MS Teams", configFields: [
+    { key: "webhook_url", label: "Webhook URL", placeholder: "https://outlook.office.com/webhook/..." },
   ]},
 ];
 
@@ -143,35 +172,19 @@ export function SettingsPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Settings</h1>
+      <PageHeader title="Settings" />
 
-      {/* Tab bar */}
-      <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: "1px solid var(--border)" }}>
-        {([
-          { key: "cloud" as const, icon: Cloud, label: "Cloud Accounts" },
-          { key: "notifications" as const, icon: Bell, label: "Notification Channels" },
-          { key: "apikeys" as const, icon: Key, label: "API Keys" },
-        ]).map(({ key, icon: Icon, label }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "10px 20px", fontSize: 14, fontWeight: tab === key ? 600 : 400,
-              color: tab === key ? "var(--accent)" : "var(--text-secondary)",
-              borderBottom: tab === key ? "2px solid var(--accent)" : "2px solid transparent",
-              background: "transparent", border: "none", borderRadius: 0, cursor: "pointer",
-            }}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "cloud" && <CloudAccountsTab />}
-      {tab === "notifications" && <NotificationChannelsTab />}
-      {tab === "apikeys" && <APIKeysTab />}
+      <Tabs
+        tabs={[
+          { id: "cloud", label: "Cloud Accounts", content: <CloudAccountsTab /> },
+          { id: "notifications", label: "Notification Channels", content: <NotificationChannelsTab /> },
+          { id: "apikeys", label: "API Keys", content: <APIKeysTab /> },
+          { id: "team", label: "Team", content: <TeamTab /> },
+        ]}
+        activeTab={tab}
+        onChange={(tabId) => setTab(tabId as SettingsTab)}
+        variant="line"
+      />
     </div>
   );
 }
@@ -181,6 +194,7 @@ export function SettingsPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function CloudAccountsTab() {
+  const { canCreate, canEdit, canDelete } = usePermissions();
   const [showWizard, setShowWizard] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "aws" | "azure"; id: string; name: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -236,63 +250,74 @@ function CloudAccountsTab() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 600 }}>Cloud Accounts</h3>
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
+          <p style={{ fontSize: 13, color: "var(--color-neutral-400)", marginTop: 4 }}>
             {allAccounts.length} account{allAccounts.length !== 1 ? "s" : ""} connected
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
-          <Plus size={14} /> Add Account
-        </button>
+        {canCreate && (
+          <Button variant="primary" onClick={() => setShowWizard(true)}>
+            <Plus size={14} /> Add Account
+          </Button>
+        )}
       </div>
 
       {allAccounts.length > 0 ? (
         <div style={{ display: "grid", gap: 12 }}>
           {allAccounts.map((acct) => (
-            <div key={`${acct.type}-${acct.id}`} className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: acct.type === "aws" ? "rgba(245, 158, 11, 0.1)" : "rgba(59, 130, 246, 0.1)",
-                  fontSize: 11, fontWeight: 700, color: acct.type === "aws" ? "#f59e0b" : "#3b82f6",
-                }}>
-                  {acct.provider}
+            <Card key={`${acct.type}-${acct.id}`} variant="bordered" className="card" padding="md">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: acct.type === "aws" ? "rgba(245, 158, 11, 0.1)" : "rgba(59, 130, 246, 0.1)",
+                    fontSize: 11, fontWeight: 700, color: acct.type === "aws" ? "#f59e0b" : "#3b82f6",
+                  }}>
+                    {acct.provider}
+                  </div>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontWeight: 600, fontSize: 15 }}>{acct.name}</span>
+                      <StatusBadge
+                        label={acct.enabled ? "Active" : "Disabled"}
+                        tone={acct.enabled ? "success" : "warning"}
+                      />
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--color-neutral-400)", display: "flex", gap: 16 }}>
+                      <span>{acct.detail}</span>
+                      <span>{acct.regions} region{acct.regions !== 1 ? "s" : ""}</span>
+                      {acct.lastSync && <span>Last sync: {format(new Date(acct.lastSync), "MMM dd HH:mm")}</span>}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                    <span style={{ fontWeight: 600, fontSize: 15 }}>{acct.name}</span>
-                    <span className={`badge ${acct.enabled ? "badge-success" : "badge-warning"}`}>
-                      {acct.enabled ? "Active" : "Disabled"}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", gap: 16 }}>
-                    <span>{acct.detail}</span>
-                    <span>{acct.regions} region{acct.regions !== 1 ? "s" : ""}</span>
-                    {acct.lastSync && <span>Last sync: {format(new Date(acct.lastSync), "MMM dd HH:mm")}</span>}
-                  </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {canEdit && (
+                    <Button variant="ghost" size="sm" onClick={() => handleToggle(acct.type, acct.id, acct.enabled)} title={acct.enabled ? "Disable" : "Enable"}>
+                      <Power size={14} color={acct.enabled ? "var(--color-success-500)" : "var(--color-neutral-400)"} />
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm({ type: acct.type, id: acct.id, name: acct.name })}>
+                      <Trash2 size={14} color="var(--color-danger-500)" />
+                    </Button>
+                  )}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button className="btn" onClick={() => handleToggle(acct.type, acct.id, acct.enabled)} title={acct.enabled ? "Disable" : "Enable"}>
-                  <Power size={14} color={acct.enabled ? "var(--success)" : "var(--text-muted)"} />
-                </button>
-                <button className="btn" onClick={() => setDeleteConfirm({ type: acct.type, id: acct.id, name: acct.name })}>
-                  <Trash2 size={14} color="var(--error)" />
-                </button>
-              </div>
-            </div>
+            </Card>
           ))}
         </div>
       ) : (
-        <div className="card" style={{ textAlign: "center", padding: "48px 24px" }}>
-          <Cloud size={48} color="var(--text-muted)" style={{ marginBottom: 16, opacity: 0.5 }} />
-          <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>No cloud accounts connected</p>
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 20 }}>
-            Connect your AWS or Azure account to start monitoring your infrastructure
-          </p>
-          <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
-            <Plus size={14} /> Add Your First Account
-          </button>
-        </div>
+        <Card variant="bordered" padding="md">
+          <div style={{ textAlign: "center", padding: "48px 24px" }}>
+            <Cloud size={48} color="var(--color-neutral-400)" style={{ marginBottom: 16, opacity: 0.5 }} />
+            <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>No cloud accounts connected</p>
+            <p style={{ fontSize: 13, color: "var(--color-neutral-400)", marginBottom: 20 }}>
+              Connect your AWS or Azure account to start monitoring your infrastructure
+            </p>
+            <Button variant="primary" onClick={() => setShowWizard(true)}>
+              <Plus size={14} /> Add Your First Account
+            </Button>
+          </div>
+        </Card>
       )}
 
       {showWizard && (
@@ -302,14 +327,15 @@ function CloudAccountsTab() {
         />
       )}
 
-      {deleteConfirm && (
-        <ConfirmModal
-          title={`Delete ${deleteConfirm.type === "aws" ? "AWS Account" : "Azure Subscription"}`}
-          message={`Are you sure you want to delete "${deleteConfirm.name}"? This will stop all collection. Already-discovered resources will remain.`}
-          onConfirm={handleDeleteConfirm}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
+      <ConfirmDialog
+        isOpen={deleteConfirm !== null}
+        title={deleteConfirm ? `Delete ${deleteConfirm.type === "aws" ? "AWS Account" : "Azure Subscription"}` : ""}
+        description={deleteConfirm ? `Are you sure you want to delete "${deleteConfirm.name}"? This will stop all collection. Already-discovered resources will remain.` : ""}
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }
@@ -411,26 +437,24 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div style={{
-        background: "var(--bg-secondary)", borderRadius: 12, width: "100%", maxWidth: 720, maxHeight: "90vh",
-        display: "flex", flexDirection: "column", border: "1px solid var(--border)", overflow: "hidden",
+        background: "var(--color-neutral-50)", borderRadius: 12, width: "100%", maxWidth: 720, maxHeight: "90vh",
+        display: "flex", flexDirection: "column", border: "1px solid var(--color-neutral-200)", overflow: "hidden",
       }}>
         {/* Header */}
-        <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--color-neutral-200)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700 }}>Add Cloud Account</h2>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
+            <p style={{ fontSize: 13, color: "var(--color-neutral-400)", marginTop: 2 }}>
               Step {step + 1} of {totalSteps}: {steps[step]}
             </p>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-neutral-400)" }}>
             <X size={18} />
           </button>
         </div>
 
         {/* Progress bar */}
-        <div style={{ height: 3, background: "var(--bg-tertiary)" }}>
-          <div style={{ height: "100%", width: `${((step + 1) / totalSteps) * 100}%`, background: "var(--accent)", transition: "width 0.3s" }} />
-        </div>
+        <ProgressBar value={((step + 1) / totalSteps) * 100} height="3px" />
 
         {/* Body */}
         <div style={{ flex: 1, padding: 24, overflowY: "auto" }}>
@@ -439,7 +463,7 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
           {/* Step 0: Choose Provider */}
           {step === 0 && (
             <div>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 24 }}>
+              <p style={{ fontSize: 14, color: "var(--color-neutral-500)", marginBottom: 24 }}>
                 Select your cloud provider to get started. NeoGuard will guide you through setting up
                 secure, read-only access to monitor your infrastructure.
               </p>
@@ -467,19 +491,19 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
           {/* AWS Step 1: Account Details */}
           {step === 1 && provider === "aws" && (
             <div>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 20 }}>
+              <p style={{ fontSize: 14, color: "var(--color-neutral-500)", marginBottom: 20 }}>
                 Enter a friendly name and your 12-digit AWS account ID.
               </p>
               <FormField label="Account Name" required>
-                <input className="input" value={awsName} onChange={(e) => setAwsName(e.target.value)}
+                <Input value={awsName} onChange={(e) => setAwsName(e.target.value)}
                   placeholder="e.g., Production, Staging, Development" />
               </FormField>
               <FormField label="AWS Account ID" required>
-                <input className="input" value={awsAccountId}
+                <Input value={awsAccountId}
                   onChange={(e) => setAwsAccountId(e.target.value.replace(/\D/g, "").slice(0, 12))}
                   placeholder="271547278517" maxLength={12} style={{ fontFamily: "monospace" }} />
-                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                  Find this in your AWS Console under Account Settings, or run: <code style={{ background: "var(--bg-tertiary)", padding: "1px 4px", borderRadius: 3 }}>aws sts get-caller-identity</code>
+                <p style={{ fontSize: 12, color: "var(--color-neutral-400)", marginTop: 4 }}>
+                  Find this in your AWS Console under Account Settings, or run: <code style={{ background: "var(--color-neutral-100)", padding: "1px 4px", borderRadius: 3 }}>aws sts get-caller-identity</code>
                 </p>
               </FormField>
             </div>
@@ -488,29 +512,31 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
           {/* AWS Step 2: Deploy IAM Role */}
           {step === 2 && provider === "aws" && (
             <div>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 20 }}>
+              <p style={{ fontSize: 14, color: "var(--color-neutral-500)", marginBottom: 20 }}>
                 NeoGuard needs a read-only IAM role in your account. Click the button below to deploy
                 the CloudFormation stack automatically.
               </p>
 
-              <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+              <Card variant="bordered" padding="md" className="card">
                 <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>What gets deployed</h4>
-                <ul style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 2, paddingLeft: 20 }}>
-                  <li>An IAM Role named <code style={{ background: "var(--bg-tertiary)", padding: "1px 4px", borderRadius: 3 }}>NeoGuardCollectorRole</code></li>
+                <ul style={{ fontSize: 13, color: "var(--color-neutral-500)", lineHeight: 2, paddingLeft: 20 }}>
+                  <li>An IAM Role named <code style={{ background: "var(--color-neutral-100)", padding: "1px 4px", borderRadius: 3 }}>NeoGuardCollectorRole</code></li>
                   <li>Read-only access to CloudWatch, EC2, RDS, Lambda, S3, ECS, EKS, and other services</li>
                   <li>Cross-account trust policy secured with a unique External ID</li>
                   <li>No write permissions — NeoGuard cannot modify your resources</li>
                 </ul>
-              </div>
+              </Card>
 
-              <FormField label="Unique External ID (auto-generated, cryptographically secure)">
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input className="input" value={awsExternalId} readOnly style={{ fontFamily: "monospace", fontSize: 13, background: "var(--bg-tertiary)" }} />
-                  <button className="btn" onClick={() => navigator.clipboard.writeText(awsExternalId)} title="Copy">
-                    <Copy size={14} />
-                  </button>
-                </div>
-              </FormField>
+              <div style={{ marginTop: 20 }}>
+                <FormField label="Unique External ID (auto-generated, cryptographically secure)">
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Input value={awsExternalId} readOnly style={{ fontFamily: "monospace", fontSize: 13, background: "var(--color-neutral-100)" }} />
+                    <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(awsExternalId)} title="Copy">
+                      <Copy size={14} />
+                    </Button>
+                  </div>
+                </FormField>
+              </div>
 
               <a
                 href={cftUrl}
@@ -526,15 +552,15 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
                 Deploy CloudFormation Stack in AWS Console
               </a>
 
-              <div style={{ background: "var(--bg-tertiary)", borderRadius: 8, padding: 16, marginBottom: 16 }}>
-                <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
+              <div style={{ background: "var(--color-neutral-100)", borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                <p style={{ fontSize: 13, color: "var(--color-neutral-500)", marginBottom: 8 }}>
                   After the stack creates successfully, come back here and enter the IAM Role ARN
                   from the stack outputs.
                 </p>
               </div>
 
               <FormField label="IAM Role ARN (from CloudFormation stack outputs)" required>
-                <input className="input" value={awsRoleArn} onChange={(e) => setAwsRoleArn(e.target.value)}
+                <Input value={awsRoleArn} onChange={(e) => setAwsRoleArn(e.target.value)}
                   placeholder="arn:aws:iam::271547278517:role/NeoGuardCollectorRole" style={{ fontFamily: "monospace", fontSize: 13 }} />
               </FormField>
 
@@ -589,21 +615,21 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
           {/* Azure Step 1: Subscription Details */}
           {step === 1 && provider === "azure" && (
             <div>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 20 }}>
+              <p style={{ fontSize: 14, color: "var(--color-neutral-500)", marginBottom: 20 }}>
                 Enter your Azure subscription details. You can find these in the Azure Portal under Subscriptions.
               </p>
               <FormField label="Friendly Name" required>
-                <input className="input" value={azureName} onChange={(e) => setAzureName(e.target.value)}
+                <Input value={azureName} onChange={(e) => setAzureName(e.target.value)}
                   placeholder="e.g., Production, Staging" />
               </FormField>
               <FormField label="Subscription ID" required>
-                <input className="input" value={azureSubId} onChange={(e) => setAzureSubId(e.target.value)}
+                <Input value={azureSubId} onChange={(e) => setAzureSubId(e.target.value)}
                   placeholder="2fd5b44e-b6cc-4877-bd13-4a8154f814d8" style={{ fontFamily: "monospace", fontSize: 13 }} />
               </FormField>
               <FormField label="Azure Tenant ID (Directory ID)" required>
-                <input className="input" value={azureTenantId} onChange={(e) => setAzureTenantId(e.target.value)}
+                <Input value={azureTenantId} onChange={(e) => setAzureTenantId(e.target.value)}
                   placeholder="ae3f91d7-c809-4dc6-a72c-f7b067658ed0" style={{ fontFamily: "monospace", fontSize: 13 }} />
-                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                <p style={{ fontSize: 12, color: "var(--color-neutral-400)", marginTop: 4 }}>
                   Azure Portal → Microsoft Entra ID → Properties → Tenant ID
                 </p>
               </FormField>
@@ -613,22 +639,22 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
           {/* Azure Step 2: Service Principal */}
           {step === 2 && provider === "azure" && (
             <div>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 20 }}>
+              <p style={{ fontSize: 14, color: "var(--color-neutral-500)", marginBottom: 20 }}>
                 NeoGuard needs a Service Principal with Reader access. Follow these steps in the Azure Portal:
               </p>
 
-              <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+              <Card variant="bordered" padding="md" className="card">
                 <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Setup Instructions</h4>
-                <ol style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 2.2, paddingLeft: 20 }}>
+                <ol style={{ fontSize: 13, color: "var(--color-neutral-500)", lineHeight: 2.2, paddingLeft: 20 }}>
                   <li>Go to <strong>Microsoft Entra ID → App registrations → New registration</strong></li>
-                  <li>Name it <code style={{ background: "var(--bg-tertiary)", padding: "1px 4px", borderRadius: 3 }}>NeoGuardMonitoring</code>, set supported account types to single tenant</li>
+                  <li>Name it <code style={{ background: "var(--color-neutral-100)", padding: "1px 4px", borderRadius: 3 }}>NeoGuardMonitoring</code>, set supported account types to single tenant</li>
                   <li>After creation, copy the <strong>Application (client) ID</strong></li>
                   <li>Go to <strong>Certificates & secrets → New client secret</strong>, copy the secret value</li>
                   <li>Go to your <strong>Subscription → Access control (IAM) → Add role assignment</strong></li>
-                  <li>Assign the <strong>Reader</strong> role to the <code style={{ background: "var(--bg-tertiary)", padding: "1px 4px", borderRadius: 3 }}>NeoGuardMonitoring</code> app</li>
+                  <li>Assign the <strong>Reader</strong> role to the <code style={{ background: "var(--color-neutral-100)", padding: "1px 4px", borderRadius: 3 }}>NeoGuardMonitoring</code> app</li>
                   <li>Also assign <strong>Monitoring Reader</strong> for Azure Monitor metrics access</li>
                 </ol>
-              </div>
+              </Card>
 
               <a
                 href={`https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade`}
@@ -637,7 +663,7 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                   padding: "12px 20px", background: "#3b82f6", color: "#fff", borderRadius: 8,
-                  fontWeight: 600, fontSize: 14, textDecoration: "none", marginBottom: 20,
+                  fontWeight: 600, fontSize: 14, textDecoration: "none", marginTop: 20, marginBottom: 20,
                 }}
               >
                 <ExternalLink size={16} />
@@ -645,17 +671,17 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
               </a>
 
               <FormField label="Application (Client) ID" required>
-                <input className="input" value={azureClientId} onChange={(e) => setAzureClientId(e.target.value)}
+                <Input value={azureClientId} onChange={(e) => setAzureClientId(e.target.value)}
                   placeholder="33486acd-8631-4af8-a92b-f54413c1da52" style={{ fontFamily: "monospace", fontSize: 13 }} />
               </FormField>
 
               <FormField label="Client Secret" required>
                 <div style={{ position: "relative" }}>
-                  <input className="input" type={showSecret ? "text" : "password"}
+                  <Input type={showSecret ? "text" : "password"}
                     value={azureClientSecret} onChange={(e) => setAzureClientSecret(e.target.value)}
                     placeholder="Your client secret value" style={{ paddingRight: 36, fontFamily: "monospace", fontSize: 13 }} />
                   <button onClick={() => setShowSecret(!showSecret)}
-                    style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
+                    style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--color-neutral-400)" }}>
                     {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
@@ -713,29 +739,29 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
 
         {/* Footer */}
         <div style={{
-          padding: "16px 24px", borderTop: "1px solid var(--border)",
+          padding: "16px 24px", borderTop: "1px solid var(--color-neutral-200)",
           display: "flex", justifyContent: "space-between", alignItems: "center",
         }}>
-          <button className="btn" onClick={step === 0 ? onClose : () => setStep(step - 1)}>
+          <Button variant="ghost" onClick={step === 0 ? onClose : () => setStep(step - 1)}>
             {step === 0 ? "Cancel" : <><ArrowLeft size={14} /> Back</>}
-          </button>
+          </Button>
           <div style={{ display: "flex", gap: 4 }}>
             {Array.from({ length: totalSteps }, (_, i) => (
               <div key={i} style={{
                 width: 8, height: 8, borderRadius: "50%",
-                background: i === step ? "var(--accent)" : i < step ? "var(--success)" : "var(--bg-tertiary)",
+                background: i === step ? "var(--color-primary-500)" : i < step ? "var(--color-success-500)" : "var(--color-neutral-100)",
                 transition: "background 0.2s",
               }} />
             ))}
           </div>
           {step < totalSteps - 1 ? (
-            <button className="btn btn-primary" onClick={() => setStep(step + 1)} disabled={!canGoNext}>
+            <Button variant="primary" onClick={() => setStep(step + 1)} disabled={!canGoNext}>
               Next <ArrowRight size={14} />
-            </button>
+            </Button>
           ) : (
-            <button className="btn btn-primary" onClick={handleFinish} disabled={saving}>
+            <Button variant="primary" onClick={handleFinish} disabled={saving}>
               {saving ? "Connecting..." : <><CheckCircle2 size={14} /> Connect Account</>}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -752,8 +778,8 @@ function ProviderCard({ name, shortName, color, description, selected, onClick }
     <button
       onClick={onClick}
       style={{
-        padding: 24, borderRadius: 12, border: `2px solid ${selected ? color : "var(--border)"}`,
-        background: selected ? `${color}10` : "var(--bg-primary)", cursor: "pointer",
+        padding: 24, borderRadius: 12, border: `2px solid ${selected ? color : "var(--color-neutral-200)"}`,
+        background: selected ? `${color}10` : "var(--color-neutral-0)", cursor: "pointer",
         textAlign: "left", transition: "all 0.15s",
       }}
     >
@@ -763,8 +789,8 @@ function ProviderCard({ name, shortName, color, description, selected, onClick }
       }}>
         {shortName}
       </div>
-      <h4 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6, color: "var(--text-primary)" }}>{name}</h4>
-      <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>{description}</p>
+      <h4 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6, color: "var(--color-neutral-900)" }}>{name}</h4>
+      <p style={{ fontSize: 13, color: "var(--color-neutral-400)", lineHeight: 1.5 }}>{description}</p>
       {selected && (
         <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6, color, fontSize: 13, fontWeight: 600 }}>
           <CheckCircle2 size={16} /> Selected
@@ -780,33 +806,34 @@ function RegionSelector({ title, description, regions, selected, onToggle, onSel
 }) {
   return (
     <div>
-      <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 16 }}>{description}</p>
+      <p style={{ fontSize: 14, color: "var(--color-neutral-500)", marginBottom: 16 }}>{description}</p>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <h4 style={{ fontSize: 14, fontWeight: 600 }}>{title}</h4>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={onSelectAll} style={{ fontSize: 12, padding: "4px 10px" }}>Select All</button>
-          <button className="btn" onClick={onClearAll} style={{ fontSize: 12, padding: "4px 10px" }}>Clear</button>
+          <Button variant="ghost" size="sm" onClick={onSelectAll}>Select All</Button>
+          <Button variant="ghost" size="sm" onClick={onClearAll}>Clear</Button>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         {regions.map((r) => (
           <button
             key={r.code}
-            className="btn"
             onClick={() => onToggle(r.code)}
             style={{
               padding: "10px 12px", textAlign: "left", fontSize: 13,
-              background: selected.includes(r.code) ? "rgba(99, 91, 255, 0.1)" : "var(--bg-primary)",
-              borderColor: selected.includes(r.code) ? "var(--accent)" : "var(--border)",
-              color: selected.includes(r.code) ? "var(--accent)" : "var(--text-secondary)",
+              background: selected.includes(r.code) ? "rgba(99, 91, 255, 0.1)" : "var(--color-neutral-0)",
+              border: `1px solid ${selected.includes(r.code) ? "var(--color-primary-500)" : "var(--color-neutral-200)"}`,
+              borderRadius: "var(--border-radius-sm)",
+              color: selected.includes(r.code) ? "var(--color-primary-500)" : "var(--color-neutral-500)",
+              cursor: "pointer",
             }}
           >
             <div style={{ fontWeight: 500 }}>{r.name}</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, fontFamily: "monospace" }}>{r.code}</div>
+            <div style={{ fontSize: 11, color: "var(--color-neutral-400)", marginTop: 2, fontFamily: "monospace" }}>{r.code}</div>
           </button>
         ))}
       </div>
-      <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
+      <p style={{ fontSize: 12, color: "var(--color-neutral-400)", marginTop: 12 }}>
         {selected.length} of {regions.length} regions selected
       </p>
     </div>
@@ -819,33 +846,34 @@ function ResourceSelector({ title, description, resources, selected, onToggle, o
 }) {
   return (
     <div>
-      <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 16 }}>{description}</p>
+      <p style={{ fontSize: 14, color: "var(--color-neutral-500)", marginBottom: 16 }}>{description}</p>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <h4 style={{ fontSize: 14, fontWeight: 600 }}>{title}</h4>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={onSelectAll} style={{ fontSize: 12, padding: "4px 10px" }}>Select All</button>
-          <button className="btn" onClick={onClearAll} style={{ fontSize: 12, padding: "4px 10px" }}>Clear</button>
+          <Button variant="ghost" size="sm" onClick={onSelectAll}>Select All</Button>
+          <Button variant="ghost" size="sm" onClick={onClearAll}>Clear</Button>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         {resources.map((r) => (
           <button
             key={r.key}
-            className="btn"
             onClick={() => onToggle(r.key)}
             style={{
               padding: "10px 12px", textAlign: "left", fontSize: 13,
-              background: selected.includes(r.key) ? "rgba(99, 91, 255, 0.1)" : "var(--bg-primary)",
-              borderColor: selected.includes(r.key) ? "var(--accent)" : "var(--border)",
-              color: selected.includes(r.key) ? "var(--accent)" : "var(--text-secondary)",
+              background: selected.includes(r.key) ? "rgba(99, 91, 255, 0.1)" : "var(--color-neutral-0)",
+              border: `1px solid ${selected.includes(r.key) ? "var(--color-primary-500)" : "var(--color-neutral-200)"}`,
+              borderRadius: "var(--border-radius-sm)",
+              color: selected.includes(r.key) ? "var(--color-primary-500)" : "var(--color-neutral-500)",
+              cursor: "pointer",
             }}
           >
             <div style={{ fontWeight: 500 }}>{r.label}</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{r.description}</div>
+            <div style={{ fontSize: 11, color: "var(--color-neutral-400)", marginTop: 2 }}>{r.description}</div>
           </button>
         ))}
       </div>
-      <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
+      <p style={{ fontSize: 12, color: "var(--color-neutral-400)", marginTop: 12 }}>
         {selected.length} of {resources.length} resource types selected
       </p>
     </div>
@@ -856,26 +884,26 @@ function ReviewStep({ provider, items }: { provider: string; items: { label: str
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-        <CheckCircle2 size={32} color="var(--success)" />
+        <CheckCircle2 size={32} color="var(--color-success-500)" />
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 600 }}>Ready to Connect</h3>
-          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
+          <p style={{ fontSize: 13, color: "var(--color-neutral-400)" }}>
             Review your {provider} account configuration before connecting.
           </p>
         </div>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <Card variant="bordered" padding="sm">
         {items.map((item, i) => (
           <div key={item.label} style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
-            padding: "12px 16px", borderBottom: i < items.length - 1 ? "1px solid var(--border)" : "none",
+            padding: "12px 16px", borderBottom: i < items.length - 1 ? "1px solid var(--color-neutral-200)" : "none",
           }}>
-            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{item.label}</span>
+            <span style={{ fontSize: 13, color: "var(--color-neutral-400)" }}>{item.label}</span>
             <span style={{ fontSize: 13, fontWeight: 500, fontFamily: item.mono ? "monospace" : "inherit" }}>{item.value}</span>
           </div>
         ))}
-      </div>
-      <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 16, lineHeight: 1.6 }}>
+      </Card>
+      <p style={{ fontSize: 13, color: "var(--color-neutral-400)", marginTop: 16, lineHeight: 1.6 }}>
         After connecting, NeoGuard will begin discovering resources and collecting metrics automatically.
         The first discovery run will start within 5 minutes.
       </p>
@@ -888,6 +916,7 @@ function ReviewStep({ provider, items }: { provider: string; items: { label: str
 // ═══════════════════════════════════════════════════════════════════════════
 
 function NotificationChannelsTab() {
+  const { canCreate, canEdit, canDelete } = usePermissions();
   const [showModal, setShowModal] = useState(false);
   const [editChannel, setEditChannel] = useState<NotificationChannel | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
@@ -938,64 +967,81 @@ function NotificationChannelsTab() {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h3 style={{ fontSize: 16, fontWeight: 600 }}>Notification Channels</h3>
-        <button className="btn btn-primary" onClick={() => { setEditChannel(null); setShowModal(true); }}>
-          <Plus size={14} /> Add Channel
-        </button>
+        {canCreate && (
+          <Button variant="primary" onClick={() => { setEditChannel(null); setShowModal(true); }}>
+            <Plus size={14} /> Add Channel
+          </Button>
+        )}
       </div>
 
       {channels && channels.length > 0 ? (
         <div style={{ display: "grid", gap: 12 }}>
           {channels.map((ch) => (
-            <div key={ch.id} className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 600, fontSize: 15 }}>{ch.name}</span>
-                  <span className="badge" style={{ background: "var(--bg-tertiary)", fontSize: 11 }}>
-                    {channelTypeLabel(ch.channel_type)}
-                  </span>
-                  <span className={`badge ${ch.enabled ? "badge-success" : "badge-warning"}`}>
-                    {ch.enabled ? "Enabled" : "Disabled"}
-                  </span>
-                  {testResult?.id === ch.id && (
-                    <span className={`badge ${testResult.success ? "badge-success" : "badge-error"}`}>
-                      {testResult.success ? "Test OK" : "Test Failed"}
+            <Card key={ch.id} variant="bordered" className="card" padding="md">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>{ch.name}</span>
+                    <Badge variant="info" size="sm">
+                      {channelTypeLabel(ch.channel_type)}
+                    </Badge>
+                    <StatusBadge
+                      label={ch.enabled ? "Enabled" : "Disabled"}
+                      tone={ch.enabled ? "success" : "warning"}
+                    />
+                    {testResult?.id === ch.id && (
+                      <StatusBadge
+                        label={testResult.success ? "Test OK" : "Test Failed"}
+                        tone={testResult.success ? "success" : "danger"}
+                      />
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--color-neutral-400)" }}>
+                    {ch.channel_type === "webhook" && ch.config.url}
+                    {ch.channel_type === "slack" && ch.config.webhook_url?.replace(/\/[^/]+$/, "/***")}
+                    {ch.channel_type === "email" && `${ch.config.from ?? ""} → ${ch.config.to ?? ""}`}
+                    {ch.channel_type === "freshdesk" && ch.config.domain}
+                    {ch.channel_type === "pagerduty" && `Routing key: ${ch.config.routing_key?.slice(0, 8) ?? ""}...`}
+                    {ch.channel_type === "msteams" && ch.config.webhook_url?.replace(/\/[^/]+$/, "/***")}
+                    <span style={{ marginLeft: 12 }}>
+                      Created {format(new Date(ch.created_at), "MMM dd, yyyy")}
                     </span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleTest(ch.id)}
+                      disabled={testingId === ch.id}
+                      title="Send test notification"
+                    >
+                      <Send size={14} color={testingId === ch.id ? "var(--color-neutral-400)" : "var(--color-info-500)"} />
+                    </Button>
+                  )}
+                  {canEdit && (
+                    <Button variant="ghost" size="sm" onClick={() => handleToggle(ch)} title={ch.enabled ? "Disable" : "Enable"}>
+                      <Power size={14} color={ch.enabled ? "var(--color-success-500)" : "var(--color-neutral-400)"} />
+                    </Button>
+                  )}
+                  {canEdit && (
+                    <Button variant="ghost" size="sm" onClick={() => { setEditChannel(ch); setShowModal(true); }}>
+                      <Edit2 size={14} />
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm({ id: ch.id, name: ch.name })}>
+                      <Trash2 size={14} color="var(--color-danger-500)" />
+                    </Button>
                   )}
                 </div>
-                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                  {ch.channel_type === "webhook" && ch.config.url}
-                  {ch.channel_type === "slack" && ch.config.webhook_url?.replace(/\/[^/]+$/, "/***")}
-                  {ch.channel_type === "email" && `${ch.config.from ?? ""} → ${ch.config.to ?? ""}`}
-                  {ch.channel_type === "freshdesk" && ch.config.domain}
-                  <span style={{ marginLeft: 12 }}>
-                    Created {format(new Date(ch.created_at), "MMM dd, yyyy")}
-                  </span>
-                </div>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button
-                  className="btn"
-                  onClick={() => handleTest(ch.id)}
-                  disabled={testingId === ch.id}
-                  title="Send test notification"
-                >
-                  <Send size={14} color={testingId === ch.id ? "var(--text-muted)" : "var(--info)"} />
-                </button>
-                <button className="btn" onClick={() => handleToggle(ch)} title={ch.enabled ? "Disable" : "Enable"}>
-                  <Power size={14} color={ch.enabled ? "var(--success)" : "var(--text-muted)"} />
-                </button>
-                <button className="btn" onClick={() => { setEditChannel(ch); setShowModal(true); }}>
-                  <Edit2 size={14} />
-                </button>
-                <button className="btn" onClick={() => setDeleteConfirm({ id: ch.id, name: ch.name })}>
-                  <Trash2 size={14} color="var(--error)" />
-                </button>
-              </div>
-            </div>
+            </Card>
           ))}
         </div>
       ) : (
-        <EmptyState message="No notification channels configured" />
+        <EmptyState title="No notification channels configured" />
       )}
 
       {showModal && (
@@ -1006,14 +1052,15 @@ function NotificationChannelsTab() {
         />
       )}
 
-      {deleteConfirm && (
-        <ConfirmModal
-          title="Delete Notification Channel"
-          message={`Are you sure you want to delete "${deleteConfirm.name}"? Active alerts will no longer send to this channel.`}
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
+      <ConfirmDialog
+        isOpen={deleteConfirm !== null}
+        title="Delete Notification Channel"
+        description={deleteConfirm ? `Are you sure you want to delete "${deleteConfirm.name}"? Active alerts will no longer send to this channel.` : ""}
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }
@@ -1052,30 +1099,38 @@ function NotificationChannelModal({ channel, onClose, onSaved }: { channel: Noti
   };
 
   return (
-    <Modal title={isEdit ? "Edit Notification Channel" : "Add Notification Channel"} onClose={onClose}>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={isEdit ? "Edit Notification Channel" : "Add Notification Channel"}
+      size="md"
+      footer={
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} disabled={saving || !name}>
+            {saving ? "Saving..." : isEdit ? "Update" : "Create"}
+          </Button>
+        </div>
+      }
+    >
       {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
 
       <FormField label="Name" required>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Production Slack" />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Production Slack" />
       </FormField>
 
       <FormField label="Channel Type" required>
-        <select
-          className="input"
+        <NativeSelect
+          options={CHANNEL_TYPES.map((t) => ({ value: t.value, label: t.label }))}
           value={channelType}
-          onChange={(e) => { setChannelType(e.target.value as NotificationChannelCreate["channel_type"]); setConfig({}); }}
+          onChange={(v) => { setChannelType(v as NotificationChannelCreate["channel_type"]); setConfig({}); }}
           disabled={isEdit}
-        >
-          {CHANNEL_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
-          ))}
-        </select>
+        />
       </FormField>
 
       {currentType.configFields.map((field) => (
         <FormField key={field.key} label={field.label} required={!field.label.includes("optional")}>
-          <input
-            className="input"
+          <Input
             type={field.key === "password" || field.key === "api_key" ? "password" : "text"}
             value={config[field.key] ?? ""}
             onChange={(e) => updateConfig(field.key, e.target.value)}
@@ -1083,13 +1138,6 @@ function NotificationChannelModal({ channel, onClose, onSaved }: { channel: Noti
           />
         </FormField>
       ))}
-
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={handleSubmit} disabled={saving || !name}>
-          {saving ? "Saving..." : isEdit ? "Update" : "Create"}
-        </button>
-      </div>
     </Modal>
   );
 }
@@ -1099,6 +1147,7 @@ function NotificationChannelModal({ channel, onClose, onSaved }: { channel: Noti
 // ═══════════════════════════════════════════════════════════════════════════
 
 function APIKeysTab() {
+  const { canCreate: canManageKeys, canEdit, canDelete } = usePermissions();
   const [showModal, setShowModal] = useState(false);
   const [newKey, setNewKey] = useState<APIKeyCreated | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
@@ -1141,46 +1190,48 @@ function APIKeysTab() {
         <div
           style={{
             background: "rgba(34, 197, 94, 0.1)",
-            border: "1px solid var(--success)",
-            borderRadius: "var(--radius)",
+            border: "1px solid var(--color-success-500)",
+            borderRadius: "var(--border-radius-md)",
             padding: "16px",
             marginBottom: 16,
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Key size={16} color="var(--success)" />
+              <Key size={16} color="var(--color-success-500)" />
               <span style={{ fontWeight: 600 }}>API Key Created — Copy it now, it won't be shown again</span>
             </div>
-            <button className="btn" onClick={() => setNewKey(null)} style={{ padding: 4 }}>
+            <Button variant="ghost" size="sm" onClick={() => setNewKey(null)}>
               <X size={14} />
-            </button>
+            </Button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-primary)", padding: "8px 12px", borderRadius: "var(--radius-sm)", fontFamily: "monospace", fontSize: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--color-neutral-0)", padding: "8px 12px", borderRadius: "var(--border-radius-sm)", fontFamily: "monospace", fontSize: 13 }}>
             <span style={{ flex: 1, wordBreak: "break-all" }}>{newKey.raw_key}</span>
-            <button
-              className="btn"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => navigator.clipboard.writeText(newKey.raw_key)}
               title="Copy to clipboard"
-              style={{ padding: 4 }}
             >
               <Copy size={14} />
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h3 style={{ fontSize: 16, fontWeight: 600 }}>API Keys</h3>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-          <Plus size={14} /> Create API Key
-        </button>
+        {canManageKeys && (
+          <Button variant="primary" onClick={() => setShowModal(true)}>
+            <Plus size={14} /> Create API Key
+          </Button>
+        )}
       </div>
 
       {keys && keys.length > 0 ? (
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 12 }}>
+            <tr style={{ borderBottom: "1px solid var(--color-neutral-200)", color: "var(--color-neutral-400)", fontSize: 12 }}>
               <th style={{ textAlign: "left", padding: "8px" }}>Name</th>
               <th style={{ textAlign: "left", padding: "8px" }}>Prefix</th>
               <th style={{ textAlign: "left", padding: "8px" }}>Scopes</th>
@@ -1193,42 +1244,47 @@ function APIKeysTab() {
           </thead>
           <tbody>
             {keys.map((k) => (
-              <tr key={k.id} style={{ borderBottom: "1px solid var(--border)" }}>
+              <tr key={k.id} style={{ borderBottom: "1px solid var(--color-neutral-200)" }}>
                 <td style={{ padding: "8px", fontWeight: 500 }}>{k.name}</td>
-                <td style={{ padding: "8px", fontFamily: "monospace", color: "var(--text-muted)" }}>{k.key_prefix}...</td>
+                <td style={{ padding: "8px", fontFamily: "monospace", color: "var(--color-neutral-400)" }}>{k.key_prefix}...</td>
                 <td style={{ padding: "8px" }}>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     {k.scopes.map((s) => (
-                      <span key={s} className="badge" style={{
-                        fontSize: 10,
-                        background: s === "platform_admin" ? "rgba(239, 68, 68, 0.15)" : s === "admin" ? "rgba(245, 158, 11, 0.15)" : "var(--bg-tertiary)",
-                        color: s === "platform_admin" ? "var(--error)" : s === "admin" ? "var(--warning)" : "var(--text-secondary)",
-                      }}>
+                      <Badge
+                        key={s}
+                        variant={s === "platform_admin" ? "danger" : s === "admin" ? "warning" : "info"}
+                        size="sm"
+                      >
                         {s}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
                 </td>
                 <td style={{ padding: "8px", textAlign: "center", fontFamily: "monospace" }}>{k.rate_limit}/min</td>
                 <td style={{ padding: "8px" }}>
-                  <span className={`badge ${k.enabled ? "badge-success" : "badge-warning"}`}>
-                    {k.enabled ? "Active" : "Disabled"}
-                  </span>
+                  <StatusBadge
+                    label={k.enabled ? "Active" : "Disabled"}
+                    tone={k.enabled ? "success" : "warning"}
+                  />
                 </td>
-                <td style={{ padding: "8px", color: "var(--text-muted)" }}>
+                <td style={{ padding: "8px", color: "var(--color-neutral-400)" }}>
                   {k.expires_at ? format(new Date(k.expires_at), "MMM dd, yyyy") : "Never"}
                 </td>
-                <td style={{ padding: "8px", color: "var(--text-muted)" }}>
+                <td style={{ padding: "8px", color: "var(--color-neutral-400)" }}>
                   {k.last_used_at ? format(new Date(k.last_used_at), "MMM dd HH:mm") : "Never"}
                 </td>
                 <td style={{ padding: "8px", textAlign: "right" }}>
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                    <button className="btn" onClick={() => handleToggle(k)} title={k.enabled ? "Disable" : "Enable"} style={{ padding: 4 }}>
-                      <Power size={14} color={k.enabled ? "var(--success)" : "var(--text-muted)"} />
-                    </button>
-                    <button className="btn" onClick={() => setDeleteConfirm({ id: k.id, name: k.name })} style={{ padding: 4 }}>
-                      <Trash2 size={14} color="var(--error)" />
-                    </button>
+                    {canEdit && (
+                      <Button variant="ghost" size="sm" onClick={() => handleToggle(k)} title={k.enabled ? "Disable" : "Enable"}>
+                        <Power size={14} color={k.enabled ? "var(--color-success-500)" : "var(--color-neutral-400)"} />
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm({ id: k.id, name: k.name })}>
+                        <Trash2 size={14} color="var(--color-danger-500)" />
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -1236,7 +1292,7 @@ function APIKeysTab() {
           </tbody>
         </table>
       ) : (
-        <EmptyState message="No API keys created" />
+        <EmptyState title="No API keys created" />
       )}
 
       {showModal && (
@@ -1246,14 +1302,15 @@ function APIKeysTab() {
         />
       )}
 
-      {deleteConfirm && (
-        <ConfirmModal
-          title="Delete API Key"
-          message={`Are you sure you want to delete "${deleteConfirm.name}"? Any systems using this key will lose access immediately.`}
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
+      <ConfirmDialog
+        isOpen={deleteConfirm !== null}
+        title="Delete API Key"
+        description={deleteConfirm ? `Are you sure you want to delete "${deleteConfirm.name}"? Any systems using this key will lose access immediately.` : ""}
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }
@@ -1290,11 +1347,24 @@ function APIKeyCreateModal({ onClose, onCreated }: { onClose: () => void; onCrea
   };
 
   return (
-    <Modal title="Create API Key" onClose={onClose}>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title="Create API Key"
+      size="md"
+      footer={
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} disabled={saving || !name || scopes.length === 0}>
+            {saving ? "Creating..." : "Create Key"}
+          </Button>
+        </div>
+      }
+    >
       {error && <ErrorBanner message={error} onClose={() => setError(null)} />}
 
       <FormField label="Name" required>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="CI/CD Pipeline Key" />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="CI/CD Pipeline Key" />
       </FormField>
 
       <FormField label="Scopes">
@@ -1302,13 +1372,14 @@ function APIKeyCreateModal({ onClose, onCreated }: { onClose: () => void; onCrea
           {SCOPES.map((s) => (
             <button
               key={s}
-              className="btn"
               onClick={() => toggleScope(s)}
               style={{
                 fontSize: 12, padding: "6px 12px",
-                background: scopes.includes(s) ? (s === "platform_admin" ? "rgba(239, 68, 68, 0.15)" : s === "admin" ? "rgba(245, 158, 11, 0.15)" : "var(--accent)") : "var(--bg-tertiary)",
-                color: scopes.includes(s) ? (s === "platform_admin" ? "var(--error)" : s === "admin" ? "var(--warning)" : "#fff") : "var(--text-muted)",
-                borderColor: scopes.includes(s) ? "transparent" : "var(--border)",
+                background: scopes.includes(s) ? (s === "platform_admin" ? "rgba(239, 68, 68, 0.15)" : s === "admin" ? "rgba(245, 158, 11, 0.15)" : "var(--color-primary-500)") : "var(--color-neutral-100)",
+                color: scopes.includes(s) ? (s === "platform_admin" ? "var(--color-danger-500)" : s === "admin" ? "var(--color-warning-500)" : "#fff") : "var(--color-neutral-400)",
+                border: `1px solid ${scopes.includes(s) ? "transparent" : "var(--color-neutral-200)"}`,
+                borderRadius: "var(--border-radius-sm)",
+                cursor: "pointer",
               }}
             >
               {s}
@@ -1318,8 +1389,7 @@ function APIKeyCreateModal({ onClose, onCreated }: { onClose: () => void; onCrea
       </FormField>
 
       <FormField label="Rate Limit (requests/min)">
-        <input
-          className="input"
+        <Input
           type="number"
           min={10}
           max={100000}
@@ -1329,20 +1399,12 @@ function APIKeyCreateModal({ onClose, onCreated }: { onClose: () => void; onCrea
       </FormField>
 
       <FormField label="Expires At (optional)">
-        <input
-          className="input"
+        <Input
           type="datetime-local"
           value={expiresAt}
           onChange={(e) => setExpiresAt(e.target.value)}
         />
       </FormField>
-
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={handleSubmit} disabled={saving || !name || scopes.length === 0}>
-          {saving ? "Creating..." : "Create Key"}
-        </button>
-      </div>
     </Modal>
   );
 }
@@ -1351,65 +1413,11 @@ function APIKeyCreateModal({ onClose, onCreated }: { onClose: () => void; onCrea
 // SHARED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex",
-        alignItems: "center", justifyContent: "center", zIndex: 1000,
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div style={{
-        background: "var(--bg-secondary)", borderRadius: "var(--radius)", padding: 24,
-        width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto",
-        border: "1px solid var(--border)",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
-            <X size={18} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function ConfirmModal({ title, message, onConfirm, onCancel }: { title: string; message: string; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex",
-        alignItems: "center", justifyContent: "center", zIndex: 1001,
-      }}
-    >
-      <div style={{
-        background: "var(--bg-secondary)", borderRadius: "var(--radius)", padding: 24,
-        width: "100%", maxWidth: 420, border: "1px solid var(--border)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <AlertTriangle size={18} color="var(--error)" />
-          <h3 style={{ fontSize: 16, fontWeight: 700 }}>{title}</h3>
-        </div>
-        <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 20, lineHeight: 1.5 }}>{message}</p>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button className="btn" onClick={onCancel}>Cancel</button>
-          <button className="btn" onClick={onConfirm} style={{ background: "var(--error)", color: "#fff", borderColor: "var(--error)" }}>
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function FormField({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4, color: "var(--text-secondary)" }}>
-        {label}{required && <span style={{ color: "var(--error)" }}> *</span>}
+      <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4, color: "var(--color-neutral-500)" }}>
+        {label}{required && <span style={{ color: "var(--color-danger-500)" }}> *</span>}
       </label>
       {children}
     </div>
@@ -1419,23 +1427,15 @@ function FormField({ label, required, children }: { label: string; required?: bo
 function ErrorBanner({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div style={{
-      background: "rgba(239, 68, 68, 0.1)", border: "1px solid var(--error)",
-      borderRadius: "var(--radius)", padding: "10px 16px", marginBottom: 16,
+      background: "rgba(239, 68, 68, 0.1)", border: "1px solid var(--color-danger-500)",
+      borderRadius: "var(--border-radius-md)", padding: "10px 16px", marginBottom: 16,
       display: "flex", justifyContent: "space-between", alignItems: "center",
-      fontSize: 13, color: "var(--error)",
+      fontSize: 13, color: "var(--color-danger-500)",
     }}>
       <span>{message}</span>
-      <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--error)" }}>
+      <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-danger-500)" }}>
         <X size={14} />
       </button>
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="card" style={{ textAlign: "center", padding: 48, color: "var(--text-muted)", fontSize: 14 }}>
-      {message}
     </div>
   );
 }

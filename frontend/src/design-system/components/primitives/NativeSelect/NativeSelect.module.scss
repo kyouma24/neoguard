@@ -1,0 +1,75 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.label {
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-medium);
+  color: var(--color-neutral-700);
+}
+
+.required {
+  color: var(--color-brand-magenta);
+  margin-left: 0.125rem;
+  font-weight: var(--typography-font-weight-semibold);
+}
+
+.select {
+  font-family: var(--typography-font-family-primary);
+  font-size: var(--typography-font-size-base);
+  padding: 0.625rem 1.25rem;
+  border: 0.0625rem solid var(--color-neutral-300);
+  border-radius: var(--border-radius-full);
+  background-color: var(--color-neutral-50);
+  color: var(--color-neutral-900);
+  color-scheme: dark;
+  cursor: pointer;
+  transition: border-color var(--transition-fast-duration) var(--transition-fast-easing),
+              box-shadow var(--transition-fast-duration) var(--transition-fast-easing);
+  appearance: none;
+  background-image: url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"%3e%3cpolyline points="6 9 12 15 18 9"%3e%3c/polyline%3e%3c/svg%3e');
+  background-repeat: no-repeat;
+  background-position: right var(--spacing-sm) center;
+  background-size: 1.5em 1.5em;
+  padding-right: var(--spacing-xl);
+  z-index: var(--z-index-dropdown);
+
+  option {
+    background-color: var(--color-neutral-50);
+    color: var(--color-neutral-900);
+    padding: 0.5rem;
+  }
+}
+
+.select:hover {
+  border-color: var(--color-neutral-400);
+  background-color: var(--color-neutral-100);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--color-brand-indigo);
+  box-shadow: 0 0 0 0.1875rem var(--color-primary-100);
+}
+
+.select:disabled {
+  background-color: var(--color-neutral-100);
+  color: var(--color-neutral-500);
+  cursor: not-allowed;
+}
+
+.select.error {
+  border-color: var(--color-danger-500);
+}
+
+.select.error:focus {
+  box-shadow: 0 0 0 var(--spacing-xs) rgba(239, 68, 68, 0.1);
+}
+
+.errorMessage {
+  font-size: var(--typography-font-size-sm);
+  color: var(--color-danger-500);
+  margin-top: calc(var(--spacing-xs) * -1);
+}

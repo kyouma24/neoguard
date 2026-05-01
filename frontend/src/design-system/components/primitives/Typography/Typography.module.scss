@@ -1,0 +1,50 @@
+/* Typography Utility Classes */
+
+.heading1 {
+  font-size: var(--typography-font-size-4xl);
+  font-weight: var(--typography-font-weight-bold);
+  line-height: var(--typography-line-height-tight);
+  font-family: var(--typography-font-family-primary);
+}
+
+.heading2 {
+  font-size: var(--typography-font-size-3xl);
+  font-weight: var(--typography-font-weight-bold);
+  line-height: var(--typography-line-height-tight);
+  font-family: var(--typography-font-family-primary);
+}
+
+.heading3 {
+  font-size: var(--typography-font-size-2xl);
+  font-weight: var(--typography-font-weight-semibold);
+  line-height: var(--typography-line-height-tight);
+  font-family: var(--typography-font-family-primary);
+}
+
+.heading4 {
+  font-size: var(--typography-font-size-xl);
+  font-weight: var(--typography-font-weight-semibold);
+  line-height: var(--typography-line-height-normal);
+  font-family: var(--typography-font-family-primary);
+}
+
+.bodyBase {
+  font-size: var(--typography-font-size-base);
+  font-weight: var(--typography-font-weight-regular);
+  line-height: var(--typography-line-height-normal);
+  font-family: var(--typography-font-family-primary);
+}
+
+.bodySmall {
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-regular);
+  line-height: var(--typography-line-height-normal);
+  font-family: var(--typography-font-family-primary);
+}
+
+.caption {
+  font-size: var(--typography-font-size-xs);
+  font-weight: var(--typography-font-weight-medium);
+  line-height: var(--typography-line-height-tight);
+  font-family: var(--typography-font-family-primary);
+}

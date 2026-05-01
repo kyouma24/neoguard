@@ -48,6 +48,9 @@ export interface LogQueryResult {
   has_more: boolean;
 }
 
+export type AggregationType = "avg" | "min" | "max" | "sum" | "count" | "last" | "p95" | "p99";
+export type NoDataAction = "ok" | "keep" | "alert";
+
 export interface AlertRule {
   id: string;
   tenant_id: string;
@@ -62,6 +65,9 @@ export interface AlertRule {
   severity: string;
   enabled: boolean;
   notification: Record<string, unknown>;
+  aggregation: AggregationType;
+  cooldown_sec: number;
+  nodata_action: NoDataAction;
   created_at: string;
   updated_at: string;
 }
@@ -70,12 +76,37 @@ export interface AlertEvent {
   id: string;
   tenant_id: string;
   rule_id: string;
+  rule_name: string;
+  severity: string;
   status: string;
   value: number;
   threshold: number;
   message: string;
   fired_at: string;
   resolved_at: string | null;
+  acknowledged_at: string | null;
+  acknowledged_by: string;
+}
+
+export interface AlertAcknowledge {
+  acknowledged_by: string;
+}
+
+export interface AlertRulePreview {
+  metric_name: string;
+  tags_filter?: Record<string, string>;
+  condition: string;
+  threshold: number;
+  duration_sec: number;
+  aggregation: AggregationType;
+  lookback_hours?: number;
+}
+
+export interface AlertPreviewResult {
+  would_fire: boolean;
+  current_value: number;
+  datapoints: number;
+  simulated_events: number;
 }
 
 export interface Silence {
@@ -122,14 +153,17 @@ export interface Dashboard {
   updated_at: string;
 }
 
+export type PanelType = "timeseries" | "area" | "stat" | "top_list" | "pie" | "text";
+
 export interface PanelDefinition {
   id: string;
   title: string;
-  panel_type: "timeseries" | "stat" | "table" | "log" | "alert_list";
+  panel_type: PanelType;
   metric_name?: string;
   tags?: Record<string, string>;
   aggregation?: string;
-  query?: string;
+  content?: string;
+  display_options?: Record<string, unknown>;
   width: number;
   height: number;
   position_x: number;
@@ -259,7 +293,7 @@ export interface NotificationChannel {
   id: string;
   tenant_id: string;
   name: string;
-  channel_type: "webhook" | "slack" | "email" | "freshdesk";
+  channel_type: "webhook" | "slack" | "email" | "freshdesk" | "pagerduty" | "msteams";
   config: Record<string, string>;
   enabled: boolean;
   created_at: string;
@@ -267,7 +301,7 @@ export interface NotificationChannel {
 
 export interface NotificationChannelCreate {
   name: string;
-  channel_type: "webhook" | "slack" | "email" | "freshdesk";
+  channel_type: "webhook" | "slack" | "email" | "freshdesk" | "pagerduty" | "msteams";
   config: Record<string, string>;
   enabled?: boolean;
 }
@@ -312,6 +346,86 @@ export interface AzureSubscriptionCreate {
   client_id: string;
   client_secret: string;
   regions?: string[];
+}
+
+// --- Auth types ---
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  is_super_admin: boolean;
+  is_active: boolean;
+  email_verified: boolean;
+  created_at: string;
+}
+
+export interface AuthTenant {
+  id: string;
+  slug: string;
+  name: string;
+  tier: string;
+  status: string;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  tenant: AuthTenant;
+  role: string;
+  is_impersonating?: boolean;
+  impersonated_by?: string | null;
+}
+
+export interface TenantWithRole extends AuthTenant {
+  role: string;
+}
+
+export interface AdminTenant extends AuthTenant {
+  member_count: number;
+  updated_at: string | null;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  is_super_admin: boolean;
+  is_active: boolean;
+  email_verified: boolean;
+  tenant_count: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface PlatformStats {
+  tenants: { total: number; active: number };
+  users: { total: number; active: number };
+  memberships: number;
+  api_keys_active: number;
+}
+
+export interface PlatformAuditEntry {
+  id: string;
+  actor_id: string;
+  actor_email: string | null;
+  actor_name: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  reason: string;
+  details: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface MembershipInfo {
+  user_id: string;
+  tenant_id: string;
+  role: string;
+  joined_at: string;
+  user_email: string | null;
+  user_name: string | null;
 }
 
 export interface SystemStats {

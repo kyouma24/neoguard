@@ -11,7 +11,7 @@ class TestConfig:
         assert s.db_port == 5432
         assert s.default_tenant_id == "default"
         assert s.metric_batch_size == 5000
-        assert s.auth_enabled is False
+        assert s.auth_enabled is True
 
     def test_dsn_format(self):
         s = Settings()

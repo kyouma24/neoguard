@@ -1,0 +1,67 @@
+@use '../../../styles/tokens' as *;
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: $neutral-800;
+}
+
+.required {
+  color: $brand-magenta;
+  margin-left: 0.125rem;
+  font-weight: 700;
+}
+
+.input {
+  padding: 0.5rem 1rem;
+  border: 0.0625rem solid $neutral-300;
+  border-radius: $radius-full;
+  font-size: 0.875rem;
+  font-family: inherit;
+  background: $neutral-0;
+  color: $neutral-900;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+
+  &::placeholder {
+    color: $neutral-500;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: $primary-500;
+    box-shadow: 0 0 0 0.1875rem rgba(19, 16, 164, 0.15);
+  }
+
+  &:disabled {
+    background: $neutral-100;
+    color: $neutral-500;
+    cursor: not-allowed;
+  }
+}
+
+.error {
+  border-color: $danger;
+}
+
+.errorMsg {
+  font-size: 0.75rem;
+  color: $danger;
+}
+
+.range {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rangeSeparator {
+  color: $neutral-500;
+  font-size: 0.875rem;
+}

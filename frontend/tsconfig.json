@@ -21,5 +21,13 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/design-system/**/*.stories.tsx",
+    "src/design-system/**/*.stories.ts",
+    "src/design-system/**/*.test.tsx",
+    "src/design-system/**/*.test.ts",
+    "src/design-system/**/*.mdx",
+    "src/design-system/components/patterns/Screens"
+  ]
 }

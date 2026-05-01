@@ -1,0 +1,49 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 0 1.5rem 0;
+  border-bottom: 0.0625rem solid var(--color-neutral-200, #e5e7eb);
+  margin-bottom: 1.5rem;
+}
+
+.crumbs {
+  font-size: 0.75rem;
+  color: var(--color-neutral-500, #71717a);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-neutral-900, #18181b);
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-neutral-600, #6b6b80);
+  line-height: 1.5;
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}

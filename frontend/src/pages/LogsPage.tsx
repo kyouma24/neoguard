@@ -2,9 +2,36 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { useApi } from "../hooks/useApi";
 import { api } from "../services/api";
+import {
+  Button,
+  Card,
+  Input,
+  NativeSelect,
+  PageHeader,
+  EmptyState,
+  Pagination,
+  StatusBadge,
+} from "../design-system";
 import type { LogQueryResult } from "../types";
 
-const SEVERITIES = ["", "trace", "debug", "info", "warn", "error", "fatal"];
+const SEVERITIES = [
+  { value: "", label: "All levels" },
+  { value: "trace", label: "TRACE" },
+  { value: "debug", label: "DEBUG" },
+  { value: "info", label: "INFO" },
+  { value: "warn", label: "WARN" },
+  { value: "error", label: "ERROR" },
+  { value: "fatal", label: "FATAL" },
+];
+
+const SEVERITY_TONE: Record<string, "neutral" | "success" | "warning" | "danger" | "info"> = {
+  trace: "neutral",
+  debug: "neutral",
+  info: "info",
+  warn: "warning",
+  error: "danger",
+  fatal: "danger",
+};
 
 export function LogsPage() {
   const [query, setQuery] = useState("");
@@ -22,7 +49,7 @@ export function LogsPage() {
         limit,
         offset,
       }),
-    [query, service, severity, limit, offset]
+    [query, service, severity, limit, offset],
   );
 
   const handleSearch = () => {
@@ -30,119 +57,96 @@ export function LogsPage() {
     refetch();
   };
 
+  const page = Math.floor(offset / limit);
+
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Log Explorer</h1>
+      <PageHeader title="Log Explorer" subtitle={data ? `${data.total} results` : undefined} />
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <input
-            className="input"
-            placeholder="Search logs..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            style={{ flex: 1 }}
-          />
-          <input
-            className="input"
-            placeholder="Service..."
-            value={service}
-            onChange={(e) => setService(e.target.value)}
-            style={{ width: 180 }}
-          />
-          <select
-            className="select"
-            value={severity}
-            onChange={(e) => setSeverity(e.target.value)}
-          >
-            <option value="">All levels</option>
-            {SEVERITIES.filter(Boolean).map((s) => (
-              <option key={s} value={s}>
-                {s.toUpperCase()}
-              </option>
-            ))}
-          </select>
-          <button className="btn btn-primary" onClick={handleSearch}>
+      <Card variant="bordered" padding="md">
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <Input
+              label="Search"
+              placeholder="Search logs..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e: React.KeyboardEvent) => e.key === "Enter" && handleSearch()}
+            />
+          </div>
+          <div style={{ width: 180 }}>
+            <Input
+              label="Service"
+              placeholder="Service..."
+              value={service}
+              onChange={(e) => setService(e.target.value)}
+            />
+          </div>
+          <div style={{ width: 140 }}>
+            <NativeSelect
+              label="Severity"
+              options={SEVERITIES}
+              value={severity}
+              onChange={(v) => setSeverity(v)}
+            />
+          </div>
+          <Button variant="primary" size="md" onClick={handleSearch}>
             Search
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
 
-      <div className="card" style={{ padding: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            padding: "12px 20px",
-            borderBottom: "1px solid var(--border)",
-            fontSize: 13,
-            color: "var(--text-secondary)",
-          }}
-        >
-          <span>
-            {data ? `${data.total} results` : "Loading..."}
-          </span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              className="btn"
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - limit))}
-              style={{ padding: "4px 10px", fontSize: 12 }}
-            >
-              Prev
-            </button>
-            <button
-              className="btn"
-              disabled={!data?.has_more}
-              onClick={() => setOffset(offset + limit)}
-              style={{ padding: "4px 10px", fontSize: 12 }}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-
-        {loading && (
-          <div className="empty-state">
-            <div className="spinner" />
-          </div>
-        )}
-
-        <div style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 12 }}>
-          {data?.logs.map((log, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                gap: 12,
-                padding: "6px 20px",
-                borderBottom: "1px solid var(--border)",
-                alignItems: "flex-start",
-              }}
-            >
-              <span style={{ color: "var(--text-muted)", flexShrink: 0, width: 150 }}>
-                {format(new Date(log.timestamp), "MM-dd HH:mm:ss.SSS")}
-              </span>
-              <span
-                className={`severity-${log.severity}`}
-                style={{ flexShrink: 0, width: 50, textTransform: "uppercase", fontWeight: 600 }}
-              >
-                {log.severity}
-              </span>
-              <span style={{ flexShrink: 0, width: 140, color: "var(--accent)" }}>
-                {log.service}
-              </span>
-              <span style={{ flex: 1, wordBreak: "break-all", whiteSpace: "pre-wrap" }}>
-                {log.message}
-              </span>
+      <div style={{ marginTop: 16 }}>
+        <Card variant="bordered" padding="sm">
+          {loading && (
+            <div style={{ textAlign: "center", padding: 32 }}>
+              <div className="spinner" />
             </div>
-          ))}
-
-          {data && data.logs.length === 0 && (
-            <div className="empty-state">No logs found</div>
           )}
-        </div>
+
+          <div style={{ fontFamily: "var(--typography-font-family-mono)", fontSize: "var(--typography-font-size-xs)" }}>
+            {data?.logs.map((log, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  padding: "6px 12px",
+                  borderBottom: "1px solid var(--color-neutral-200)",
+                  alignItems: "flex-start",
+                }}
+              >
+                <span style={{ color: "var(--color-neutral-400)", flexShrink: 0, width: 150 }}>
+                  {format(new Date(log.timestamp), "MM-dd HH:mm:ss.SSS")}
+                </span>
+                <span style={{ flexShrink: 0, width: 70 }}>
+                  <StatusBadge label={log.severity.toUpperCase()} tone={SEVERITY_TONE[log.severity] ?? "neutral"} />
+                </span>
+                <span style={{ flexShrink: 0, width: 140, color: "var(--color-primary-500)" }}>
+                  {log.service}
+                </span>
+                <span style={{ flex: 1, wordBreak: "break-all", whiteSpace: "pre-wrap" }}>
+                  {log.message}
+                </span>
+              </div>
+            ))}
+
+            {data && data.logs.length === 0 && (
+              <EmptyState title="No logs found" description="Try adjusting your search filters." />
+            )}
+          </div>
+
+          {data && data.total > limit && (
+            <div style={{ padding: "12px 0", display: "flex", justifyContent: "center" }}>
+              <Pagination
+                total={data.total}
+                page={page}
+                pageSize={limit}
+                onPageChange={(p) => setOffset(p * limit)}
+              />
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );

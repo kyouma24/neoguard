@@ -1,0 +1,144 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  background: var(--color-neutral-50);
+  border-right: var(--border-width-thin) solid var(--color-neutral-200);
+  padding: var(--spacing-md) 0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-lg) var(--spacing-lg);
+  border-bottom: var(--border-width-thin) solid var(--color-neutral-200);
+  margin-bottom: var(--spacing-md);
+}
+
+.logoText {
+  font-size: var(--typography-font-size-lg);
+  font-weight: var(--typography-font-weight-bold);
+  color: var(--color-neutral-900);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  color: var(--color-neutral-500);
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-regular);
+  transition: all var(--transition-fast-duration) var(--transition-fast-easing);
+  border-left: 3px solid transparent;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--color-neutral-700);
+    background: var(--color-primary-50);
+  }
+}
+
+.navLinkActive {
+  color: var(--color-primary-500);
+  background: var(--color-primary-50);
+  border-left-color: var(--color-primary-500);
+  font-weight: var(--typography-font-weight-semibold);
+}
+
+.main {
+  flex: 1;
+  padding: var(--spacing-lg);
+  overflow-y: auto;
+}
+
+.userSection {
+  margin-top: auto;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: var(--border-width-thin) solid var(--color-neutral-200);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.tenantBadge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+}
+
+.tenantName {
+  font-size: var(--typography-font-size-xs);
+  font-weight: var(--typography-font-weight-semibold);
+  color: var(--color-neutral-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roleBadge {
+  font-size: 10px;
+  font-weight: var(--typography-font-weight-semibold);
+  color: var(--color-primary-700);
+  background: var(--color-primary-50);
+  padding: 1px 6px;
+  border-radius: var(--border-radius-sm);
+  text-transform: capitalize;
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.userName {
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-semibold);
+  color: var(--color-neutral-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userEmail {
+  font-size: var(--typography-font-size-xs);
+  color: var(--color-neutral-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logoutBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: var(--border-width-thin) solid var(--color-neutral-200);
+  border-radius: var(--border-radius-md);
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: var(--typography-font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast-duration) var(--transition-fast-easing);
+
+  &:hover {
+    color: var(--color-danger-600, #dc2626);
+    border-color: var(--color-danger-200, #fecaca);
+    background: var(--color-danger-50, #fef2f2);
+  }
+}

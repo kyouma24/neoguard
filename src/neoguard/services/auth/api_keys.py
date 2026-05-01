@@ -1,4 +1,4 @@
-"""API key management — create, validate, revoke keys."""
+"""API key management — create, validate, revoke keys. Supports v1 (SHA-256) and v2 (Argon2id)."""
 
 import hashlib
 import secrets
@@ -7,22 +7,32 @@ from datetime import UTC, datetime
 import orjson
 from ulid import ULID
 
+from neoguard.core.logging import log
 from neoguard.db.timescale.connection import get_pool
 from neoguard.models.auth import APIKeyCreate, APIKeyCreated, APIKeyResponse, APIKeyUpdate
+from neoguard.services.auth.passwords import hash_password as argon2_hash
+from neoguard.services.auth.passwords import verify_password as argon2_verify
+
+HASH_VERSION_SHA256 = 1
+HASH_VERSION_ARGON2 = 2
 
 
-def _generate_key() -> str:
+def _generate_key_v2() -> str:
+    return f"obl_live_{secrets.token_urlsafe(32)}"
+
+
+def _generate_key_v1() -> str:
     return f"ng_{secrets.token_urlsafe(32)}"
 
 
-def _hash_key(raw_key: str) -> str:
+def _hash_key_sha256(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
 
 
 async def create_api_key(data: APIKeyCreate) -> APIKeyCreated:
     key_id = str(ULID())
-    raw_key = _generate_key()
-    key_hash = _hash_key(raw_key)
+    raw_key = _generate_key_v2()
+    key_hash = argon2_hash(raw_key)
     key_prefix = raw_key[:11]
 
     pool = await get_pool()
@@ -30,11 +40,12 @@ async def create_api_key(data: APIKeyCreate) -> APIKeyCreated:
         row = await conn.fetchrow(
             """
             INSERT INTO api_keys
-                (id, tenant_id, name, key_hash, key_prefix, scopes, rate_limit, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (id, tenant_id, name, key_hash, key_prefix, hash_version, scopes, rate_limit, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
             """,
             key_id, data.tenant_id, data.name, key_hash, key_prefix,
+            HASH_VERSION_ARGON2,
             orjson.dumps(data.scopes).decode(), data.rate_limit, data.expires_at,
         )
     resp = _row_to_response(row)
@@ -42,13 +53,35 @@ async def create_api_key(data: APIKeyCreate) -> APIKeyCreated:
 
 
 async def validate_api_key(raw_key: str) -> APIKeyResponse | None:
-    key_hash = _hash_key(raw_key)
     pool = await get_pool()
+
+    sha256_hash = _hash_key_sha256(raw_key)
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT * FROM api_keys WHERE key_hash = $1 AND enabled = TRUE",
-            key_hash,
+            sha256_hash,
         )
+
+    if row:
+        hash_version = row.get("hash_version", HASH_VERSION_SHA256)
+        if hash_version == HASH_VERSION_SHA256:
+            await log.awarn(
+                "api_keys.deprecated_version_used",
+                key_prefix=row["key_prefix"],
+                hash_version=1,
+            )
+    else:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM api_keys WHERE hash_version = $1 AND enabled = TRUE",
+                HASH_VERSION_ARGON2,
+            )
+        row = None
+        for candidate in rows:
+            if argon2_verify(raw_key, candidate["key_hash"]):
+                row = candidate
+                break
+
     if not row:
         return None
 

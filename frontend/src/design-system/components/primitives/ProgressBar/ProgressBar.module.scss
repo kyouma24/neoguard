@@ -1,0 +1,22 @@
+.track {
+  width: 100%;
+  background: var(--color-neutral-200, #e5e7eb);
+  border-radius: var(--border-radius-full, 9999px);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--gradient-brand,
+    linear-gradient(90deg, #1310A4 0%, #5E0792 25%, #CD0063 55%, #F20F07 80%, #FF4000 100%));
+  border-radius: var(--border-radius-full, 9999px);
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+
+.label {
+  font-size: 0.6rem;
+  color: var(--color-neutral-600, #6b6b80);
+  margin-top: 0.2rem;
+  display: block;
+}

@@ -9,8 +9,10 @@ from neoguard.api.middleware.auth import (
     RateLimitMiddleware,
     RequestLoggingMiddleware,
 )
+from neoguard.api.middleware.csrf import CSRFMiddleware
 from neoguard.api.middleware.request_id import RequestIDMiddleware
 from neoguard.api.routes import (
+    admin,
     alerts,
     auth,
     aws_accounts,
@@ -23,10 +25,13 @@ from neoguard.api.routes import (
     notifications,
     resources,
     system,
+    tenants,
+    user_auth,
 )
 from neoguard.core.config import settings
 from neoguard.core.logging import log, setup_logging
 from neoguard.db.clickhouse.connection import close_clickhouse, init_clickhouse
+from neoguard.db.redis.connection import close_redis, init_redis
 from neoguard.db.timescale.connection import close_pool, init_pool
 from neoguard.services.alerts.engine import alert_engine
 from neoguard.services.collection.orchestrator import orchestrator
@@ -41,6 +46,7 @@ async def lifespan(app: FastAPI):
 
     await init_pool()
     await init_clickhouse()
+    await init_redis()
 
     await metric_writer.start()
     await log_writer.start()
@@ -56,6 +62,7 @@ async def lifespan(app: FastAPI):
     await log_writer.stop()
     await metric_writer.stop()
 
+    await close_redis()
     await close_clickhouse()
     await close_pool()
 
@@ -92,6 +99,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -102,6 +110,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(user_auth.router)
 app.include_router(auth.router)
 app.include_router(metrics.router)
 app.include_router(logs.router)
@@ -113,3 +122,5 @@ app.include_router(azure_accounts.router)
 app.include_router(notifications.router)
 app.include_router(collection.router)
 app.include_router(system.router)
+app.include_router(tenants.router)
+app.include_router(admin.router)

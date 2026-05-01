@@ -36,6 +36,25 @@ vi.mock("../services/api", () => ({
   },
 }));
 
+vi.mock("../hooks/usePermissions", () => ({
+  usePermissions: () => ({
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    canInvite: true,
+    canManageKeys: true,
+  }),
+}));
+
+vi.mock("../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: "u1", email: "test@test.com", name: "Test", is_super_admin: false, is_active: true, email_verified: true, created_at: "2026-01-01" },
+    tenant: { id: "t1", slug: "test", name: "Test", tier: "free", status: "active", created_at: "2026-01-01" },
+    role: "owner",
+    loading: false,
+  }),
+}));
+
 // ─── Test fixtures ────────────────────────────────────────────────────────
 
 const AWS_ACCOUNT: AWSAccount = {
@@ -278,10 +297,6 @@ describe("Cloud Accounts Tab", () => {
     await waitFor(() => {
       expect(screen.getByText("Production AWS")).toBeInTheDocument();
     });
-
-    const deleteBtns = screen.getAllByRole("button");
-    const trashBtn = deleteBtns.find((btn) => btn.querySelector('[class*="lucide-trash"]') !== null
-      || btn.innerHTML.includes("trash"));
 
     const awsCard = screen.getByText("Production AWS").closest(".card") as HTMLElement;
     const cardBtns = within(awsCard).getAllByRole("button");

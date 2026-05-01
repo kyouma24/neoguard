@@ -1,0 +1,61 @@
+@use '../../../styles/tokens' as *;
+
+.list {
+  display: grid;
+  gap: 1rem 2rem;
+  margin: 0;
+}
+
+.twoColumn {
+  grid-template-columns: 1fr 1fr;
+}
+
+.oneColumn {
+  grid-template-columns: 1fr;
+}
+
+.inline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+.inline .item {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.key {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: $neutral-500;
+}
+
+.inline .key {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: $neutral-600;
+  flex-shrink: 0;
+}
+
+.value {
+  font-size: 0.9rem;
+  color: $neutral-900;
+  word-wrap: break-word;
+}

@@ -1,10 +1,15 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from neoguard.api.deps import get_tenant_id, get_tenant_id_required
 from neoguard.models.alerts import (
+    AlertAcknowledge,
     AlertEvent,
+    AlertPreviewResult,
     AlertRule,
     AlertRuleCreate,
+    AlertRulePreview,
     AlertRuleUpdate,
     AlertStatus,
     Silence,
@@ -12,11 +17,13 @@ from neoguard.models.alerts import (
     SilenceUpdate,
 )
 from neoguard.services.alerts.crud import (
+    acknowledge_alert_event,
     create_alert_rule,
     delete_alert_rule,
     get_alert_rule,
     list_alert_events,
     list_alert_rules,
+    preview_alert_rule,
     update_alert_rule,
 )
 from neoguard.services.alerts.silences import (
@@ -84,10 +91,36 @@ async def delete_rule(
 async def list_events(
     rule_id: str | None = None,
     status: AlertStatus | None = None,
+    severity: str | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
     limit: int = 50,
     tenant_id: str | None = Depends(get_tenant_id),
 ) -> list[AlertEvent]:
-    return await list_alert_events(tenant_id, rule_id=rule_id, status=status, limit=limit)
+    return await list_alert_events(
+        tenant_id, rule_id=rule_id, status=status,
+        severity=severity, start=start, end=end, limit=limit,
+    )
+
+
+@router.post("/events/{event_id}/ack")
+async def acknowledge_event(
+    event_id: str,
+    data: AlertAcknowledge,
+    tenant_id: str = Depends(get_tenant_id_required),
+) -> AlertEvent:
+    event = await acknowledge_alert_event(tenant_id, event_id, data.acknowledged_by)
+    if not event:
+        raise HTTPException(status_code=404, detail="Alert event not found")
+    return event
+
+
+@router.post("/rules/preview")
+async def preview_rule(
+    data: AlertRulePreview,
+    tenant_id: str = Depends(get_tenant_id_required),
+) -> AlertPreviewResult:
+    return await preview_alert_rule(tenant_id, data)
 
 
 # ── Silence endpoints ──────────────────────────────────────────────

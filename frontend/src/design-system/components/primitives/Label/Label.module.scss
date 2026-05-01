@@ -1,0 +1,32 @@
+.label {
+  display: inline-block;
+  font-family: var(--typography-font-family-primary);
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-medium);
+  color: var(--color-neutral-800);
+  letter-spacing: 0.01em;
+  transition: color var(--transition-normal-duration) var(--transition-normal-easing);
+}
+
+.required {
+  color: var(--color-brand-magenta);
+  margin-left: 0.125rem;
+  font-weight: var(--typography-font-weight-semibold);
+}
+
+.error {
+  color: var(--color-danger-500);
+}
+
+/* Responsive */
+@media (max-width: 48rem) {
+  .label {
+    font-size: var(--typography-font-size-sm);
+  }
+}
+
+@media (max-width: 23.4375rem) {
+  .label {
+    font-size: var(--typography-font-size-xs);
+  }
+}

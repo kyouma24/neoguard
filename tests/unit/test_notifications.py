@@ -19,7 +19,9 @@ from neoguard.services.notifications.senders import (
     SENDERS,
     BaseSender,
     FreshdeskSender,
+    MSTeamsSender,
     NotificationSendError,
+    PagerDutySender,
     SlackSender,
     WebhookSender,
     _build_webhook_body,
@@ -150,7 +152,7 @@ class TestConfigValidation:
 
 class TestChannelType:
     def test_all_types(self):
-        assert set(ChannelType) == {"webhook", "slack", "email", "freshdesk"}
+        assert set(ChannelType) == {"webhook", "slack", "email", "freshdesk", "pagerduty", "msteams"}
 
     def test_all_types_have_senders(self):
         for ct in ChannelType:
@@ -668,6 +670,258 @@ class TestFreshdeskSender:
             with pytest.raises(NotificationSendError) as exc_info:
                 await sender.test_connection(config)
             assert exc_info.value.status == 401
+
+
+# ---------------------------------------------------------------------------
+# Webhook HMAC Signing
+# ---------------------------------------------------------------------------
+
+
+class TestWebhookHMACSigning:
+    async def test_signing_header_present_when_secret_configured(self):
+        sender = WebhookSender()
+        payload = _make_payload()
+        config = {
+            "url": "https://example.com/hook",
+            "signing_secret": "my-secret-key",
+        }
+
+        with aioresponses() as m:
+            m.post("https://example.com/hook", status=200)
+            result = await sender.send_firing(payload, config)
+
+        assert result["status_code"] == 200
+
+    async def test_sign_payload_deterministic(self):
+        sender = WebhookSender()
+        sig1 = sender._sign_payload(b'{"test": true}', "secret")
+        sig2 = sender._sign_payload(b'{"test": true}', "secret")
+        assert sig1 == sig2
+        assert len(sig1) == 64  # SHA-256 hex digest
+
+    async def test_sign_payload_varies_with_secret(self):
+        sender = WebhookSender()
+        sig1 = sender._sign_payload(b"data", "secret-a")
+        sig2 = sender._sign_payload(b"data", "secret-b")
+        assert sig1 != sig2
+
+    async def test_sign_payload_varies_with_body(self):
+        sender = WebhookSender()
+        sig1 = sender._sign_payload(b"body-a", "secret")
+        sig2 = sender._sign_payload(b"body-b", "secret")
+        assert sig1 != sig2
+
+    async def test_no_signing_header_without_secret(self):
+        sender = WebhookSender()
+        payload = _make_payload()
+        config = {"url": "https://example.com/hook"}
+
+        with aioresponses() as m:
+            m.post("https://example.com/hook", status=200)
+            await sender.send_firing(payload, config)
+
+    async def test_resolved_also_signed(self):
+        sender = WebhookSender()
+        payload = _make_payload(status="resolved")
+        config = {
+            "url": "https://example.com/hook",
+            "signing_secret": "my-secret",
+        }
+
+        with aioresponses() as m:
+            m.post("https://example.com/hook", status=200)
+            await sender.send_resolved(payload, config, {})
+
+
+# ---------------------------------------------------------------------------
+# PagerDuty Sender
+# ---------------------------------------------------------------------------
+
+
+class TestPagerDutySender:
+    async def test_send_firing_triggers_incident(self):
+        sender = PagerDutySender()
+        payload = _make_payload()
+        config = {"routing_key": "test-routing-key"}
+
+        with aioresponses() as m:
+            m.post(
+                "https://events.pagerduty.com/v2/enqueue",
+                status=202,
+                payload={"status": "success", "dedup_key": "neoguard-rule-001"},
+            )
+            result = await sender.send_firing(payload, config)
+
+        assert result["dedup_key"] == "neoguard-rule-001"
+        assert result["status"] == "success"
+
+    async def test_send_firing_maps_severity(self):
+        sender = PagerDutySender()
+        for sev in ["critical", "warning", "info"]:
+            payload = _make_payload(severity=sev)
+            config = {"routing_key": "key"}
+
+            with aioresponses() as m:
+                m.post(
+                    "https://events.pagerduty.com/v2/enqueue",
+                    status=202,
+                    payload={"status": "success"},
+                )
+                await sender.send_firing(payload, config)
+
+    async def test_send_resolved_resolves_by_dedup_key(self):
+        sender = PagerDutySender()
+        payload = _make_payload(status="resolved")
+        config = {"routing_key": "test-key"}
+        firing_meta = {"dedup_key": "neoguard-rule-001"}
+
+        with aioresponses() as m:
+            m.post(
+                "https://events.pagerduty.com/v2/enqueue",
+                status=202,
+                payload={"status": "success"},
+            )
+            await sender.send_resolved(payload, config, firing_meta)
+
+    async def test_send_resolved_falls_back_to_rule_id(self):
+        sender = PagerDutySender()
+        payload = _make_payload(status="resolved")
+        config = {"routing_key": "test-key"}
+
+        with aioresponses() as m:
+            m.post(
+                "https://events.pagerduty.com/v2/enqueue",
+                status=202,
+                payload={"status": "success"},
+            )
+            await sender.send_resolved(payload, config, {})
+
+    async def test_send_firing_raises_on_error(self):
+        sender = PagerDutySender()
+        payload = _make_payload()
+        config = {"routing_key": "bad-key"}
+
+        with aioresponses() as m:
+            m.post(
+                "https://events.pagerduty.com/v2/enqueue",
+                status=400, body="Invalid routing key",
+            )
+            with pytest.raises(NotificationSendError) as exc_info:
+                await sender.send_firing(payload, config)
+            assert exc_info.value.status == 400
+
+    async def test_includes_tags_in_custom_details(self):
+        sender = PagerDutySender()
+        payload = _make_payload(tags_filter={"service": "api-gateway"})
+        config = {"routing_key": "key"}
+
+        with aioresponses() as m:
+            m.post(
+                "https://events.pagerduty.com/v2/enqueue",
+                status=202,
+                payload={"status": "success"},
+            )
+            result = await sender.send_firing(payload, config)
+        assert "dedup_key" in result
+
+
+# ---------------------------------------------------------------------------
+# MS Teams Sender
+# ---------------------------------------------------------------------------
+
+
+class TestMSTeamsSender:
+    async def test_send_firing_posts_adaptive_card(self):
+        sender = MSTeamsSender()
+        payload = _make_payload()
+        config = {"webhook_url": "https://outlook.office.com/webhook/test"}
+
+        with aioresponses() as m:
+            m.post("https://outlook.office.com/webhook/test", status=200)
+            result = await sender.send_firing(payload, config)
+
+        assert result["status_code"] == 200
+
+    async def test_send_firing_critical_uses_attention_color(self):
+        sender = MSTeamsSender()
+        payload = _make_payload(severity="critical")
+        config = {"webhook_url": "https://outlook.office.com/webhook/test"}
+
+        with aioresponses() as m:
+            m.post("https://outlook.office.com/webhook/test", status=200)
+            await sender.send_firing(payload, config)
+
+    async def test_send_firing_warning_uses_warning_color(self):
+        sender = MSTeamsSender()
+        payload = _make_payload(severity="warning")
+        config = {"webhook_url": "https://outlook.office.com/webhook/test"}
+
+        with aioresponses() as m:
+            m.post("https://outlook.office.com/webhook/test", status=200)
+            await sender.send_firing(payload, config)
+
+    async def test_send_resolved_posts_resolved_card(self):
+        sender = MSTeamsSender()
+        payload = _make_payload(status="resolved")
+        config = {"webhook_url": "https://outlook.office.com/webhook/test"}
+
+        with aioresponses() as m:
+            m.post("https://outlook.office.com/webhook/test", status=200)
+            await sender.send_resolved(payload, config, {})
+
+    async def test_send_firing_raises_on_error(self):
+        sender = MSTeamsSender()
+        payload = _make_payload()
+        config = {"webhook_url": "https://outlook.office.com/webhook/test"}
+
+        with aioresponses() as m:
+            m.post(
+                "https://outlook.office.com/webhook/test",
+                status=403, body="Forbidden",
+            )
+            with pytest.raises(NotificationSendError) as exc_info:
+                await sender.send_firing(payload, config)
+            assert exc_info.value.status == 403
+
+
+# ---------------------------------------------------------------------------
+# Config Validation — New Channel Types
+# ---------------------------------------------------------------------------
+
+
+class TestNewChannelConfigValidation:
+    def test_pagerduty_missing_routing_key_rejected(self):
+        with pytest.raises(ValueError, match="missing: routing_key"):
+            NotificationChannelCreate(
+                name="Bad PD", channel_type=ChannelType.PAGERDUTY, config={},
+            )
+
+    def test_pagerduty_valid_config_accepted(self):
+        c = NotificationChannelCreate(
+            name="PD", channel_type=ChannelType.PAGERDUTY,
+            config={"routing_key": "abc123"},
+        )
+        assert c.channel_type == "pagerduty"
+
+    def test_msteams_missing_webhook_url_rejected(self):
+        with pytest.raises(ValueError, match="missing: webhook_url"):
+            NotificationChannelCreate(
+                name="Bad Teams", channel_type=ChannelType.MSTEAMS, config={},
+            )
+
+    def test_msteams_url_must_be_http(self):
+        with pytest.raises(ValueError, match="must start with http"):
+            NotificationChannelCreate(
+                name="Bad Teams", channel_type=ChannelType.MSTEAMS,
+                config={"webhook_url": "ftp://bad"},
+            )
+
+    def test_msteams_valid_config_accepted(self):
+        c = NotificationChannelCreate(
+            name="Teams", channel_type=ChannelType.MSTEAMS,
+            config={"webhook_url": "https://outlook.office.com/webhook/x"},
+        )
+        assert c.channel_type == "msteams"
 
 
 # ---------------------------------------------------------------------------

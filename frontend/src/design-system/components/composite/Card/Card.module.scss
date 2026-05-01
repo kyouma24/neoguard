@@ -1,0 +1,83 @@
+/* Base card styles */
+.card {
+  background-color: var(--color-neutral-0);
+  border-radius: var(--border-radius-xl);
+  overflow: hidden;
+}
+
+/* Card variants */
+.elevated {
+  box-shadow: var(--shadow-md);
+}
+
+.bordered {
+  border: var(--border-width-thin) solid var(--color-neutral-200);
+}
+
+/* Padding variants */
+.paddingSmall {
+  --card-padding: var(--spacing-sm);
+}
+
+.paddingMedium {
+  --card-padding: var(--spacing-md);
+}
+
+.paddingLarge {
+  --card-padding: var(--spacing-lg);
+}
+
+/* Default padding is medium */
+.card {
+  --card-padding: var(--spacing-md);
+}
+
+/* Header section */
+.header {
+  padding: var(--card-padding);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: var(--border-width-thin) solid var(--color-neutral-200);
+  font-size: var(--typography-font-size-lg);
+  font-weight: var(--typography-font-weight-semibold);
+  color: var(--color-neutral-900);
+}
+
+/* Content section */
+.content {
+  padding: var(--card-padding);
+  color: var(--color-neutral-700);
+}
+
+/* Footer section */
+.footer {
+  padding: var(--card-padding);
+  border-top: var(--border-width-thin) solid var(--color-neutral-200);
+  background-color: var(--color-neutral-50);
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+}
+
+/* Interactive card (button) */
+.interactive {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.interactive:hover {
+  transform: translateY(-0.125rem);
+  box-shadow: var(--shadow-lg);
+}
+
+.interactive.bordered:hover {
+  border-color: var(--color-primary-300, #a6a2f5);
+}
+
+.interactive:focus-visible {
+  outline: 0.125rem solid var(--color-primary-500, #6366f1);
+  outline-offset: 0.125rem;
+}

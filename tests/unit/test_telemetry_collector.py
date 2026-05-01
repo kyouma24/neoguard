@@ -1,9 +1,6 @@
 """Tests for the self-monitoring telemetry collector."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from neoguard.services.telemetry.collector import TelemetryCollector
 

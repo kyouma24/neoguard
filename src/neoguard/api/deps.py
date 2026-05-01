@@ -7,15 +7,17 @@ PLATFORM_ADMIN_SCOPE = "platform_admin"
 
 def _is_platform_admin(request: Request) -> bool:
     scopes = getattr(request.state, "scopes", [])
-    return PLATFORM_ADMIN_SCOPE in scopes
+    if PLATFORM_ADMIN_SCOPE in scopes:
+        return True
+    return getattr(request.state, "is_super_admin", False)
 
 
 def get_tenant_id(request: Request) -> str | None:
     """Extract tenant ID from authenticated request state.
 
-    - Regular users: returns their tenant_id from the API key.
-    - platform_admin: returns None (all tenants) unless ?tenant_id=X
-      query param is provided for scoping.
+    - Super admins / platform_admin: returns None (all tenants) unless
+      ?tenant_id=X query param is provided for scoping.
+    - Regular users: returns their tenant_id from the session or API key.
     - Auth disabled: returns default_tenant_id.
     """
     if _is_platform_admin(request):
@@ -28,11 +30,14 @@ def get_tenant_id(request: Request) -> str | None:
 def get_tenant_id_required(request: Request) -> str:
     """Like get_tenant_id but raises 400 if no tenant can be resolved.
 
-    Use this for write operations where a target tenant is mandatory.
-    Platform admins must specify ?tenant_id=X for writes.
+    For super admins / platform_admin: falls back to the session's
+    tenant_id if no ?tenant_id= override is given.
     """
     tid = get_tenant_id(request)
     if tid is None:
+        session_tid = getattr(request.state, "tenant_id", None)
+        if session_tid:
+            return session_tid
         raise HTTPException(
             status_code=400,
             detail="tenant_id query parameter is required for this operation",

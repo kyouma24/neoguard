@@ -39,6 +39,10 @@ class MetricQueryResult(BaseModel):
     datapoints: list[tuple[datetime, float | None]]
 
 
+class BatchMetricQuery(BaseModel):
+    queries: list[MetricQuery] = Field(..., min_length=1, max_length=50)
+
+
 class AggregationFunc(StrEnum):
     AVG = "avg"
     MIN = "min"

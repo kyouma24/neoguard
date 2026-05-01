@@ -1,0 +1,23 @@
+import { Meta } from '@storybook/blocks';
+
+<Meta title="Composite/Overview" />
+
+# Composite
+
+Multi-primitive components. Compose primitives into common UI patterns. Composite never depends on other composite or patterns — only primitives.
+
+## Inventory
+
+- **Card** — header + body + footer container
+- **ConversationHistory** — scrollable ChatBubble list with optional composer
+- **Dropdown** — trigger button + option list with keyboard nav
+- **Modal** — overlay + centered content + close affordance
+- **NavBar** — logo + links with active state
+- **Pagination** — page nav + size selector + range readout
+- **Tabs** — line or pill variant, controlled active state
+
+## Rules
+
+- Composite imports primitives via relative path (`../../primitives/Foo`).
+- No domain entity names.
+- Internal state OK; external API is controlled props.

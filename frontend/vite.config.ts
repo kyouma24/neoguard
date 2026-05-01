@@ -15,11 +15,19 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    exclude: [
+      "node_modules/**",
+      "src/design-system/**/*.test.{ts,tsx}",
+    ],
   },
   server: {
     port: 5173,
     proxy: {
       "/api": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/auth": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },

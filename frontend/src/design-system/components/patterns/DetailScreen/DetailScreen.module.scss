@@ -1,0 +1,46 @@
+.root {
+  padding: var(--spacing-xl, 2rem);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--typography-font-family-primary, 'Poppins', sans-serif);
+}
+
+.summary {
+  margin-bottom: var(--spacing-lg, 1.5rem);
+}
+
+.errorPanel,
+.notFoundPanel {
+  padding: var(--spacing-2xl, 3rem) var(--spacing-md, 1rem);
+  text-align: center;
+  border-radius: var(--border-radius-lg, 0.5rem);
+}
+
+.errorPanel {
+  background: var(--color-danger-50, #fef2f2);
+  border: 0.0625rem solid var(--color-danger-200, #fecaca);
+  color: var(--color-danger-700, #b91c1c);
+}
+
+.notFoundPanel {
+  background: var(--color-neutral-50, #f9fafb);
+  border: 0.0625rem solid var(--color-border, #e5e7eb);
+  color: var(--color-neutral-600, #4b5563);
+}
+
+.panelTitle {
+  font-size: var(--typography-font-size-base, 1rem);
+  font-weight: var(--typography-font-weight-semibold, 600);
+  margin-bottom: var(--spacing-sm, 0.5rem);
+}
+
+.panelMessage {
+  font-size: var(--typography-font-size-sm, 0.875rem);
+  margin-bottom: var(--spacing-md, 1rem);
+}
+
+.skeletonStack {
+  display: grid;
+  gap: var(--spacing-md, 1rem);
+}

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from neoguard.api.deps import get_tenant_id, get_tenant_id_required
-from neoguard.models.metrics import MetricBatch, MetricQuery, MetricQueryResult
+from neoguard.models.metrics import BatchMetricQuery, MetricBatch, MetricQuery, MetricQueryResult
 from neoguard.services.metrics.query import query_metrics
 from neoguard.services.metrics.writer import metric_writer
 
@@ -25,6 +25,19 @@ async def query(
 ) -> list[MetricQueryResult]:
     q.tenant_id = q.tenant_id or tenant_id
     return await query_metrics(q)
+
+
+@router.post("/query/batch")
+async def query_batch(
+    batch: BatchMetricQuery,
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> list[list[MetricQueryResult]]:
+    import asyncio
+
+    for q in batch.queries:
+        q.tenant_id = q.tenant_id or tenant_id
+    results = await asyncio.gather(*(query_metrics(q) for q in batch.queries))
+    return list(results)
 
 
 @router.get("/names")

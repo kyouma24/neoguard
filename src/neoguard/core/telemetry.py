@@ -70,7 +70,7 @@ class Histogram:
             quantiles = [0.5, 0.95, 0.99]
         with self._lock:
             if not self._buffer:
-                return {q: 0.0 for q in quantiles}
+                return dict.fromkeys(quantiles, 0.0)
             sorted_vals = sorted(self._buffer)
         result = {}
         n = len(sorted_vals)

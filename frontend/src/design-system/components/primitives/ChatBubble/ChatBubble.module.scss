@@ -1,0 +1,75 @@
+.container {
+  display: flex;
+  width: 100%;
+  margin-bottom: var(--spacing-md, 0.75rem);
+}
+
+.bubble {
+  padding: var(--spacing-md, 0.75rem) var(--spacing-lg, 1.125rem);
+  border-radius: var(--border-radius-2xl, 1.25rem);
+  max-width: 70%;
+  word-wrap: break-word;
+  word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs, 0.25rem);
+}
+
+.user {
+  background: var(--gradient-brand,
+    linear-gradient(90deg, #1310A4 0%, #5E0792 25%, #CD0063 55%, #F20F07 80%, #FF4000 100%));
+  color: #ffffff;
+  align-self: flex-end;
+  margin-left: auto;
+  border-bottom-right-radius: var(--border-radius-md, 0.375rem);
+}
+
+.bot {
+  background-color: var(--color-neutral-100, #f5f5f5);
+  color: var(--color-neutral-900, #18181b);
+  align-self: flex-start;
+  margin-right: auto;
+  border-bottom-left-radius: var(--border-radius-md, 0.375rem);
+}
+
+.text {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.intentBadge {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs, 0.25rem);
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--border-radius-full, 9999px);
+  background-color: rgba(19, 16, 164, 0.1);
+  color: var(--color-primary-700, #0d0a70);
+  margin-top: var(--spacing-xs, 0.25rem);
+  width: fit-content;
+}
+
+.intentLabel {
+  font-weight: 500;
+}
+
+.confidence {
+  font-size: 0.625rem;
+  color: var(--color-neutral-600, #6b6b80);
+}
+
+.timestamp {
+  font-size: 0.625rem;
+  color: var(--color-neutral-600, #6b6b80);
+  margin-top: 0.125rem;
+}
+
+.user .timestamp {
+  text-align: right;
+}
+
+.bot .timestamp {
+  text-align: left;
+}

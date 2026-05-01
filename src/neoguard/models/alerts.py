@@ -13,6 +13,23 @@ class AlertCondition(StrEnum):
     NE = "ne"
 
 
+class AlertAggregation(StrEnum):
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+    SUM = "sum"
+    COUNT = "count"
+    LAST = "last"
+    P95 = "p95"
+    P99 = "p99"
+
+
+class NoDataAction(StrEnum):
+    OK = "ok"
+    KEEP = "keep"
+    ALERT = "alert"
+
+
 class AlertSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
@@ -24,6 +41,7 @@ class AlertStatus(StrEnum):
     PENDING = "pending"
     FIRING = "firing"
     RESOLVED = "resolved"
+    NODATA = "nodata"
 
 
 class SilenceScheduleDay(StrEnum):
@@ -101,17 +119,26 @@ class AlertRuleCreate(BaseModel):
     interval_sec: int = Field(default=30, ge=10, le=600)
     severity: AlertSeverity = AlertSeverity.WARNING
     notification: dict = Field(default_factory=dict)
+    aggregation: AlertAggregation = AlertAggregation.AVG
+    cooldown_sec: int = Field(default=300, ge=0, le=86400)
+    nodata_action: NoDataAction = NoDataAction.OK
 
 
 class AlertRuleUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    metric_name: str | None = None
+    tags_filter: dict[str, str] | None = None
+    condition: AlertCondition | None = None
     threshold: float | None = None
     duration_sec: int | None = Field(default=None, ge=10, le=3600)
     interval_sec: int | None = Field(default=None, ge=10, le=600)
     severity: AlertSeverity | None = None
     enabled: bool | None = None
     notification: dict | None = None
+    aggregation: AlertAggregation | None = None
+    cooldown_sec: int | None = Field(default=None, ge=0, le=86400)
+    nodata_action: NoDataAction | None = None
 
 
 class AlertRule(BaseModel):
@@ -128,6 +155,9 @@ class AlertRule(BaseModel):
     severity: AlertSeverity
     enabled: bool
     notification: dict
+    aggregation: AlertAggregation
+    cooldown_sec: int
+    nodata_action: NoDataAction
     created_at: datetime
     updated_at: datetime
 
@@ -136,6 +166,8 @@ class AlertEvent(BaseModel):
     id: str
     tenant_id: str
     rule_id: str
+    rule_name: str
+    severity: AlertSeverity
     status: AlertStatus
     value: float
     threshold: float
@@ -143,3 +175,26 @@ class AlertEvent(BaseModel):
     notification_meta: dict = Field(default_factory=dict)
     fired_at: datetime
     resolved_at: datetime | None = None
+    acknowledged_at: datetime | None = None
+    acknowledged_by: str = ""
+
+
+class AlertAcknowledge(BaseModel):
+    acknowledged_by: str = Field(..., min_length=1, max_length=256)
+
+
+class AlertRulePreview(BaseModel):
+    metric_name: str = Field(..., min_length=1)
+    tags_filter: dict[str, str] = Field(default_factory=dict)
+    condition: AlertCondition
+    threshold: float
+    duration_sec: int = Field(default=60, ge=10, le=3600)
+    aggregation: AlertAggregation = AlertAggregation.AVG
+    lookback_hours: int = Field(default=24, ge=1, le=168)
+
+
+class AlertPreviewResult(BaseModel):
+    would_fire: bool
+    current_value: float | None
+    datapoints: int
+    simulated_events: list[dict]

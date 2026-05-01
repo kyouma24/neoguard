@@ -10,9 +10,7 @@ import {
   Router,
   FolderOpen,
   ChevronLeft,
-  ChevronRight,
   RefreshCw,
-  Circle,
   ArrowUpDown,
   Shield,
   Network,
@@ -22,12 +20,21 @@ import {
   Layers,
   Gauge,
   AppWindow,
-  Search,
 } from "lucide-react";
 import { TimeSeriesChart } from "../components/TimeSeriesChart";
 import { useApi } from "../hooks/useApi";
 import { useInterval } from "../hooks/useInterval";
 import { api } from "../services/api";
+import {
+  Button,
+  Card,
+  Badge,
+  StatusBadge as DSStatusBadge,
+  Breadcrumbs,
+  SearchInput,
+  EmptyState,
+  PageHeader,
+} from "../design-system";
 import type {
   Resource,
   ResourceSummary,
@@ -35,6 +42,7 @@ import type {
   AWSAccount,
   AzureSubscription,
 } from "../types";
+import type { StatusTone } from "../design-system";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -542,6 +550,28 @@ const TIME_RANGES = [
 type SortDir = "asc" | "desc";
 
 // ---------------------------------------------------------------------------
+// InfraStatusBadge — maps domain status strings to DS StatusBadge tones
+// ---------------------------------------------------------------------------
+
+const STATUS_TONE_MAP: Record<string, StatusTone> = {
+  active: "success",
+  running: "success",
+  available: "success",
+  stopped: "warning",
+  terminated: "danger",
+  unknown: "neutral",
+};
+
+function InfraStatusBadge({ status }: { status: string }) {
+  return (
+    <DSStatusBadge
+      label={status}
+      tone={STATUS_TONE_MAP[status] ?? "neutral"}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -662,63 +692,53 @@ function AccountsGridView({
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 24,
-        }}
-      >
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Infrastructure</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ position: "relative" }}>
-            <Search
-              size={14}
-              color="var(--text-muted)"
-              style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-            />
-            <input
-              className="input"
+      <PageHeader
+        title="Infrastructure"
+        actions={
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <SearchInput
               placeholder="Search accounts..."
               value={accountSearch}
-              onChange={(e) => setAccountSearch(e.target.value)}
-              style={{ paddingLeft: 32, width: 260, height: 36, fontSize: 13 }}
+              onChange={setAccountSearch}
             />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Cloud size={16} color="var(--color-neutral-400)" />
+              <span style={{ fontSize: 13, color: "var(--color-neutral-500)" }}>
+                {summary?.total ?? 0} resources across{" "}
+                {allAccounts.length} account{allAccounts.length !== 1 ? "s" : ""}
+              </span>
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Cloud size={16} color="var(--text-muted)" />
-            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-              {summary?.total ?? 0} resources across{" "}
-              {allAccounts.length} account{allAccounts.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {accountsLoading && allAccounts.length === 0 && (
-        <div className="card" style={{ textAlign: "center", padding: 64 }}>
-          <div className="spinner" style={{ width: 32, height: 32, margin: "0 auto 16px" }} />
-          <p style={{ fontSize: 14, color: "var(--text-muted)" }}>Loading cloud accounts...</p>
-        </div>
+        <Card variant="bordered" className="card">
+          <div style={{ textAlign: "center", padding: 40 }}>
+            <div className="spinner" style={{ width: 32, height: 32, margin: "0 auto 16px" }} />
+            <p style={{ fontSize: 14, color: "var(--color-neutral-400)" }}>Loading cloud accounts...</p>
+          </div>
+        </Card>
       )}
 
       {!accountsLoading && allAccounts.length === 0 && (
-        <div className="card" style={{ textAlign: "center", padding: 64 }}>
-          <Cloud size={48} color="var(--text-muted)" style={{ marginBottom: 16 }} />
-          <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>No cloud accounts connected</p>
-          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            Add an AWS account or Azure subscription via the API to start monitoring.
-          </p>
-        </div>
+        <Card variant="bordered" className="card">
+          <EmptyState
+            icon={<Cloud size={48} color="var(--color-neutral-400)" />}
+            title="No cloud accounts connected"
+            description="Add an AWS account or Azure subscription via the API to start monitoring."
+          />
+        </Card>
       )}
 
       {filteredAccounts.length === 0 && allAccounts.length > 0 && (
-        <div className="card" style={{ textAlign: "center", padding: 48 }}>
-          <Search size={36} color="var(--text-muted)" style={{ marginBottom: 12 }} />
-          <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No accounts match "{accountSearch}"</p>
-          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Try a different account name or ID.</p>
-        </div>
+        <Card variant="bordered" className="card">
+          <EmptyState
+            icon={<Cloud size={36} color="var(--color-neutral-400)" />}
+            title={`No accounts match "${accountSearch}"`}
+            description="Try a different account name or ID."
+          />
+        </Card>
       )}
 
       <div
@@ -743,7 +763,7 @@ function AccountsGridView({
               e.currentTarget.style.transform = "translateY(-2px)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.borderColor = "var(--color-neutral-200)";
               e.currentTarget.style.transform = "translateY(0)";
             }}
           >
@@ -771,7 +791,7 @@ function AccountsGridView({
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>{acct.name}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+                  <div style={{ fontSize: 12, color: "var(--color-neutral-400)", fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
                     {acct.accountId}
                   </div>
                 </div>
@@ -794,32 +814,32 @@ function AccountsGridView({
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
+                <div style={{ fontSize: 11, color: "var(--color-neutral-400)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
                   Resources
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)" }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--color-neutral-900)" }}>
                   {resourceCountByAccount[acct.accountId] ?? 0}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
+                <div style={{ fontSize: 11, color: "var(--color-neutral-400)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
                   Regions
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)" }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--color-neutral-900)" }}>
                   {acct.regions.length}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
+                <div style={{ fontSize: 11, color: "var(--color-neutral-400)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
                   Status
                 </div>
-                <StatusBadge status={acct.enabled ? "active" : "stopped"} />
+                <InfraStatusBadge status={acct.enabled ? "active" : "stopped"} />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
+                <div style={{ fontSize: 11, color: "var(--color-neutral-400)", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 3 }}>
                   Last Sync
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-neutral-900)" }}>
                   {acct.lastSyncAt ? format(new Date(acct.lastSyncAt), "MMM d, HH:mm") : "Never"}
                 </div>
               </div>
@@ -968,14 +988,14 @@ function AccountResourcesView({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            className="btn"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={selectedResource ? () => setSelectedResource(null) : onBack}
-            style={{ padding: "6px 10px" }}
           >
             <ChevronLeft size={16} />
-          </button>
-          <Breadcrumb
+          </Button>
+          <Breadcrumbs
             items={[
               { label: "Infrastructure", onClick: onNavigateToProviders },
               ...(selectedResource
@@ -1005,17 +1025,14 @@ function AccountResourcesView({
             {provider}
           </span>
           {selectedResource && (
-            <span
-              className="badge badge-info"
-              style={{ fontSize: 11 }}
-            >
+            <Badge variant="info">
               {selectedResource.resource_type.toUpperCase()}
-            </span>
+            </Badge>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Cloud size={16} color="var(--text-muted)" />
-          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          <Cloud size={16} color="var(--color-neutral-400)" />
+          <span style={{ fontSize: 13, color: "var(--color-neutral-500)" }}>
             {summary?.total ?? 0} resources across{" "}
             {Object.keys(summary?.by_type ?? {}).length} services
           </span>
@@ -1038,40 +1055,31 @@ function AccountResourcesView({
                 ? (summary?.by_type.alb ?? 0) + (summary?.by_type.nlb ?? 0)
                 : (summary?.by_type[t.resourceType] ?? 0);
             return (
-              <button
+              <Button
                 key={t.id}
-                className="btn"
+                variant={activeTab === t.id ? "primary" : "secondary"}
+                size="sm"
                 onClick={() => handleTabChange(t.id)}
-                style={{
-                  background:
-                    activeTab === t.id ? "var(--accent)" : undefined,
-                  color: activeTab === t.id ? "#fff" : undefined,
-                  borderColor:
-                    activeTab === t.id ? "var(--accent)" : undefined,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 14px",
-                  fontSize: 13,
-                }}
               >
-                <Icon size={15} />
-                {t.label}
-                <span
-                  style={{
-                    background:
-                      activeTab === t.id
-                        ? "rgba(255,255,255,0.2)"
-                        : "var(--bg-primary)",
-                    padding: "1px 7px",
-                    borderRadius: 10,
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  {count}
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icon size={15} />
+                  {t.label}
+                  <span
+                    style={{
+                      background:
+                        activeTab === t.id
+                          ? "rgba(255,255,255,0.2)"
+                          : "var(--color-neutral-0)",
+                      padding: "1px 7px",
+                      borderRadius: 10,
+                      fontSize: 11,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {count}
+                  </span>
                 </span>
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -1086,14 +1094,12 @@ function AccountResourcesView({
             marginBottom: 16,
           }}
         >
-          <input
-            className="input"
+          <SearchInput
             placeholder={`Search ${tab.label} resources by name, ID, region, or metadata...`}
             value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            style={{ maxWidth: 480 }}
+            onChange={setSearchFilter}
           />
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          <span style={{ fontSize: 12, color: "var(--color-neutral-400)" }}>
             {allResources.length} {tab.label} resource
             {allResources.length !== 1 ? "s" : ""}
             {searchFilter && ` (filtered)`}
@@ -1123,63 +1129,6 @@ function AccountResourcesView({
 }
 
 // ---------------------------------------------------------------------------
-// Breadcrumb
-// ---------------------------------------------------------------------------
-
-function Breadcrumb({
-  items,
-}: {
-  items: { label: string; onClick?: () => void }[];
-}) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      {items.map((item, i) => (
-        <div
-          key={i}
-          style={{ display: "flex", alignItems: "center", gap: 6 }}
-        >
-          {i > 0 && (
-            <ChevronRight
-              size={14}
-              color="var(--text-muted)"
-            />
-          )}
-          {item.onClick ? (
-            <span
-              onClick={item.onClick}
-              style={{
-                fontSize: 14,
-                color: "var(--text-secondary)",
-                cursor: "pointer",
-                fontWeight: 500,
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.color = "var(--accent)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.color = "var(--text-secondary)")
-              }
-            >
-              {item.label}
-            </span>
-          ) : (
-            <span
-              style={{
-                fontSize: 14,
-                fontWeight: 700,
-                color: "var(--text-primary)",
-              }}
-            >
-              {item.label}
-            </span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Resource Table
 // ---------------------------------------------------------------------------
 
@@ -1199,12 +1148,12 @@ function ResourceTable({
   onSelect: (r: Resource) => void;
 }) {
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+    <Card variant="bordered" className="card" padding="sm">
       <table
         style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
       >
         <thead>
-          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+          <tr style={{ borderBottom: "1px solid var(--color-neutral-200)" }}>
             {tab.columns.map((col) => (
               <th
                 key={col.key}
@@ -1240,13 +1189,13 @@ function ResourceTable({
             <tr
               key={r.id}
               style={{
-                borderBottom: "1px solid var(--border)",
+                borderBottom: "1px solid var(--color-neutral-200)",
                 cursor: "pointer",
                 transition: "background 0.1s",
               }}
               onClick={() => onSelect(r)}
               onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "var(--bg-tertiary)")
+                (e.currentTarget.style.background = "var(--color-neutral-100)")
               }
               onMouseLeave={(e) =>
                 (e.currentTarget.style.background = "")
@@ -1257,14 +1206,14 @@ function ResourceTable({
                   {col.key === "name" ? (
                     <span
                       style={{
-                        color: "var(--accent)",
+                        color: "var(--color-primary-500)",
                         fontWeight: 500,
                       }}
                     >
                       {r.name}
                     </span>
                   ) : col.key === "status" ? (
-                    <StatusBadge status={r.status} />
+                    <InfraStatusBadge status={r.status} />
                   ) : col.render ? (
                     col.render(r)
                   ) : (
@@ -1276,7 +1225,7 @@ function ResourceTable({
                 <span
                   style={{
                     fontSize: 12,
-                    color: "var(--text-secondary)",
+                    color: "var(--color-neutral-500)",
                   }}
                 >
                   {r.region}
@@ -1286,7 +1235,7 @@ function ResourceTable({
                 <span
                   style={{
                     fontSize: 12,
-                    color: "var(--text-muted)",
+                    color: "var(--color-neutral-400)",
                   }}
                 >
                   {r.last_seen_at
@@ -1303,7 +1252,7 @@ function ResourceTable({
                 style={{
                   textAlign: "center",
                   padding: 48,
-                  color: "var(--text-muted)",
+                  color: "var(--color-neutral-400)",
                 }}
               >
                 No {tab.label} resources discovered
@@ -1312,7 +1261,7 @@ function ResourceTable({
           )}
         </tbody>
       </table>
-    </div>
+    </Card>
   );
 }
 
@@ -1354,7 +1303,7 @@ function ResourceDrillDown({
               style={{
                 fontSize: 16,
                 fontWeight: 600,
-                color: "var(--text-secondary)",
+                color: "var(--color-neutral-500)",
               }}
             >
               Metrics
@@ -1362,32 +1311,24 @@ function ResourceDrillDown({
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <div style={{ display: "flex", gap: 3 }}>
                 {TIME_RANGES.map((r) => (
-                  <button
+                  <Button
                     key={r.hours}
-                    className="btn"
+                    variant={timeRange === r.hours ? "primary" : "secondary"}
+                    size="sm"
                     onClick={() => setTimeRange(r.hours)}
-                    style={{
-                      padding: "5px 10px",
-                      fontSize: 12,
-                      background:
-                        timeRange === r.hours ? "var(--accent)" : undefined,
-                      color: timeRange === r.hours ? "#fff" : undefined,
-                      borderColor:
-                        timeRange === r.hours ? "var(--accent)" : undefined,
-                    }}
                   >
                     {r.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <button
-                className="btn"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setRefreshKey((k) => k + 1)}
-                style={{ padding: "5px 8px" }}
-                title="Refresh metrics"
               >
                 <RefreshCw size={14} />
-              </button>
+                <span className="sr-only" style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}>Refresh metrics</span>
+              </Button>
             </div>
           </div>
 
@@ -1414,13 +1355,13 @@ function ResourceDrillDown({
       )}
 
       {tab.keyMetrics.length === 0 && (
-        <div className="card empty-state">
-          <Cloud size={40} color="var(--text-muted)" />
-          <p>Metrics not available for {tab.label}.</p>
-          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            This service does not have standard metric collection configured.
-          </p>
-        </div>
+        <Card variant="bordered" className="card">
+          <EmptyState
+            icon={<Cloud size={40} color="var(--color-neutral-400)" />}
+            title={`Metrics not available for ${tab.label}.`}
+            description="This service does not have standard metric collection configured."
+          />
+        </Card>
       )}
     </div>
   );
@@ -1440,49 +1381,51 @@ function ResourceInfoCard({
   const infoFields = getInfoFields(resource, tab);
 
   return (
-    <div className="card" style={{ flex: 2 }}>
-      <h3
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: "var(--text-secondary)",
-          marginBottom: 14,
-          textTransform: "uppercase",
-          letterSpacing: "0.5px",
-        }}
-      >
-        Resource Details
-      </h3>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 12,
-        }}
-      >
-        <InfoItem label="Resource ID" value={resource.external_id} mono />
-        <InfoItem label="Region" value={resource.region} />
-        <InfoItem label="Account" value={resource.account_id} mono />
-        <InfoItem label="Status" value={resource.status} badge />
-        <InfoItem label="Provider" value={resource.provider.toUpperCase()} />
-        <InfoItem
-          label="Last Seen"
-          value={
-            resource.last_seen_at
-              ? format(new Date(resource.last_seen_at), "MMM d, HH:mm:ss")
-              : "Never"
-          }
-        />
-        {infoFields.map((f) => (
+    <Card variant="bordered" className="card">
+      <div style={{ flex: 2 }}>
+        <h3
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--color-neutral-500)",
+            marginBottom: 14,
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+          }}
+        >
+          Resource Details
+        </h3>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 12,
+          }}
+        >
+          <InfoItem label="Resource ID" value={resource.external_id} mono />
+          <InfoItem label="Region" value={resource.region} />
+          <InfoItem label="Account" value={resource.account_id} mono />
+          <InfoItem label="Status" value={resource.status} badge />
+          <InfoItem label="Provider" value={resource.provider.toUpperCase()} />
           <InfoItem
-            key={f.label}
-            label={f.label}
-            value={f.value}
-            mono={f.mono}
+            label="Last Seen"
+            value={
+              resource.last_seen_at
+                ? format(new Date(resource.last_seen_at), "MMM d, HH:mm:ss")
+                : "Never"
+            }
           />
-        ))}
+          {infoFields.map((f) => (
+            <InfoItem
+              key={f.label}
+              label={f.label}
+              value={f.value}
+              mono={f.mono}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1494,56 +1437,55 @@ function ResourceTagsCard({ resource }: { resource: Resource }) {
   const tags = Object.entries(resource.tags);
 
   return (
-    <div
-      className="card"
-      style={{ flex: 1, maxHeight: 300, overflowY: "auto" }}
-    >
-      <h3
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: "var(--text-secondary)",
-          marginBottom: 14,
-          textTransform: "uppercase",
-          letterSpacing: "0.5px",
-        }}
-      >
-        Tags ({tags.length})
-      </h3>
-      {tags.length === 0 ? (
-        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No tags</p>
-      ) : (
-        <div
-          style={{ display: "flex", flexDirection: "column", gap: 6 }}
+    <Card variant="bordered" className="card">
+      <div style={{ flex: 1, maxHeight: 300, overflowY: "auto" }}>
+        <h3
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--color-neutral-500)",
+            marginBottom: 14,
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+          }}
         >
-          {tags.map(([k, v]) => (
-            <div
-              key={k}
-              style={{ display: "flex", gap: 8, fontSize: 12 }}
-            >
-              <span
-                style={{
-                  color: "var(--accent)",
-                  fontWeight: 500,
-                  minWidth: 100,
-                  flexShrink: 0,
-                }}
+          Tags ({tags.length})
+        </h3>
+        {tags.length === 0 ? (
+          <p style={{ color: "var(--color-neutral-400)", fontSize: 13 }}>No tags</p>
+        ) : (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: 6 }}
+          >
+            {tags.map(([k, v]) => (
+              <div
+                key={k}
+                style={{ display: "flex", gap: 8, fontSize: 12 }}
               >
-                {k}
-              </span>
-              <span
-                style={{
-                  color: "var(--text-primary)",
-                  wordBreak: "break-all",
-                }}
-              >
-                {v}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+                <span
+                  style={{
+                    color: "var(--color-primary-500)",
+                    fontWeight: 500,
+                    minWidth: 100,
+                    flexShrink: 0,
+                  }}
+                >
+                  {k}
+                </span>
+                <span
+                  style={{
+                    color: "var(--color-neutral-900)",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {v}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -1603,7 +1545,7 @@ function MetricPanel({
   }, [data]);
 
   return (
-    <div className="card" style={{ padding: 16 }}>
+    <Card variant="bordered" className="card" padding="sm">
       <div
         style={{
           display: "flex",
@@ -1616,7 +1558,7 @@ function MetricPanel({
           style={{
             fontSize: 13,
             fontWeight: 600,
-            color: "var(--text-secondary)",
+            color: "var(--color-neutral-500)",
           }}
         >
           {label}
@@ -1627,7 +1569,7 @@ function MetricPanel({
               style={{
                 fontSize: 20,
                 fontWeight: 700,
-                color: "var(--text-primary)",
+                color: "var(--color-neutral-900)",
               }}
             >
               {formatMetricValue(latestValue, unit)}
@@ -1642,7 +1584,7 @@ function MetricPanel({
         </div>
       </div>
       <TimeSeriesChart data={data ?? []} height={180} />
-    </div>
+    </Card>
   );
 }
 
@@ -1666,7 +1608,7 @@ function InfoItem({
       <div
         style={{
           fontSize: 11,
-          color: "var(--text-muted)",
+          color: "var(--color-neutral-400)",
           marginBottom: 3,
           textTransform: "uppercase",
           letterSpacing: "0.3px",
@@ -1675,7 +1617,7 @@ function InfoItem({
         {label}
       </div>
       {badge ? (
-        <StatusBadge status={value} />
+        <InfraStatusBadge status={value} />
       ) : (
         <div
           style={{
@@ -1684,7 +1626,7 @@ function InfoItem({
             fontFamily: mono
               ? "'JetBrains Mono', 'Fira Code', monospace"
               : undefined,
-            color: "var(--text-primary)",
+            color: "var(--color-neutral-900)",
             wordBreak: "break-all",
           }}
         >
@@ -1692,36 +1634,6 @@ function InfoItem({
         </div>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Status Badge
-// ---------------------------------------------------------------------------
-
-function StatusBadge({ status }: { status: string }) {
-  const colorMap: Record<string, string> = {
-    active: "var(--success)",
-    running: "var(--success)",
-    stopped: "var(--warning)",
-    terminated: "var(--error)",
-    unknown: "var(--text-muted)",
-  };
-  const color = colorMap[status] ?? "var(--text-muted)";
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        fontSize: 12,
-        fontWeight: 500,
-      }}
-    >
-      <Circle size={8} fill={color} color={color} />
-      <span style={{ textTransform: "capitalize" }}>{status}</span>
-    </span>
   );
 }
 
@@ -2024,11 +1936,11 @@ const thStyle: React.CSSProperties = {
   textAlign: "left",
   padding: "10px 16px",
   fontWeight: 600,
-  color: "var(--text-secondary)",
+  color: "var(--color-neutral-500)",
   fontSize: 11,
   textTransform: "uppercase",
   letterSpacing: "0.5px",
-  background: "var(--bg-tertiary)",
+  background: "var(--color-neutral-100)",
 };
 
 const tdStyle: React.CSSProperties = {

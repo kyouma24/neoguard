@@ -24,10 +24,7 @@ def get_boto_session(account: AWSAccount, region: str) -> boto3.Session:
     if cached and (time.time() - cached[1]) < SESSION_TTL:
         return cached[0]
 
-    if account.role_arn:
-        session = _assume_role_session(account, region)
-    else:
-        session = boto3.Session(region_name=region)
+    session = _assume_role_session(account, region) if account.role_arn else boto3.Session(region_name=region)
 
     _session_cache[cache_key] = (session, time.time())
     return session

@@ -143,7 +143,8 @@ class TelemetryCollector:
         points.append(_counter_point("neoguard.alerts.rules_evaluated", float(engine_stats["rules_evaluated"])))
         points.append(_counter_point("neoguard.alerts.state_transitions", float(engine_stats["state_transitions"])))
         points.append(_counter_point("neoguard.alerts.notifications_sent", float(engine_stats["notifications_sent"])))
-        points.append(_counter_point("neoguard.alerts.notifications_failed", float(engine_stats["notifications_failed"])))
+        notif_failed = float(engine_stats["notifications_failed"])
+        points.append(_counter_point("neoguard.alerts.notifications_failed", notif_failed))
 
         return points
 

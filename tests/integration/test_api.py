@@ -5,6 +5,7 @@ Run with: NEOGUARD_DB_PORT=5433 pytest tests/integration/ -v
 """
 
 import asyncio
+from datetime import UTC
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -347,8 +348,8 @@ class TestAlertSilences:
         rule_id = rule_resp.json()["id"]
 
         # Create one-time silence
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
         resp = await client.post("/api/v1/alerts/silences", json={
             "name": "Deploy Window",
             "comment": "Deploying v2.0",
@@ -397,8 +398,8 @@ class TestAlertSilences:
         await client.delete(f"/api/v1/alerts/rules/{rule_id}")
 
     async def test_create_recurring_silence(self, client: AsyncClient):
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
         resp = await client.post("/api/v1/alerts/silences", json={
             "name": "Nightly Shutdown Window",
             "comment": "Server maintenance 9PM-9AM",
@@ -423,8 +424,8 @@ class TestAlertSilences:
         await client.delete(f"/api/v1/alerts/silences/{silence['id']}")
 
     async def test_create_matcher_based_silence(self, client: AsyncClient):
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
         resp = await client.post("/api/v1/alerts/silences", json={
             "name": "Silence Staging Env",
             "matchers": {"env": "staging"},
@@ -439,8 +440,8 @@ class TestAlertSilences:
         await client.delete(f"/api/v1/alerts/silences/{silence['id']}")
 
     async def test_create_silence_validation_no_targets(self, client: AsyncClient):
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
         resp = await client.post("/api/v1/alerts/silences", json={
             "name": "Bad Silence",
             "starts_at": now.isoformat(),
@@ -449,8 +450,8 @@ class TestAlertSilences:
         assert resp.status_code == 422
 
     async def test_create_silence_validation_ends_before_starts(self, client: AsyncClient):
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
         resp = await client.post("/api/v1/alerts/silences", json={
             "name": "Bad Silence",
             "rule_ids": ["rule-1"],
@@ -460,8 +461,8 @@ class TestAlertSilences:
         assert resp.status_code == 422
 
     async def test_create_recurring_silence_validation_no_days(self, client: AsyncClient):
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
         resp = await client.post("/api/v1/alerts/silences", json={
             "name": "Bad Recurring",
             "rule_ids": ["rule-1"],
@@ -488,8 +489,8 @@ class TestAlertSilences:
         assert resp.status_code == 404
 
     async def test_list_with_pagination(self, client: AsyncClient):
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
 
         # Create 3 silences
         ids = []
@@ -533,8 +534,8 @@ class TestAlertRuleWithSilence:
         rule_id = resp.json()["id"]
 
         # Create a silence for this rule
-        from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        now = datetime.now(UTC)
         resp = await client.post("/api/v1/alerts/silences", json={
             "name": "E2E Silence Test",
             "rule_ids": [rule_id],
@@ -691,8 +692,8 @@ class TestNotificationChannels:
 
 
 @skip_no_db
-class TestAPIKeys:
-    """CRUD lifecycle for API keys."""
+class TestAPIKeysExtended:
+    """Extended CRUD lifecycle for API keys."""
 
     async def test_full_crud_lifecycle(self, client: AsyncClient):
         # Create
@@ -748,8 +749,8 @@ class TestAPIKeys:
         assert resp.status_code == 404
 
     async def test_create_with_expiry(self, client: AsyncClient):
-        from datetime import datetime, timedelta, timezone
-        expires = (datetime.now(timezone.utc) + timedelta(days=90)).isoformat()
+        from datetime import datetime, timedelta
+        expires = (datetime.now(UTC) + timedelta(days=90)).isoformat()
         resp = await client.post("/api/v1/auth/keys", json={
             "name": "Expiring Key",
             "expires_at": expires,

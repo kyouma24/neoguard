@@ -1,0 +1,156 @@
+.button {
+  font-family: var(--typography-font-family-primary);
+  border: none;
+  border-radius: var(--border-radius-full);
+  cursor: pointer;
+  transition: background-color var(--transition-normal-duration, 300ms) var(--transition-normal-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+              color var(--transition-normal-duration, 300ms) var(--transition-normal-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+              border-color var(--transition-normal-duration, 300ms) var(--transition-normal-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+              transform 150ms ease,
+              box-shadow var(--transition-normal-duration, 300ms) var(--transition-normal-easing, cubic-bezier(0.4, 0, 0.2, 1));
+  font-weight: var(--typography-font-weight-semibold, 600);
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-0.0625rem);
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Size variants */
+.sm {
+  font-size: var(--typography-font-size-sm, 0.875rem);
+  padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+  min-height: 2rem;
+}
+
+.md {
+  font-size: var(--typography-font-size-base, 1rem);
+  padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem);
+  min-height: 2.5rem;
+}
+
+.lg {
+  font-size: var(--typography-font-size-lg, 1.125rem);
+  padding: var(--spacing-md, 1rem) var(--spacing-lg, 1.5rem);
+  min-height: 3rem;
+}
+
+/* Color variants */
+
+/* Primary CTA — NeoNXT brand gradient. Use for hero / "+ New" / submit actions.
+   For a flat indigo button use variant="ghost". */
+.primary {
+  background: var(--gradient-brand,
+    linear-gradient(90deg, #1310A4 0%, #5E0792 25%, #CD0063 55%, #F20F07 80%, #FF4000 100%));
+  color: var(--color-neutral-0, #ffffff);
+  box-shadow: 0 0.25rem 0.75rem rgba(19, 16, 164, 0.25);
+  border: none;
+}
+
+.primary:hover:not(:disabled) {
+  box-shadow: 0 0.5rem 1.25rem rgba(205, 0, 99, 0.35);
+  filter: brightness(1.05);
+}
+
+.primary:active:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.secondary {
+  background-color: var(--color-secondary-500, #5E0792);
+  color: var(--color-neutral-0, #ffffff);
+}
+
+.secondary:hover:not(:disabled) {
+  background-color: var(--color-secondary-600, #4d067a);
+}
+
+.secondary:active:not(:disabled) {
+  background-color: var(--color-secondary-700, #3c0561);
+}
+
+.ghost {
+  background-color: transparent;
+  color: var(--color-primary-500, #1310A4);
+  border: 0.0625rem solid var(--color-primary-500, #1310A4);
+}
+
+.ghost:hover:not(:disabled) {
+  background-color: var(--color-primary-50, #f0f0ff);
+}
+
+.ghost:active:not(:disabled) {
+  background-color: var(--color-primary-100, #e0e0ff);
+}
+
+.danger {
+  background-color: var(--color-danger-500, #ef4444);
+  color: var(--color-neutral-0, #ffffff);
+}
+
+.danger:hover:not(:disabled) {
+  background-color: var(--color-danger-600, #dc2626);
+}
+
+.danger:active:not(:disabled) {
+  background-color: var(--color-danger-700, #b91c1c);
+}
+
+/* Brand gradient — solid gradient fill, white text (primary CTA) */
+.brand {
+  background: var(--gradient-brand);
+  color: var(--color-neutral-0);
+  box-shadow: 0 0.25rem 0.75rem rgba(19, 16, 164, 0.25);
+}
+
+.brand:hover:not(:disabled) {
+  box-shadow: 0 0.5rem 1.25rem rgba(205, 0, 99, 0.35);
+  filter: brightness(1.05);
+}
+
+.brand:active:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+/* Brand gradient text — white fill, gradient text (inverse CTA on dark bg) */
+.brandInverse {
+  background: var(--color-neutral-0);
+  color: transparent;
+  background-clip: padding-box;
+  position: relative;
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.15);
+}
+
+.brandInverse > span {
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: var(--typography-font-weight-semibold);
+}
+
+.brandInverse:hover:not(:disabled) {
+  box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.25);
+}
+
+/* Disabled state */
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+.button:disabled:hover,
+.button:disabled:active {
+  transform: none;
+  filter: grayscale(0.5);
+}

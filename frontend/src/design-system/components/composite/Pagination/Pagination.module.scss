@@ -1,0 +1,61 @@
+.root {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1vh;
+  padding: 0.4rem 0;
+  font-size: 0.7rem;
+  color: var(--color-neutral-600, #6b6b80);
+}
+
+.left,
+.center {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.center {
+  gap: 0.2rem;
+}
+
+.sizeSelect {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.68rem;
+  border: 0.05rem solid var(--color-neutral-300, #d4d4d8);
+  border-radius: var(--border-radius-full, 9999px);
+  background: var(--color-neutral-0, #ffffff);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn {
+  font-size: 0.65rem;
+  padding: 0.2rem 0.5rem;
+  min-width: 1.5rem;
+  border: 0.05rem solid var(--color-neutral-300, #d4d4d8);
+  background: var(--color-neutral-0, #ffffff);
+  color: var(--color-neutral-700, #3f3f46);
+  border-radius: var(--border-radius-full, 9999px);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--color-neutral-100, #f5f5f5);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.active {
+  background: var(--color-brand-magenta, #CD0063);
+  color: #ffffff;
+  border-color: var(--color-brand-magenta, #CD0063);
+}
+
+.dots {
+  padding: 0 0.2rem;
+}

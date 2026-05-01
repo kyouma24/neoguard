@@ -98,6 +98,9 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     severity        TEXT NOT NULL DEFAULT 'warning',
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
     notification    JSONB NOT NULL DEFAULT '{}',
+    aggregation     TEXT NOT NULL DEFAULT 'avg',
+    cooldown_sec    INTEGER NOT NULL DEFAULT 300,
+    nodata_action   TEXT NOT NULL DEFAULT 'ok',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -110,17 +113,35 @@ CREATE TABLE IF NOT EXISTS alert_events (
     id              TEXT PRIMARY KEY,
     tenant_id       TEXT NOT NULL DEFAULT 'default',
     rule_id         TEXT NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
-    status          TEXT NOT NULL,  -- 'firing', 'resolved'
+    rule_name       TEXT NOT NULL DEFAULT '',
+    severity        TEXT NOT NULL DEFAULT 'warning',
+    status          TEXT NOT NULL,  -- 'firing', 'resolved', 'nodata'
     value           DOUBLE PRECISION NOT NULL,
     threshold       DOUBLE PRECISION NOT NULL,
     message         TEXT NOT NULL DEFAULT '',
     notification_meta JSONB NOT NULL DEFAULT '{}',
     fired_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    resolved_at     TIMESTAMPTZ
+    resolved_at     TIMESTAMPTZ,
+    acknowledged_at TIMESTAMPTZ,
+    acknowledged_by TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_alert_events_tenant_rule
     ON alert_events (tenant_id, rule_id, fired_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alert_events_status
+    ON alert_events (tenant_id, status, fired_at DESC);
+
+-- Alert rule state persistence (survives restart)
+CREATE TABLE IF NOT EXISTS alert_rule_states (
+    rule_id         TEXT PRIMARY KEY REFERENCES alert_rules(id) ON DELETE CASCADE,
+    status          TEXT NOT NULL DEFAULT 'ok',
+    entered_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_value      DOUBLE PRECISION,
+    last_fired_at   TIMESTAMPTZ,
+    transition_count INTEGER NOT NULL DEFAULT 0,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- Dashboard definitions
 CREATE TABLE IF NOT EXISTS dashboards (
@@ -280,10 +301,11 @@ CREATE TABLE IF NOT EXISTS api_keys (
     id              TEXT PRIMARY KEY,
     tenant_id       TEXT NOT NULL DEFAULT 'default',
     name            TEXT NOT NULL,
-    key_hash        TEXT NOT NULL,          -- SHA-256 hash of the key (never store plaintext)
-    key_prefix      TEXT NOT NULL,          -- first 8 chars of the key for identification
-    scopes          JSONB NOT NULL DEFAULT '["read","write"]',  -- e.g. ["read"], ["write"], ["admin"]
-    rate_limit      INTEGER NOT NULL DEFAULT 1000,  -- requests per minute
+    key_hash        TEXT NOT NULL,
+    key_prefix      TEXT NOT NULL,
+    hash_version    INTEGER NOT NULL DEFAULT 1,    -- 1=SHA-256, 2=Argon2id (ADR-0006)
+    scopes          JSONB NOT NULL DEFAULT '["read","write"]',
+    rate_limit      INTEGER NOT NULL DEFAULT 1000,
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
     expires_at      TIMESTAMPTZ,
     last_used_at    TIMESTAMPTZ,
@@ -295,3 +317,225 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_hash
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_tenant
     ON api_keys (tenant_id, enabled);
+
+-- =====================================================================
+-- Auth: Users (UUIDv7 PKs from here on — ADR-0004)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS users (
+    id              UUID PRIMARY KEY,
+    email           TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    password_hash   TEXT NOT NULL,
+    is_super_admin  BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    email_verified  BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+    ON users (LOWER(email));
+
+-- =====================================================================
+-- Auth: Tenants
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS tenants (
+    id              UUID PRIMARY KEY,
+    slug            TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    tier            TEXT NOT NULL DEFAULT 'free',
+    status          TEXT NOT NULL DEFAULT 'active',
+    quotas          JSONB NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug
+    ON tenants (slug);
+
+-- =====================================================================
+-- Auth: Tenant memberships (user <-> tenant with role)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS tenant_memberships (
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL DEFAULT 'member',
+    invited_by      UUID REFERENCES users(id),
+    joined_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, tenant_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memberships_tenant
+    ON tenant_memberships (tenant_id, role);
+
+-- =====================================================================
+-- Auth: User invites
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS user_invites (
+    id              UUID PRIMARY KEY,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    email           TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'member',
+    invited_by      UUID NOT NULL REFERENCES users(id),
+    token_hash      TEXT NOT NULL,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    accepted_at     TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_invites_tenant
+    ON user_invites (tenant_id);
+
+CREATE INDEX IF NOT EXISTS idx_invites_token
+    ON user_invites (token_hash);
+
+-- =====================================================================
+-- Audit: Tenant-scoped audit log
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS audit_log (
+    id              UUID PRIMARY KEY,
+    tenant_id       UUID NOT NULL,
+    actor_id        UUID,
+    actor_type      TEXT NOT NULL DEFAULT 'user',
+    action          TEXT NOT NULL,
+    resource_type   TEXT NOT NULL,
+    resource_id     TEXT,
+    details         JSONB NOT NULL DEFAULT '{}',
+    ip_address      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_tenant_time
+    ON audit_log (tenant_id, created_at DESC);
+
+-- =====================================================================
+-- Audit: Platform-level audit log (super admin actions)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS platform_audit_log (
+    id              UUID PRIMARY KEY,
+    actor_id        UUID NOT NULL,
+    action          TEXT NOT NULL,
+    target_type     TEXT NOT NULL,
+    target_id       TEXT,
+    reason          TEXT NOT NULL DEFAULT '',
+    details         JSONB NOT NULL DEFAULT '{}',
+    ip_address      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_audit_time
+    ON platform_audit_log (created_at DESC);
+
+-- =====================================================================
+-- Audit: Security log (auth events — login, logout, password changes)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS security_log (
+    id              UUID PRIMARY KEY,
+    user_id         UUID,
+    event_type      TEXT NOT NULL,
+    success         BOOLEAN NOT NULL,
+    ip_address      TEXT,
+    user_agent      TEXT,
+    details         JSONB NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_log_user
+    ON security_log (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_security_log_type
+    ON security_log (event_type, created_at DESC);
+
+-- =====================================================================
+-- Row-Level Security policies on ALL tenant-scoped tables
+-- Enforced via: SET app.current_tenant_id = '<tenant_id>' at connection checkout
+-- =====================================================================
+
+-- Helper: allow neoguard superuser to bypass RLS (for migrations, admin ops)
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'neoguard_app') THEN
+        CREATE ROLE neoguard_app;
+    END IF;
+END $$;
+
+-- Existing tables (tenant_id is TEXT)
+ALTER TABLE alert_rules ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON alert_rules
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE alert_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON alert_events
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE alert_rule_states ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON alert_rule_states
+    FOR ALL USING (rule_id IN (
+        SELECT id FROM alert_rules WHERE tenant_id = current_setting('app.current_tenant_id', true)
+    ));
+
+ALTER TABLE dashboards ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON dashboards
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE notification_channels ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON notification_channels
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON resources
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE aws_accounts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON aws_accounts
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE azure_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON azure_subscriptions
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE alert_silences ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON alert_silences
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE collection_jobs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON collection_jobs
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON api_keys
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+-- New tables (tenant_id is UUID)
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON audit_log
+    FOR ALL USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+
+-- Metrics hypertable: RLS on hypertables works but we set the GUC before queries
+ALTER TABLE metrics ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON metrics
+    FOR ALL USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+-- =====================================================================
+-- Auth: Password reset tokens
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id              UUID PRIMARY KEY,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash      TEXT NOT NULL,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    used_at         TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_hash
+    ON password_reset_tokens (token_hash);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user
+    ON password_reset_tokens (user_id, created_at DESC);
+
+-- Tables NOT RLS-enforced (platform-level):
+-- users, tenants, tenant_memberships, user_invites, platform_audit_log, security_log, password_reset_tokens
+-- These are accessed cross-tenant by auth/admin middleware
+
+-- The neoguard DB owner bypasses RLS by default (table owner).
+-- For the app connection pool, we rely on setting the GUC before each request.

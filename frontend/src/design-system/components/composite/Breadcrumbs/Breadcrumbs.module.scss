@@ -1,0 +1,36 @@
+.root {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs, 0.25rem);
+  font-size: var(--typography-font-size-sm, 0.875rem);
+  color: var(--color-neutral-500, #6b7280);
+  font-family: var(--typography-font-family-primary, 'Poppins', sans-serif);
+}
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary-600, #4f46e5);
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: var(--border-radius-sm, 0.25rem);
+}
+
+.link:hover,
+.link:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.current {
+  color: var(--color-neutral-900, #111827);
+  font-weight: var(--typography-font-weight-semibold, 600);
+}
+
+.separator {
+  color: var(--color-neutral-400, #9ca3af);
+  user-select: none;
+}

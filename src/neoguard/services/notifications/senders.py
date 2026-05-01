@@ -101,18 +101,33 @@ class BaseSender(abc.ABC):
 
 
 class WebhookSender(BaseSender):
-    """Posts JSON to an arbitrary URL."""
+    """Posts JSON to an arbitrary URL with optional HMAC-SHA256 signing."""
+
+    def _sign_payload(self, body_bytes: bytes, secret: str) -> str:
+        import hashlib
+        import hmac as _hmac
+        return _hmac.new(
+            secret.encode(), body_bytes, hashlib.sha256,
+        ).hexdigest()
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
         url = config["url"]
-        headers = config.get("headers", {})
+        headers = {**config.get("headers", {})}
         body = _build_webhook_body(payload)
+        import orjson as _orjson
+        body_bytes = _orjson.dumps(body)
+
+        signing_secret = config.get("signing_secret")
+        if signing_secret:
+            headers["X-NeoGuard-Signature"] = self._sign_payload(body_bytes, signing_secret)
 
         async def _do() -> dict:
             async with (
                 aiohttp.ClientSession() as session,
                 session.post(
-                    url, json=body, headers=headers, timeout=_TIMEOUT_DEFAULT,
+                    url, data=body_bytes,
+                    headers={**headers, "Content-Type": "application/json"},
+                    timeout=_TIMEOUT_DEFAULT,
                 ) as resp,
             ):
                 await _check_response(resp, "Webhook POST")
@@ -128,14 +143,22 @@ class WebhookSender(BaseSender):
         self, payload: AlertPayload, config: dict, firing_meta: dict,
     ) -> None:
         url = config["url"]
-        headers = config.get("headers", {})
+        headers = {**config.get("headers", {})}
         body = _build_webhook_body(payload)
+        import orjson as _orjson
+        body_bytes = _orjson.dumps(body)
+
+        signing_secret = config.get("signing_secret")
+        if signing_secret:
+            headers["X-NeoGuard-Signature"] = self._sign_payload(body_bytes, signing_secret)
 
         async def _do() -> None:
             async with (
                 aiohttp.ClientSession() as session,
                 session.post(
-                    url, json=body, headers=headers, timeout=_TIMEOUT_DEFAULT,
+                    url, data=body_bytes,
+                    headers={**headers, "Content-Type": "application/json"},
+                    timeout=_TIMEOUT_DEFAULT,
                 ) as resp,
             ):
                 await _check_response(resp, "Webhook resolved POST")
@@ -418,11 +441,207 @@ class FreshdeskSender(BaseSender):
         return await _retry(_do)
 
 
+class PagerDutySender(BaseSender):
+    """Creates PagerDuty incidents via Events API v2."""
+
+    async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
+        routing_key = config["routing_key"]
+        severity_map = {"critical": "critical", "warning": "warning", "info": "info"}
+        pd_severity = severity_map.get(payload.severity, "warning")
+
+        pd_body = {
+            "routing_key": routing_key,
+            "event_action": "trigger",
+            "dedup_key": f"neoguard-{payload.rule_id}",
+            "payload": {
+                "summary": payload.message,
+                "source": f"neoguard/{payload.metric_name}",
+                "severity": pd_severity,
+                "component": payload.metric_name,
+                "group": payload.tags_filter.get("service", "neoguard"),
+                "class": payload.severity,
+                "custom_details": {
+                    "rule_name": payload.rule_name,
+                    "metric_name": payload.metric_name,
+                    "condition": f"{payload.condition} {payload.threshold}",
+                    "current_value": payload.current_value,
+                    "fired_at": payload.fired_at.isoformat(),
+                    "event_id": payload.event_id,
+                    "tags": payload.tags_filter,
+                },
+            },
+            "links": [],
+            "images": [],
+        }
+
+        async def _do() -> dict:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    "https://events.pagerduty.com/v2/enqueue",
+                    json=pd_body, timeout=_TIMEOUT_DEFAULT,
+                ) as resp,
+            ):
+                await _check_response(resp, "PagerDuty trigger")
+                resp_data = await resp.json()
+                await log.ainfo(
+                    "PagerDuty incident triggered",
+                    dedup_key=pd_body["dedup_key"],
+                    status=resp_data.get("status"),
+                    alert=payload.rule_name,
+                )
+                return {
+                    "dedup_key": pd_body["dedup_key"],
+                    "status": resp_data.get("status"),
+                }
+
+        return await _retry(_do)
+
+    async def send_resolved(
+        self, payload: AlertPayload, config: dict, firing_meta: dict,
+    ) -> None:
+        routing_key = config["routing_key"]
+        dedup_key = firing_meta.get("dedup_key", f"neoguard-{payload.rule_id}")
+
+        pd_body = {
+            "routing_key": routing_key,
+            "event_action": "resolve",
+            "dedup_key": dedup_key,
+        }
+
+        async def _do() -> None:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    "https://events.pagerduty.com/v2/enqueue",
+                    json=pd_body, timeout=_TIMEOUT_DEFAULT,
+                ) as resp,
+            ):
+                await _check_response(resp, "PagerDuty resolve")
+                await log.ainfo(
+                    "PagerDuty incident resolved",
+                    dedup_key=dedup_key, alert=payload.rule_name,
+                )
+
+        await _retry(_do)
+
+
+class MSTeamsSender(BaseSender):
+    """Posts adaptive cards to Microsoft Teams incoming webhook."""
+
+    async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
+        webhook_url = config["webhook_url"]
+        color = "attention" if payload.severity == "critical" else "warning"
+
+        card = {
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "size": "large",
+                            "weight": "bolder",
+                            "color": color,
+                            "text": f"🚨 Alert FIRING: {payload.rule_name}",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": payload.message,
+                            "wrap": True,
+                        },
+                        {
+                            "type": "FactSet",
+                            "facts": [
+                                {"title": "Severity", "value": payload.severity.upper()},
+                                {"title": "Metric", "value": payload.metric_name},
+                                {"title": "Current", "value": f"{payload.current_value:.2f}"},
+                                {"title": "Threshold", "value": f"{payload.condition} {payload.threshold}"},
+                                {"title": "Fired At", "value": payload.fired_at.isoformat()},
+                            ],
+                        },
+                    ],
+                },
+            }],
+        }
+
+        async def _do() -> dict:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    webhook_url, json=card, timeout=_TIMEOUT_DEFAULT,
+                ) as resp,
+            ):
+                await _check_response(resp, "MS Teams webhook")
+                await log.ainfo(
+                    "MS Teams notification sent", status=resp.status,
+                    alert=payload.rule_name,
+                )
+                return {"status_code": resp.status}
+
+        return await _retry(_do)
+
+    async def send_resolved(
+        self, payload: AlertPayload, config: dict, firing_meta: dict,
+    ) -> None:
+        webhook_url = config["webhook_url"]
+
+        card = {
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "size": "large",
+                            "weight": "bolder",
+                            "color": "good",
+                            "text": f"✅ Alert RESOLVED: {payload.rule_name}",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": (
+                                f"{payload.metric_name} returned to normal "
+                                f"(current: {payload.current_value:.2f})"
+                            ),
+                            "wrap": True,
+                        },
+                    ],
+                },
+            }],
+        }
+
+        async def _do() -> None:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    webhook_url, json=card, timeout=_TIMEOUT_DEFAULT,
+                ) as resp,
+            ):
+                await _check_response(resp, "MS Teams resolved webhook")
+                await log.ainfo(
+                    "MS Teams resolved sent", status=resp.status,
+                    alert=payload.rule_name,
+                )
+
+        await _retry(_do)
+
+
 SENDERS: dict[ChannelType, BaseSender] = {
     ChannelType.WEBHOOK: WebhookSender(),
     ChannelType.SLACK: SlackSender(),
     ChannelType.EMAIL: EmailSender(),
     ChannelType.FRESHDESK: FreshdeskSender(),
+    ChannelType.PAGERDUTY: PagerDutySender(),
+    ChannelType.MSTEAMS: MSTeamsSender(),
 }
 
 
