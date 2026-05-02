@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.dashboards import Dashboard, DashboardCreate, DashboardUpdate
 from neoguard.services.dashboards import (
     create_dashboard,
@@ -13,7 +13,11 @@ from neoguard.services.dashboards import (
 router = APIRouter(prefix="/api/v1/dashboards", tags=["dashboards"])
 
 
-@router.post("", status_code=201)
+@router.post(
+    "",
+    status_code=201,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def create(
     data: DashboardCreate,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -41,7 +45,10 @@ async def get_one(
     return dash
 
 
-@router.patch("/{dashboard_id}")
+@router.patch(
+    "/{dashboard_id}",
+    dependencies=[Depends(require_scope("write"))],
+)
 async def update(
     dashboard_id: str,
     data: DashboardUpdate,
@@ -53,7 +60,11 @@ async def update(
     return dash
 
 
-@router.delete("/{dashboard_id}", status_code=204)
+@router.delete(
+    "/{dashboard_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def delete(
     dashboard_id: str,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -63,7 +74,12 @@ async def delete(
         raise HTTPException(status_code=404, detail="Dashboard not found")
 
 
-@router.post("/{dashboard_id}/duplicate", status_code=201, response_model=Dashboard)
+@router.post(
+    "/{dashboard_id}/duplicate",
+    status_code=201,
+    response_model=Dashboard,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def duplicate(
     dashboard_id: str,
     tenant_id: str = Depends(get_tenant_id_required),

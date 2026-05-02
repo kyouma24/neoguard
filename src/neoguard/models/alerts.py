@@ -31,9 +31,10 @@ class NoDataAction(StrEnum):
 
 
 class AlertSeverity(StrEnum):
-    INFO = "info"
-    WARNING = "warning"
-    CRITICAL = "critical"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
 
 
 class AlertStatus(StrEnum):
@@ -117,7 +118,7 @@ class AlertRuleCreate(BaseModel):
     threshold: float
     duration_sec: int = Field(default=60, ge=10, le=3600)
     interval_sec: int = Field(default=30, ge=10, le=600)
-    severity: AlertSeverity = AlertSeverity.WARNING
+    severity: AlertSeverity = AlertSeverity.P3
     notification: dict = Field(default_factory=dict)
     aggregation: AlertAggregation = AlertAggregation.AVG
     cooldown_sec: int = Field(default=300, ge=0, le=86400)

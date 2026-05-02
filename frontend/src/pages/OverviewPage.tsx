@@ -6,6 +6,7 @@ import {
   Cloud,
   Database,
   FileText,
+  Lock,
   RefreshCw,
   Server,
   TrendingUp,
@@ -13,6 +14,7 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 import { useApi } from "../hooks/useApi";
 import { useInterval } from "../hooks/useInterval";
+import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import { TimeSeriesChart } from "../components/TimeSeriesChart";
 import {
@@ -21,7 +23,6 @@ import {
   StatusBadge,
   Button,
   PageHeader,
-  ProgressBar,
   DataTable,
 } from "../design-system";
 import type { DataTableColumn } from "../design-system";
@@ -113,8 +114,10 @@ const eventColumns: DataTableColumn<AlertEvent>[] = [
 ];
 
 export function OverviewPage() {
+  const { user } = useAuth();
   const [timeRange, setTimeRange] = useState(60);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const isAdmin = user?.is_super_admin || false;
 
   const { data: health, refetch: refetchHealth } = useApi<HealthStatus>(
     () => api.health(),
@@ -134,28 +137,30 @@ export function OverviewPage() {
   const now = new Date();
   const start = new Date(now.getTime() - timeRange * 60_000);
 
-  const { data: cpuMetrics } = useApi<MetricQueryResult[]>(
-    () =>
-      api.metrics.query({
-        name: "neoguard.process.cpu_percent",
-        start: start.toISOString(),
-        end: now.toISOString(),
-        interval: timeRange <= 60 ? "1m" : "5m",
-        aggregation: "avg",
-      }),
-    [timeRange],
+  const { data: cpuMetrics, error: cpuError } = useApi<MetricQueryResult[]>(
+    () => isAdmin
+      ? api.metrics.query({
+          name: "neoguard.process.cpu_percent",
+          start: start.toISOString(),
+          end: now.toISOString(),
+          interval: timeRange <= 60 ? "1m" : "5m",
+          aggregation: "avg",
+        })
+      : Promise.resolve([]),
+    [timeRange, isAdmin],
   );
 
-  const { data: memMetrics } = useApi<MetricQueryResult[]>(
-    () =>
-      api.metrics.query({
-        name: "neoguard.process.memory_rss_bytes",
-        start: start.toISOString(),
-        end: now.toISOString(),
-        interval: timeRange <= 60 ? "1m" : "5m",
-        aggregation: "avg",
-      }),
-    [timeRange],
+  const { data: memMetrics, error: memError } = useApi<MetricQueryResult[]>(
+    () => isAdmin
+      ? api.metrics.query({
+          name: "neoguard.process.memory_rss_bytes",
+          start: start.toISOString(),
+          end: now.toISOString(),
+          interval: timeRange <= 60 ? "1m" : "5m",
+          aggregation: "avg",
+        })
+      : Promise.resolve([]),
+    [timeRange, isAdmin],
   );
 
   const refetchAll = () => {
@@ -183,7 +188,7 @@ export function OverviewPage() {
   return (
     <div>
       <PageHeader
-        title="System Overview"
+        title="Overview"
         actions={
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Button
@@ -205,9 +210,9 @@ export function OverviewPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--color-danger-500)" }}>
             <AlertTriangle size={16} />
             <span style={{ fontWeight: 600 }}>System Degraded</span>
-            {health.degraded_reasons.length > 0 && (
+            {(health.degraded_reasons?.length ?? 0) > 0 && (
               <span style={{ color: "var(--color-neutral-500)" }}>
-                — {health.degraded_reasons.join(", ")}
+                — {health.degraded_reasons?.join(", ")}
               </span>
             )}
           </div>
@@ -215,45 +220,53 @@ export function OverviewPage() {
       )}
 
       {/* Stat Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
         <StatCard icon={<Activity size={18} />} label="Status" value={health?.status ?? "..."} color={health?.status === "healthy" ? "var(--color-success-500)" : "var(--color-warning-500)"} />
         <StatCard icon={<Server size={18} />} label="Resources" value={formatNum(resourceSummary?.total)} color="var(--color-primary-500)" />
-        <StatCard icon={<TrendingUp size={18} />} label="Metrics Written" value={formatNum(health?.writers.metrics.total_written)} color="var(--color-primary-500)" />
-        <StatCard icon={<FileText size={18} />} label="Logs Written" value={formatNum(health?.writers.logs.total_written)} color="var(--color-info-500)" />
         <StatCard icon={<Bell size={18} />} label="Firing Alerts" value={firingAlerts.length} color={firingAlerts.length > 0 ? "var(--color-danger-500)" : "var(--color-success-500)"} />
-        <StatCard icon={<AlertTriangle size={18} />} label="Dropped" value={formatNum((health?.writers.metrics.total_dropped ?? 0) + (health?.writers.logs.total_dropped ?? 0))} color={(health?.writers.metrics.total_dropped ?? 0) > 0 ? "var(--color-danger-500)" : "var(--color-success-500)"} />
+        <StatCard icon={<AlertTriangle size={18} />} label="Alert Rules" value={`${enabledRules} / ${totalRules}`} color="var(--color-primary-500)" />
       </div>
 
-      {/* Charts Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
-        <Card variant="bordered">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <span style={{ fontSize: "var(--typography-font-size-sm)", fontWeight: 600, color: "var(--color-neutral-500)" }}>
-              CPU Usage (%)
-            </span>
-            <div style={{ display: "flex", gap: 4 }}>
-              {TIME_RANGES.map((tr) => (
-                <Button
-                  key={tr.minutes}
-                  variant={timeRange === tr.minutes ? "primary" : "ghost"}
-                  size="sm"
-                  onClick={() => setTimeRange(tr.minutes)}
-                >
-                  {tr.label}
-                </Button>
-              ))}
+      {/* Admin-only: CPU & Memory Charts */}
+      {isAdmin && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+          <Card variant="bordered">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: "var(--typography-font-size-sm)", fontWeight: 600, color: "var(--color-neutral-500)" }}>
+                CPU Usage (%)
+              </span>
+              <div style={{ display: "flex", gap: 4 }}>
+                {TIME_RANGES.map((tr) => (
+                  <Button
+                    key={tr.minutes}
+                    variant={timeRange === tr.minutes ? "primary" : "ghost"}
+                    size="sm"
+                    onClick={() => setTimeRange(tr.minutes)}
+                  >
+                    {tr.label}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
-          <TimeSeriesChart data={cpuMetrics ?? []} height={200} />
-        </Card>
+            {cpuError ? (
+              <div style={{ color: "var(--color-danger-500)", fontSize: 13, padding: 16 }}>Error loading CPU metrics</div>
+            ) : (
+              <TimeSeriesChart data={cpuMetrics ?? []} height={200} />
+            )}
+          </Card>
 
-        <Card variant="bordered">
-          <span style={{ fontSize: "var(--typography-font-size-sm)", fontWeight: 600, color: "var(--color-neutral-500)", display: "block", marginBottom: 12 }}>
-            Memory RSS (MB)
-          </span>
-          <TimeSeriesChart data={memMB} height={200} />
-        </Card>
-      </div>
+          <Card variant="bordered">
+            <span style={{ fontSize: "var(--typography-font-size-sm)", fontWeight: 600, color: "var(--color-neutral-500)", display: "block", marginBottom: 12 }}>
+              Memory RSS (MB)
+            </span>
+            {memError ? (
+              <div style={{ color: "var(--color-danger-500)", fontSize: 13, padding: 16 }}>Error loading memory metrics</div>
+            ) : (
+              <TimeSeriesChart data={memMB} height={200} />
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* Second Row — 3 columns */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
@@ -284,7 +297,7 @@ export function OverviewPage() {
             </>
           ) : (
             <div style={{ color: "var(--color-neutral-400)", fontSize: "var(--typography-font-size-sm)", textAlign: "center", padding: 24 }}>
-              No resources discovered
+              No resources discovered yet
             </div>
           )}
         </Card>
@@ -292,27 +305,12 @@ export function OverviewPage() {
         {/* System Health */}
         <Card variant="bordered" header={<CardTitle icon={<Database size={16} />} text="System Health" />}>
           {health?.checks ? (
-            <>
-              {Object.entries(health.checks).map(([name, status]) => (
-                <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--color-neutral-200)", fontSize: "var(--typography-font-size-sm)" }}>
-                  <span>{name}</span>
-                  <StatusBadge label={status} tone={status === "ok" ? "success" : "danger"} />
-                </div>
-              ))}
-              <div style={{ marginTop: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--typography-font-size-sm)", marginBottom: 4 }}>
-                  <span>DB Pool</span>
-                  <span style={{ color: "var(--color-neutral-500)" }}>{health.pool.active} active / {health.pool.size} total</span>
-                </div>
-                <ProgressBar value={health.pool.utilization * 100} label={`${(health.pool.utilization * 100).toFixed(0)}%`} />
+            Object.entries(health.checks).map(([name, status]) => (
+              <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--color-neutral-200)", fontSize: "var(--typography-font-size-sm)" }}>
+                <span>{name}</span>
+                <StatusBadge label={status} tone={status === "ok" ? "success" : "danger"} />
               </div>
-              <div style={{ marginTop: 12 }}>
-                <BufferBar label="Metric Buffer" current={health.writers.metrics.buffer_size} max={5000} />
-              </div>
-              <div style={{ marginTop: 8 }}>
-                <BufferBar label="Log Buffer" current={health.writers.logs.buffer_size} max={2000} />
-              </div>
-            </>
+            ))
           ) : (
             <div style={{ color: "var(--color-neutral-400)", fontSize: "var(--typography-font-size-sm)" }}>Loading...</div>
           )}
@@ -344,7 +342,6 @@ export function OverviewPage() {
             <MiniStat label="Total Rules" value={totalRules} color="var(--color-neutral-900)" />
             <MiniStat label="Enabled" value={enabledRules} color="var(--color-success-500)" />
             <MiniStat label="Firing" value={firingAlerts.length} color={firingAlerts.length > 0 ? "var(--color-danger-500)" : "var(--color-success-500)"} />
-            <MiniStat label="Notifications" value={health?.background_tasks.alert_engine.notifications_sent ?? 0} color="var(--color-info-500)" />
           </div>
           {firingAlerts.length > 0 && (
             <div style={{ marginTop: 16 }}>
@@ -376,17 +373,43 @@ export function OverviewPage() {
         </Card>
       </div>
 
-      {/* Process Info Footer */}
-      {health?.process && (
-        <div style={{ marginTop: 16, display: "flex", gap: 24, fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-400)", padding: "8px 0", borderTop: "1px solid var(--color-neutral-200)" }}>
-          <span>CPU: {health.process.cpu_percent.toFixed(1)}%</span>
-          <span>Memory: {health.process.memory_rss_mb.toFixed(0)} MB</span>
-          <span>Uptime: {health.process.uptime_seconds > 86400 ? `${(health.process.uptime_seconds / 86400).toFixed(1)}d` : health.process.uptime_seconds > 3600 ? `${(health.process.uptime_seconds / 3600).toFixed(1)}h` : `${(health.process.uptime_seconds / 60).toFixed(0)}m`}</span>
-          <span>Threads: {health.process.thread_count}</span>
-          {health.process.open_fds !== undefined && <span>FDs: {health.process.open_fds}</span>}
-        </div>
-      )}
+      {/* Coming Soon Features */}
+      <div style={{ marginTop: 32, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <ComingSoonCard
+          icon={<Lock size={20} />}
+          title="SSO & MFA"
+          message="Google, GitHub, Azure AD single sign-on and TOTP multi-factor auth. Waiting on boss approval for cloud deployment."
+        />
+        <ComingSoonCard
+          icon={<TrendingUp size={20} />}
+          title="Real-Time Dashboards"
+          message="WebSocket-powered live updates. Currently polling every 10s — good enough for the demo, right?"
+        />
+        <ComingSoonCard
+          icon={<FileText size={20} />}
+          title="MQL Query Language"
+          message="Datadog-style metric query language with autocomplete. Phase 2 — after boss says yes."
+        />
+      </div>
     </div>
+  );
+}
+
+function ComingSoonCard({ icon, title, message }: { icon: React.ReactNode; title: string; message: string }) {
+  return (
+    <Card variant="bordered" padding="md">
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, opacity: 0.7 }}>
+        <div style={{ color: "var(--color-primary-500)", flexShrink: 0, marginTop: 2 }}>{icon}</div>
+        <div>
+          <div style={{ fontSize: "var(--typography-font-size-sm)", fontWeight: 600, color: "var(--color-neutral-700)", marginBottom: 4 }}>
+            {title}
+          </div>
+          <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)", lineHeight: 1.5 }}>
+            {message}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -415,19 +438,6 @@ function MiniStat({ label, value, color }: { label: string; value: number; color
     <div style={{ background: "var(--color-neutral-100)", borderRadius: "var(--border-radius-sm)", padding: "10px 12px", textAlign: "center" }}>
       <div style={{ fontSize: "var(--typography-font-size-xl)", fontWeight: 700, color }}>{value}</div>
       <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-400)", marginTop: 2, textTransform: "uppercase" }}>{label}</div>
-    </div>
-  );
-}
-
-function BufferBar({ label, current, max }: { label: string; current: number; max: number }) {
-  const pct = Math.min(100, (current / max) * 100);
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--typography-font-size-xs)", marginBottom: 3 }}>
-        <span>{label}</span>
-        <span style={{ color: "var(--color-neutral-500)" }}>{current} / {max}</span>
-      </div>
-      <ProgressBar value={pct} />
     </div>
   );
 }

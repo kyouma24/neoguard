@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Shield, Mail, ArrowLeft, AlertCircle, CheckCircle } from "lucide-react";
-import { api } from "../services/api";
+import { api, formatError } from "../services/api";
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -17,7 +17,7 @@ export function ForgotPasswordPage() {
       await api.auth.requestPasswordReset(email);
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }

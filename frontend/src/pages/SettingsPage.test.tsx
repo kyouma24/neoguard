@@ -34,6 +34,7 @@ vi.mock("../services/api", () => ({
       delete: vi.fn(),
     },
   },
+  formatError: (e: unknown) => e instanceof Error ? e.message : String(e),
 }));
 
 vi.mock("../hooks/usePermissions", () => ({
@@ -117,6 +118,7 @@ const API_KEY: APIKey = {
   enabled: true,
   expires_at: null,
   last_used_at: "2026-04-30T12:00:00Z",
+  request_count: 42,
   created_at: "2026-04-30T06:00:00Z",
 };
 
@@ -130,6 +132,7 @@ const ADMIN_KEY: APIKey = {
   enabled: true,
   expires_at: "2026-12-31T23:59:59Z",
   last_used_at: null,
+  request_count: 0,
   created_at: "2026-04-30T07:00:00Z",
 };
 
@@ -164,20 +167,21 @@ beforeEach(() => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Settings Page — Tabs", () => {
-  it("renders with Cloud Accounts tab active by default", async () => {
+  it("renders with Profile tab active by default", async () => {
     mockDefaults();
     renderPage();
-    expect(screen.getAllByText("Cloud Accounts").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Notification Channels")).toBeInTheDocument();
+    expect(screen.getByText("Profile")).toBeInTheDocument();
+    expect(screen.getByText("Cloud Accounts")).toBeInTheDocument();
+    expect(screen.getByText("Notifications")).toBeInTheDocument();
     expect(screen.getByText("API Keys")).toBeInTheDocument();
   });
 
-  it("switches to Notification Channels tab", async () => {
+  it("switches to Notifications tab", async () => {
     mockDefaults();
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Add Channel")).toBeInTheDocument();
@@ -202,9 +206,16 @@ describe("Settings Page — Tabs", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Cloud Accounts Tab", () => {
+  async function goToCloudTab() {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByText("Cloud Accounts"));
+    return user;
+  }
+
   it("shows unified list of AWS and Azure accounts", async () => {
     mockDefaults();
-    renderPage();
+    await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("Production AWS")).toBeInTheDocument();
@@ -214,7 +225,7 @@ describe("Cloud Accounts Tab", () => {
 
   it("shows provider badges", async () => {
     mockDefaults();
-    renderPage();
+    await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("AWS")).toBeInTheDocument();
@@ -224,7 +235,7 @@ describe("Cloud Accounts Tab", () => {
 
   it("shows account details (account IDs, regions)", async () => {
     mockDefaults();
-    renderPage();
+    await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("Account 271547278517")).toBeInTheDocument();
@@ -235,7 +246,7 @@ describe("Cloud Accounts Tab", () => {
 
   it("shows Active/Disabled badges", async () => {
     mockDefaults();
-    renderPage();
+    await goToCloudTab();
 
     await waitFor(() => {
       const badges = screen.getAllByText("Active");
@@ -245,7 +256,7 @@ describe("Cloud Accounts Tab", () => {
 
   it("shows empty state when no accounts exist", async () => {
     mockEmpty();
-    renderPage();
+    await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("No cloud accounts connected")).toBeInTheDocument();
@@ -255,7 +266,7 @@ describe("Cloud Accounts Tab", () => {
 
   it("shows account count", async () => {
     mockDefaults();
-    renderPage();
+    await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("2 accounts connected")).toBeInTheDocument();
@@ -264,7 +275,7 @@ describe("Cloud Accounts Tab", () => {
 
   it("has a single 'Add Account' button", async () => {
     mockDefaults();
-    renderPage();
+    await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("Add Account")).toBeInTheDocument();
@@ -276,8 +287,7 @@ describe("Cloud Accounts Tab", () => {
   it("can toggle account enabled status", async () => {
     mockDefaults();
     (api.aws.updateAccount as Mock).mockResolvedValue({ ...AWS_ACCOUNT, enabled: false });
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("Production AWS")).toBeInTheDocument();
@@ -291,8 +301,7 @@ describe("Cloud Accounts Tab", () => {
 
   it("shows delete confirmation before deleting", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("Production AWS")).toBeInTheDocument();
@@ -313,10 +322,16 @@ describe("Cloud Accounts Tab", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Onboarding Wizard", () => {
-  it("opens wizard when clicking 'Add Account'", async () => {
-    mockDefaults();
+  async function goToCloudTab() {
     const user = userEvent.setup();
     renderPage();
+    await user.click(screen.getByText("Cloud Accounts"));
+    return user;
+  }
+
+  it("opens wizard when clicking 'Add Account'", async () => {
+    mockDefaults();
+    const user = await goToCloudTab();
 
     await waitFor(() => {
       expect(screen.getByText("Add Account")).toBeInTheDocument();
@@ -332,12 +347,8 @@ describe("Onboarding Wizard", () => {
 
   it("shows AWS and Azure provider cards", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
 
     await waitFor(() => {
@@ -348,12 +359,8 @@ describe("Onboarding Wizard", () => {
 
   it("selecting AWS updates step count to 6", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
 
     await waitFor(() => {
@@ -367,12 +374,8 @@ describe("Onboarding Wizard", () => {
 
   it("selecting Azure updates step count to 6", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
 
     await waitFor(() => {
@@ -385,12 +388,8 @@ describe("Onboarding Wizard", () => {
 
   it("navigates through AWS wizard steps", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
 
     // Step 1: Choose AWS
@@ -417,12 +416,8 @@ describe("Onboarding Wizard", () => {
 
   it("AWS step 2 validates 12-digit account ID", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
 
     await waitFor(() => {
@@ -441,12 +436,8 @@ describe("Onboarding Wizard", () => {
 
   it("generates cryptographic external ID in ng-xxxx format", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
     await waitFor(() => {
       expect(screen.getByText("Amazon Web Services")).toBeInTheDocument();
@@ -468,12 +459,8 @@ describe("Onboarding Wizard", () => {
 
   it("CFT deploy link contains real S3 bucket URL", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
     await waitFor(() => {
       expect(screen.getByText("Amazon Web Services")).toBeInTheDocument();
@@ -494,12 +481,8 @@ describe("Onboarding Wizard", () => {
 
   it("navigates through Azure wizard steps", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
 
     // Step 1: Choose Azure
@@ -527,12 +510,8 @@ describe("Onboarding Wizard", () => {
 
   it("Back button returns to previous step", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
     await waitFor(() => {
       expect(screen.getByText("Amazon Web Services")).toBeInTheDocument();
@@ -556,12 +535,8 @@ describe("Onboarding Wizard", () => {
 
   it("Cancel button on step 1 closes wizard", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
 
     await waitFor(() => {
@@ -577,12 +552,8 @@ describe("Onboarding Wizard", () => {
 
   it("AWS region selector has Select All / Clear", async () => {
     mockDefaults();
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
     await waitFor(() => {
       expect(screen.getByText("Amazon Web Services")).toBeInTheDocument();
@@ -615,12 +586,8 @@ describe("Onboarding Wizard", () => {
   it("AWS resource selector shows all resource types", async () => {
     mockDefaults();
     (api.aws.createAccount as Mock).mockResolvedValue(AWS_ACCOUNT);
-    const user = userEvent.setup();
-    renderPage();
+    const user = await goToCloudTab();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add Account")).toBeInTheDocument();
-    });
     await user.click(screen.getByText("Add Account"));
     await waitFor(() => {
       expect(screen.getByText("Amazon Web Services")).toBeInTheDocument();
@@ -655,12 +622,12 @@ describe("Onboarding Wizard", () => {
 // NOTIFICATION CHANNELS TAB
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Notification Channels Tab", () => {
+describe("Notifications Tab", () => {
   it("lists all channels with type badges", async () => {
     mockDefaults();
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Ops Webhook")).toBeInTheDocument();
@@ -674,7 +641,7 @@ describe("Notification Channels Tab", () => {
     mockDefaults();
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Enabled")).toBeInTheDocument();
@@ -686,7 +653,7 @@ describe("Notification Channels Tab", () => {
     mockDefaults();
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText(/hooks\.example\.com/)).toBeInTheDocument();
@@ -697,7 +664,7 @@ describe("Notification Channels Tab", () => {
     mockEmpty();
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("No notification channels configured")).toBeInTheDocument();
@@ -708,7 +675,7 @@ describe("Notification Channels Tab", () => {
     mockDefaults();
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Add Channel")).toBeInTheDocument();
@@ -725,7 +692,7 @@ describe("Notification Channels Tab", () => {
     mockDefaults();
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
     await waitFor(() => {
       expect(screen.getByText("Add Channel")).toBeInTheDocument();
     });
@@ -741,7 +708,7 @@ describe("Notification Channels Tab", () => {
     (api.notifications.updateChannel as Mock).mockResolvedValue({ ...WEBHOOK_CHANNEL, enabled: false });
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Ops Webhook")).toBeInTheDocument();
@@ -758,7 +725,7 @@ describe("Notification Channels Tab", () => {
     (api.notifications.testChannel as Mock).mockResolvedValue({ success: true });
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Ops Webhook")).toBeInTheDocument();
@@ -778,7 +745,7 @@ describe("Notification Channels Tab", () => {
     (api.notifications.testChannel as Mock).mockRejectedValue(new Error("timeout"));
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Ops Webhook")).toBeInTheDocument();
@@ -796,7 +763,7 @@ describe("Notification Channels Tab", () => {
     mockDefaults();
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("Notification Channels"));
+    await user.click(screen.getByText("Notifications"));
 
     await waitFor(() => {
       expect(screen.getByText("Ops Webhook")).toBeInTheDocument();

@@ -66,6 +66,15 @@ async def update_password(user_id: UUID, new_password: str) -> None:
     )
 
 
+async def update_user_name(user_id: UUID, name: str) -> dict | None:
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+        name, user_id,
+    )
+    return dict(row) if row else None
+
+
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "tenant"

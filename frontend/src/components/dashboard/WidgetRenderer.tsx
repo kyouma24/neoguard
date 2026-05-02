@@ -18,23 +18,34 @@ export function WidgetRenderer({ panel, from, to, interval, height, refreshKey }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const hasMql = !!panel.mql_query?.trim();
+  const hasLegacy = !!panel.metric_name;
+
   useEffect(() => {
     if (panel.panel_type === "text") return;
-    if (!panel.metric_name) return;
+    if (!hasMql && !hasLegacy) return;
 
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    api.metrics
-      .query({
-        name: panel.metric_name,
-        tags: panel.tags ?? {},
-        start: from.toISOString(),
-        end: to.toISOString(),
-        interval,
-        aggregation: panel.aggregation ?? "avg",
-      })
+    const promise = hasMql
+      ? api.mql.query({
+          query: panel.mql_query!,
+          start: from.toISOString(),
+          end: to.toISOString(),
+          interval,
+        })
+      : api.metrics.query({
+          name: panel.metric_name!,
+          tags: panel.tags ?? {},
+          start: from.toISOString(),
+          end: to.toISOString(),
+          interval,
+          aggregation: panel.aggregation ?? "avg",
+        });
+
+    promise
       .then((result) => {
         if (!cancelled) { setData(result); setLoading(false); }
       })
@@ -43,13 +54,13 @@ export function WidgetRenderer({ panel, from, to, interval, height, refreshKey }
       });
 
     return () => { cancelled = true; };
-  }, [panel.metric_name, panel.tags, panel.aggregation, panel.panel_type, from.getTime(), to.getTime(), interval, refreshKey]);
+  }, [panel.mql_query, panel.metric_name, panel.tags, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey]);
 
   if (panel.panel_type === "text") {
     return <TextWidget content={panel.content ?? ""} height={height} />;
   }
 
-  if (!panel.metric_name) {
+  if (!hasMql && !hasLegacy) {
     return (
       <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
         No metric configured

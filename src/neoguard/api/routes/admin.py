@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from neoguard.core.config import settings
 from neoguard.api.middleware.csrf import CSRF_COOKIE_NAME, generate_csrf_token
 from neoguard.models.users import (
+    AdminCreateTenantRequest,
+    AdminCreateUserRequest,
     AdminSetActiveRequest,
     AdminSetStatusRequest,
     AdminSetSuperAdminRequest,
@@ -18,11 +20,15 @@ from neoguard.models.users import (
     ImpersonateResponse,
     PlatformAuditEntry,
     PlatformStatsResponse,
+    SecurityLogEntry,
     TenantRole,
 )
 from neoguard.services.auth.admin import (
+    admin_create_tenant,
+    admin_delete_tenant,
     get_platform_audit_log,
     get_platform_stats,
+    get_security_log,
     list_all_tenants,
     list_all_users,
     set_super_admin,
@@ -35,7 +41,7 @@ from neoguard.services.auth.sessions import (
     get_admin_session,
     store_admin_session,
 )
-from neoguard.services.auth.users import get_user_by_id, get_user_tenants
+from neoguard.services.auth.users import create_user, get_membership, get_user_by_email, get_user_by_id, get_user_tenants
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -99,6 +105,47 @@ async def admin_set_tenant_status(
     return AdminTenantResponse(**result)
 
 
+@router.post("/tenants", status_code=201, response_model=AdminTenantResponse)
+async def admin_create_new_tenant(
+    data: AdminCreateTenantRequest,
+    request: Request,
+) -> AdminTenantResponse:
+    actor_id = _require_super_admin(request)
+    tenant = await admin_create_tenant(data.name, owner_id=data.owner_id)
+
+    await write_platform_audit(
+        actor_id=actor_id,
+        action="tenant.created",
+        target_type="tenant",
+        target_id=str(tenant["id"]),
+        details={"name": data.name, "owner_id": str(data.owner_id) if data.owner_id else None},
+        ip_address=_client_ip(request),
+    )
+
+    return AdminTenantResponse(**tenant)
+
+
+@router.delete("/tenants/{tenant_id}", status_code=200)
+async def admin_delete_existing_tenant(
+    tenant_id: UUID,
+    request: Request,
+) -> dict:
+    actor_id = _require_super_admin(request)
+    success = await admin_delete_tenant(tenant_id)
+    if not success:
+        raise HTTPException(404, "Tenant not found or already deleted")
+
+    await write_platform_audit(
+        actor_id=actor_id,
+        action="tenant.deleted",
+        target_type="tenant",
+        target_id=str(tenant_id),
+        ip_address=_client_ip(request),
+    )
+
+    return {"message": "Tenant marked as deleted"}
+
+
 @router.get("/users", response_model=list[AdminUserResponse])
 async def admin_list_users(
     request: Request,
@@ -108,6 +155,43 @@ async def admin_list_users(
     _require_super_admin(request)
     users = await list_all_users(limit=limit, offset=offset)
     return [AdminUserResponse(**u) for u in users]
+
+
+@router.post("/users", status_code=201, response_model=AdminUserResponse)
+async def admin_create_user(
+    data: AdminCreateUserRequest,
+    request: Request,
+) -> AdminUserResponse:
+    actor_id = _require_super_admin(request)
+
+    existing = await get_user_by_email(data.email)
+    if existing:
+        raise HTTPException(409, "Email already registered")
+
+    user = await create_user(data.email, data.password, data.name)
+
+    if data.tenant_id:
+        existing_membership = await get_membership(user["id"], data.tenant_id)
+        if not existing_membership:
+            from neoguard.db.timescale.connection import get_pool
+            pool = await get_pool()
+            await pool.execute(
+                "INSERT INTO tenant_memberships (user_id, tenant_id, role) VALUES ($1, $2, $3)",
+                user["id"], data.tenant_id, data.role.value,
+            )
+
+    await write_platform_audit(
+        actor_id=actor_id,
+        action="user.created",
+        target_type="user",
+        target_id=str(user["id"]),
+        details={"email": data.email, "name": data.name, "tenant_id": str(data.tenant_id) if data.tenant_id else None},
+        ip_address=_client_ip(request),
+    )
+
+    result = dict(user)
+    result.setdefault("tenant_count", 1 if data.tenant_id else 0)
+    return AdminUserResponse(**result)
 
 
 @router.patch("/users/{user_id}/super-admin")
@@ -175,6 +259,21 @@ async def admin_audit_log(
     _require_super_admin(request)
     entries = await get_platform_audit_log(limit=limit, offset=offset)
     return [PlatformAuditEntry(**e) for e in entries]
+
+
+@router.get("/security-log", response_model=list[SecurityLogEntry])
+async def admin_security_log(
+    request: Request,
+    event_type: str | None = None,
+    success: bool | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> list[SecurityLogEntry]:
+    _require_super_admin(request)
+    entries = await get_security_log(
+        event_type=event_type, success=success, limit=limit, offset=offset,
+    )
+    return [SecurityLogEntry(**e) for e in entries]
 
 
 @router.post("/impersonate", response_model=ImpersonateResponse)

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.azure import (
     AzureSubscription,
     AzureSubscriptionCreate,
@@ -29,7 +29,12 @@ async def list_all(
     )
 
 
-@router.post("", response_model=AzureSubscription, status_code=201)
+@router.post(
+    "",
+    response_model=AzureSubscription,
+    status_code=201,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def create(
     data: AzureSubscriptionCreate,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -48,7 +53,11 @@ async def get_one(
     return sub
 
 
-@router.patch("/{sub_id}", response_model=AzureSubscription)
+@router.patch(
+    "/{sub_id}",
+    response_model=AzureSubscription,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def update(
     sub_id: str,
     data: AzureSubscriptionUpdate,
@@ -60,7 +69,11 @@ async def update(
     return sub
 
 
-@router.delete("/{sub_id}", status_code=204)
+@router.delete(
+    "/{sub_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def delete(
     sub_id: str,
     tenant_id: str = Depends(get_tenant_id_required),

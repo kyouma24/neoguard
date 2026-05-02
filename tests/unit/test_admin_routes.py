@@ -158,6 +158,183 @@ class TestAdminSetUserActive:
         assert resp.status_code == 400
 
 
+class TestAdminCreateTenant:
+    async def test_creates_tenant(self):
+        app = _make_app()
+        created = {
+            "id": TENANT_ID, "slug": "new-tenant", "name": "New Tenant", "tier": "free",
+            "status": "active", "member_count": 0, "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": None,
+        }
+        with (
+            patch("neoguard.api.routes.admin.admin_create_tenant", AsyncMock(return_value=created)),
+            patch("neoguard.api.routes.admin.write_platform_audit", AsyncMock()),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/admin/tenants",
+                    json={"name": "New Tenant"},
+                )
+            assert resp.status_code == 201
+            assert resp.json()["name"] == "New Tenant"
+
+    async def test_creates_tenant_with_owner(self):
+        app = _make_app()
+        created = {
+            "id": TENANT_ID, "slug": "new-tenant", "name": "New Tenant", "tier": "free",
+            "status": "active", "member_count": 0, "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": None,
+        }
+        with (
+            patch("neoguard.api.routes.admin.admin_create_tenant", AsyncMock(return_value=created)) as mock_create,
+            patch("neoguard.api.routes.admin.write_platform_audit", AsyncMock()),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/admin/tenants",
+                    json={"name": "New Tenant", "owner_id": str(USER_ID)},
+                )
+            assert resp.status_code == 201
+            mock_create.assert_called_once_with("New Tenant", owner_id=USER_ID)
+
+    async def test_rejects_non_super_admin(self):
+        app = _make_app(is_super_admin=False)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/admin/tenants",
+                json={"name": "Test"},
+            )
+        assert resp.status_code == 403
+
+
+class TestAdminDeleteTenant:
+    async def test_deletes_tenant(self):
+        app = _make_app()
+        with (
+            patch("neoguard.api.routes.admin.admin_delete_tenant", AsyncMock(return_value=True)),
+            patch("neoguard.api.routes.admin.write_platform_audit", AsyncMock()),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.delete(f"/api/v1/admin/tenants/{TENANT_ID}")
+            assert resp.status_code == 200
+            assert resp.json()["message"] == "Tenant marked as deleted"
+
+    async def test_returns_404_for_missing_or_already_deleted(self):
+        app = _make_app()
+        with patch("neoguard.api.routes.admin.admin_delete_tenant", AsyncMock(return_value=False)):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.delete(f"/api/v1/admin/tenants/{TENANT_ID}")
+            assert resp.status_code == 404
+
+    async def test_rejects_non_super_admin(self):
+        app = _make_app(is_super_admin=False)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.delete(f"/api/v1/admin/tenants/{TENANT_ID}")
+        assert resp.status_code == 403
+
+
+class TestAdminCreateUser:
+    async def test_creates_user(self):
+        app = _make_app()
+        created_user = {
+            "id": TENANT_ID, "email": "new@test.com", "name": "New User",
+            "is_super_admin": False, "is_active": True, "email_verified": False,
+            "created_at": "2024-01-01T00:00:00Z", "updated_at": None,
+        }
+        with (
+            patch("neoguard.api.routes.admin.get_user_by_email", AsyncMock(return_value=None)),
+            patch("neoguard.api.routes.admin.create_user", AsyncMock(return_value=created_user)),
+            patch("neoguard.api.routes.admin.write_platform_audit", AsyncMock()),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/admin/users",
+                    json={"email": "new@test.com", "password": "securepass", "name": "New User"},
+                )
+            assert resp.status_code == 201
+            assert resp.json()["email"] == "new@test.com"
+
+    async def test_rejects_duplicate_email(self):
+        app = _make_app()
+        with patch("neoguard.api.routes.admin.get_user_by_email", AsyncMock(return_value={"id": USER_ID})):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/admin/users",
+                    json={"email": "existing@test.com", "password": "securepass", "name": "Dup"},
+                )
+            assert resp.status_code == 409
+
+    async def test_creates_user_with_tenant(self):
+        app = _make_app()
+        created_user = {
+            "id": TENANT_ID, "email": "new@test.com", "name": "New User",
+            "is_super_admin": False, "is_active": True, "email_verified": False,
+            "created_at": "2024-01-01T00:00:00Z", "updated_at": None,
+        }
+        mock_pool = AsyncMock()
+        mock_pool.execute = AsyncMock()
+        with (
+            patch("neoguard.api.routes.admin.get_user_by_email", AsyncMock(return_value=None)),
+            patch("neoguard.api.routes.admin.create_user", AsyncMock(return_value=created_user)),
+            patch("neoguard.api.routes.admin.get_membership", AsyncMock(return_value=None)),
+            patch("neoguard.api.routes.admin.write_platform_audit", AsyncMock()),
+            patch("neoguard.db.timescale.connection.get_pool", AsyncMock(return_value=mock_pool)),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/admin/users",
+                    json={
+                        "email": "new@test.com", "password": "securepass", "name": "New User",
+                        "tenant_id": str(TENANT_ID), "role": "admin",
+                    },
+                )
+            assert resp.status_code == 201
+            mock_pool.execute.assert_called_once()
+
+    async def test_rejects_non_super_admin(self):
+        app = _make_app(is_super_admin=False)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/admin/users",
+                json={"email": "new@test.com", "password": "securepass", "name": "New"},
+            )
+        assert resp.status_code == 403
+
+
+class TestAdminSecurityLog:
+    async def test_returns_entries(self):
+        app = _make_app()
+        with patch("neoguard.api.routes.admin.get_security_log", AsyncMock(return_value=[
+            {"id": USER_ID, "user_id": USER_ID, "user_email": "a@b.com",
+             "user_name": "Admin", "event_type": "login", "success": True,
+             "ip_address": "10.0.0.1", "user_agent": "Mozilla",
+             "details": {}, "created_at": "2024-01-01T00:00:00Z"},
+        ])):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.get("/api/v1/admin/security-log")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data) == 1
+            assert data[0]["event_type"] == "login"
+
+    async def test_filters_by_event_type(self):
+        app = _make_app()
+        with patch("neoguard.api.routes.admin.get_security_log", AsyncMock(return_value=[])) as mock_fn:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.get("/api/v1/admin/security-log?event_type=login&success=false")
+            assert resp.status_code == 200
+            mock_fn.assert_called_once()
+            call_kwargs = mock_fn.call_args[1]
+            assert call_kwargs["event_type"] == "login"
+            assert call_kwargs["success"] is False
+
+    async def test_rejects_non_super_admin(self):
+        app = _make_app(is_super_admin=False)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/v1/admin/security-log")
+        assert resp.status_code == 403
+
+
 class TestAdminAuditLog:
     async def test_returns_entries(self):
         app = _make_app()

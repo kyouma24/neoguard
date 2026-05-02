@@ -9,6 +9,7 @@ import type {
   APIKeyCreate,
   APIKeyCreated,
   AuthResponse,
+  AuthUser,
   AWSAccount,
   AWSAccountCreate,
   AzureSubscription,
@@ -20,19 +21,31 @@ import type {
   MembershipInfo,
   MetricQuery,
   MetricQueryResult,
+  MQLQueryRequest,
+  MQLValidateResponse,
   NotificationChannel,
   NotificationChannelCreate,
+  NotificationDelivery,
   PlatformAuditEntry,
   PlatformStats,
   Resource,
+  SecurityLogEntry,
   ResourceSummary,
   Silence,
   SilenceCreate,
   SystemStats,
+  TenantAuditEntry,
   TenantWithRole,
 } from "../types";
 
 const BASE = "/api/v1";
+
+/** Safely extract a displayable string from any caught value. */
+export function formatError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  return JSON.stringify(e);
+}
 
 function getCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|; )neoguard_csrf=([^;]*)/);
@@ -58,7 +71,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
+    try {
+      const parsed = JSON.parse(body);
+      const raw = parsed?.error?.message ?? parsed?.detail ?? body;
+      const msg = typeof raw === "string" ? raw : JSON.stringify(raw);
+      throw new Error(msg);
+    } catch (e) {
+      if (e instanceof Error && !e.message.startsWith("API ")) throw e;
+      throw new Error(`API ${res.status}: ${body}`);
+    }
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -85,6 +106,24 @@ export const api = {
       }),
     names: () => request<string[]>(`${BASE}/metrics/names`),
     stats: () => request<Record<string, number>>(`${BASE}/metrics/stats`),
+  },
+
+  mql: {
+    query: (q: MQLQueryRequest) =>
+      request<MetricQueryResult[]>(`${BASE}/mql/query`, {
+        method: "POST",
+        body: JSON.stringify(q),
+      }),
+    queryBatch: (queries: MQLQueryRequest[]) =>
+      request<MetricQueryResult[][]>(`${BASE}/mql/query/batch`, {
+        method: "POST",
+        body: JSON.stringify({ queries }),
+      }),
+    validate: (q: MQLQueryRequest) =>
+      request<MQLValidateResponse>(`${BASE}/mql/validate`, {
+        method: "POST",
+        body: JSON.stringify(q),
+      }),
   },
 
   logs: {
@@ -225,6 +264,13 @@ export const api = {
         `${BASE}/notifications/channels/${id}/test`,
         { method: "POST" },
       ),
+    listDeliveries: (params?: { rule_id?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.rule_id) qs.set("rule_id", params.rule_id);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return request<NotificationDelivery[]>(`${BASE}/notifications/delivery${query ? `?${query}` : ""}`);
+    },
   },
 
   apiKeys: {
@@ -281,6 +327,11 @@ export const api = {
     logout: () =>
       request<{ message: string }>("/auth/logout", { method: "POST" }),
     me: () => request<AuthResponse>("/auth/me"),
+    updateProfile: (data: { name?: string; current_password?: string; new_password?: string }) =>
+      request<AuthUser>("/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
     requestPasswordReset: (email: string) =>
       request<{ message: string }>("/auth/password-reset/request", {
         method: "POST",
@@ -291,6 +342,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ token, new_password }),
       }),
+    sessions: () =>
+      request<{ session_id: string; tenant_id: string; role: string; is_super_admin: boolean; ttl_seconds: number; is_current: boolean }[]>("/auth/sessions"),
+    terminateAllSessions: () =>
+      request<{ message: string; terminated: number }>("/auth/sessions", { method: "DELETE" }),
   },
 
   tenants: {
@@ -321,6 +376,18 @@ export const api = {
       request<void>(`${BASE}/tenants/${tenantId}/members/${memberId}`, {
         method: "DELETE",
       }),
+    update: (tenantId: string, data: { name?: string }) =>
+      request<TenantWithRole>(`${BASE}/tenants/${tenantId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    auditLog: (tenantId: string, params?: { limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.offset) qs.set("offset", String(params.offset));
+      const query = qs.toString();
+      return request<TenantAuditEntry[]>(`${BASE}/tenants/${tenantId}/audit-log${query ? `?${query}` : ""}`);
+    },
   },
 
   admin: {
@@ -333,11 +400,18 @@ export const api = {
       const query = qs.toString();
       return request<AdminTenant[]>(`${BASE}/admin/tenants${query ? `?${query}` : ""}`);
     },
+    createTenant: (data: { name: string; owner_id?: string }) =>
+      request<AdminTenant>(`${BASE}/admin/tenants`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     setTenantStatus: (tenantId: string, status: string) =>
       request<AdminTenant>(`${BASE}/admin/tenants/${tenantId}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
+    deleteTenant: (tenantId: string) =>
+      request<{ message: string }>(`${BASE}/admin/tenants/${tenantId}`, { method: "DELETE" }),
     users: (params?: { limit?: number; offset?: number }) => {
       const qs = new URLSearchParams();
       if (params?.limit) qs.set("limit", String(params.limit));
@@ -345,6 +419,11 @@ export const api = {
       const query = qs.toString();
       return request<AdminUser[]>(`${BASE}/admin/users${query ? `?${query}` : ""}`);
     },
+    createUser: (data: { email: string; password: string; name: string; tenant_id?: string; role?: string }) =>
+      request<AdminUser>(`${BASE}/admin/users`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     setSuperAdmin: (userId: string, isSuperAdmin: boolean) =>
       request<AdminUser>(`${BASE}/admin/users/${userId}/super-admin`, {
         method: "PATCH",
@@ -361,6 +440,15 @@ export const api = {
       if (params?.offset) qs.set("offset", String(params.offset));
       const query = qs.toString();
       return request<PlatformAuditEntry[]>(`${BASE}/admin/audit-log${query ? `?${query}` : ""}`);
+    },
+    securityLog: (params?: { event_type?: string; success?: boolean; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.event_type) qs.set("event_type", params.event_type);
+      if (params?.success !== undefined) qs.set("success", String(params.success));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.offset) qs.set("offset", String(params.offset));
+      const query = qs.toString();
+      return request<SecurityLogEntry[]>(`${BASE}/admin/security-log${query ? `?${query}` : ""}`);
     },
     impersonate: (userId: string, reason: string, durationMinutes: number = 30) =>
       request<{ message: string; impersonating: string; expires_in_minutes: number }>(

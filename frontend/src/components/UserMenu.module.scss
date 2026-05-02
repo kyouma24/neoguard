@@ -1,0 +1,120 @@
+.wrapper {
+  position: relative;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--border-radius-md);
+  border: var(--border-width-thin) solid var(--color-neutral-200);
+  background: var(--color-neutral-0, #fff);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  &:hover {
+    border-color: var(--color-neutral-300);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-primary-500);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.chevron {
+  color: var(--color-neutral-400);
+  transition: transform 0.15s;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 220px;
+  background: var(--color-neutral-0, #fff);
+  border: var(--border-width-thin) solid var(--color-neutral-200);
+  border-radius: var(--border-radius-lg, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.header {
+  padding: 12px 14px 8px;
+}
+
+.headerName {
+  font-size: var(--typography-font-size-sm);
+  font-weight: var(--typography-font-weight-semibold);
+  color: var(--color-neutral-900);
+}
+
+.headerEmail {
+  font-size: var(--typography-font-size-xs);
+  color: var(--color-neutral-500);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerTenant {
+  font-size: 10px;
+  font-weight: var(--typography-font-weight-semibold);
+  color: var(--color-primary-700);
+  background: var(--color-primary-50);
+  padding: 1px 6px;
+  border-radius: var(--border-radius-sm);
+  display: inline-block;
+  margin-top: 4px;
+}
+
+.divider {
+  height: 1px;
+  background: var(--color-neutral-100);
+  margin: 4px 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--color-neutral-700);
+  font-size: var(--typography-font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+
+  &:hover {
+    background: var(--color-neutral-50);
+  }
+}
+
+.itemDanger {
+  color: var(--color-danger-600, #dc2626);
+
+  &:hover {
+    background: var(--color-danger-50, #fef2f2);
+  }
+}

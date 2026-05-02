@@ -15,6 +15,7 @@ import styles from './PageHeader.module.scss';
 export function PageHeader({
   title,
   subtitle,
+  context,
   actions,
   breadcrumbs,
   className = '',
@@ -25,7 +26,10 @@ export function PageHeader({
       {breadcrumbs && <div className={styles.crumbs}>{breadcrumbs}</div>}
       <div className={styles.row}>
         <div className={styles.left}>
-          <h1 className={styles.title}>{title}</h1>
+          <div className={styles.titleRow}>
+            <h1 className={styles.title}>{title}</h1>
+            {context && <span className={styles.context}>{context}</span>}
+          </div>
           {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
         </div>
         {actions && <div className={styles.actions}>{actions}</div>}

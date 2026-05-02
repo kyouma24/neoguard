@@ -17,6 +17,9 @@ def mock_redis():
     redis.delete = AsyncMock(return_value=1)
     redis.expire = AsyncMock()
     redis.ttl = AsyncMock(return_value=86400)
+    redis.sadd = AsyncMock()
+    redis.srem = AsyncMock()
+    redis.smembers = AsyncMock(return_value=set())
     with patch("neoguard.services.auth.sessions.get_redis", return_value=redis):
         yield redis
 
@@ -74,14 +77,14 @@ class TestGetSession:
         assert result.role == TenantRole.MEMBER
         assert result.is_super_admin is False
 
-    async def test_refreshes_ttl(self, mock_redis):
+    async def test_refreshes_ttl_for_regular_user(self, mock_redis):
         from neoguard.services.auth.sessions import get_session
 
         stored = orjson.dumps({
             "user_id": str(USER_ID),
             "tenant_id": str(TENANT_ID),
             "role": "owner",
-            "is_super_admin": True,
+            "is_super_admin": False,
         }).decode()
         mock_redis.get = AsyncMock(return_value=stored)
 
@@ -117,6 +120,57 @@ class TestUpdateSessionTenant:
         assert result is False
 
 
+class TestSuperAdminSessionExpiry:
+    async def test_super_admin_gets_4h_ttl(self, mock_redis):
+        from neoguard.services.auth.sessions import create_session
+
+        await create_session(USER_ID, TENANT_ID, TenantRole.OWNER, is_super_admin=True)
+        args = mock_redis.set.call_args
+        assert args[1]["ex"] == 14400  # 4 hours
+
+    async def test_regular_user_gets_30d_ttl(self, mock_redis):
+        from neoguard.services.auth.sessions import create_session
+
+        await create_session(USER_ID, TENANT_ID, TenantRole.MEMBER, is_super_admin=False)
+        args = mock_redis.set.call_args
+        assert args[1]["ex"] == 2592000  # 30 days
+
+    async def test_ttl_override_takes_precedence(self, mock_redis):
+        from neoguard.services.auth.sessions import create_session
+
+        await create_session(USER_ID, TENANT_ID, TenantRole.OWNER, is_super_admin=True, ttl_override=3600)
+        args = mock_redis.set.call_args
+        assert args[1]["ex"] == 3600
+
+    async def test_super_admin_no_sliding_refresh(self, mock_redis):
+        from neoguard.services.auth.sessions import get_session
+
+        stored = orjson.dumps({
+            "user_id": str(USER_ID),
+            "tenant_id": str(TENANT_ID),
+            "role": "owner",
+            "is_super_admin": True,
+        }).decode()
+        mock_redis.get = AsyncMock(return_value=stored)
+
+        await get_session("admin-session")
+        mock_redis.expire.assert_not_called()
+
+    async def test_regular_user_gets_sliding_refresh(self, mock_redis):
+        from neoguard.services.auth.sessions import get_session
+
+        stored = orjson.dumps({
+            "user_id": str(USER_ID),
+            "tenant_id": str(TENANT_ID),
+            "role": "member",
+            "is_super_admin": False,
+        }).decode()
+        mock_redis.get = AsyncMock(return_value=stored)
+
+        await get_session("user-session")
+        mock_redis.expire.assert_called_once()
+
+
 class TestDeleteSession:
     async def test_deletes_session(self, mock_redis):
         from neoguard.services.auth.sessions import delete_session
@@ -131,3 +185,73 @@ class TestDeleteSession:
         mock_redis.delete = AsyncMock(return_value=0)
         result = await delete_session("missing")
         assert result is False
+
+    async def test_removes_from_user_index(self, mock_redis):
+        from neoguard.services.auth.sessions import delete_session
+
+        await delete_session("test-id", user_id=USER_ID)
+        mock_redis.srem.assert_called_once_with(f"user_sessions:{USER_ID}", "test-id")
+
+
+class TestCreateSessionIndex:
+    async def test_adds_to_user_session_index(self, mock_redis):
+        from neoguard.services.auth.sessions import create_session
+
+        session_id = await create_session(USER_ID, TENANT_ID, TenantRole.OWNER)
+        mock_redis.sadd.assert_called_once_with(f"user_sessions:{USER_ID}", session_id)
+
+
+class TestListUserSessions:
+    async def test_returns_active_sessions(self, mock_redis):
+        from neoguard.services.auth.sessions import list_user_sessions
+
+        stored = orjson.dumps({
+            "user_id": str(USER_ID),
+            "tenant_id": str(TENANT_ID),
+            "role": "owner",
+            "is_super_admin": False,
+        }).decode()
+        mock_redis.smembers = AsyncMock(return_value={"sess1", "sess2"})
+        mock_redis.get = AsyncMock(return_value=stored)
+        mock_redis.ttl = AsyncMock(return_value=3600)
+
+        sessions = await list_user_sessions(USER_ID)
+        assert len(sessions) == 2
+        assert all(s["ttl_seconds"] == 3600 for s in sessions)
+
+    async def test_cleans_up_stale_sessions(self, mock_redis):
+        from neoguard.services.auth.sessions import list_user_sessions
+
+        mock_redis.smembers = AsyncMock(return_value={"active", "expired"})
+        mock_redis.get = AsyncMock(side_effect=[
+            orjson.dumps({"user_id": str(USER_ID), "tenant_id": str(TENANT_ID), "role": "owner", "is_super_admin": False}).decode(),
+            None,
+        ])
+        mock_redis.ttl = AsyncMock(return_value=7200)
+
+        sessions = await list_user_sessions(USER_ID)
+        assert len(sessions) == 1
+        mock_redis.srem.assert_called_once()
+
+    async def test_returns_empty_for_no_sessions(self, mock_redis):
+        from neoguard.services.auth.sessions import list_user_sessions
+
+        mock_redis.smembers = AsyncMock(return_value=set())
+        sessions = await list_user_sessions(USER_ID)
+        assert sessions == []
+
+
+class TestDeleteAllUserSessions:
+    async def test_deletes_all_except_current(self, mock_redis):
+        from neoguard.services.auth.sessions import delete_all_user_sessions
+
+        mock_redis.smembers = AsyncMock(return_value={"sess1", "sess2", "current"})
+        count = await delete_all_user_sessions(USER_ID, except_session="current")
+        assert count == 2
+
+    async def test_deletes_all_when_no_exception(self, mock_redis):
+        from neoguard.services.auth.sessions import delete_all_user_sessions
+
+        mock_redis.smembers = AsyncMock(return_value={"sess1", "sess2"})
+        count = await delete_all_user_sessions(USER_ID)
+        assert count == 2

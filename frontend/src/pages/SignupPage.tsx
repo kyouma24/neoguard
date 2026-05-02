@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Shield, UserPlus, AlertCircle } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { formatError } from "../services/api";
 
 export function SignupPage() {
   const { signup } = useAuth();
@@ -21,7 +22,7 @@ export function SignupPage() {
       await signup(email, password, name, tenantName);
       navigate("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Signup failed");
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -99,6 +100,10 @@ export function SignupPage() {
             {loading ? "Creating account..." : "Create account"}
           </button>
         </form>
+
+        <div style={{ marginTop: "var(--spacing-md)", padding: "var(--spacing-sm) var(--spacing-md)", background: "var(--color-primary-50, #f0f0ff)", borderRadius: "var(--border-radius-md)", fontSize: "var(--typography-font-size-xs)", color: "var(--color-primary-700, #4c1d95)", textAlign: "center" as const, lineHeight: 1.5 }}>
+          Email verification coming soon — for now, you're in. Welcome aboard!
+        </div>
 
         <p style={styles.footer}>
           Already have an account?{" "}

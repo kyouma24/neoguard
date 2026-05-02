@@ -162,7 +162,12 @@ class TestTelemetryCollector:
     async def test_collect_writes_to_metric_writer(
         self, mock_get_pool, mock_metric_w, mock_log_w, mock_orch, mock_engine,
     ):
-        mock_get_pool.return_value = _mock_pool()
+        pool = _mock_pool()
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value={"id": "tenant-abc-123"})
+        pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_get_pool.return_value = pool
         mock_metric_w.stats = _mock_writer_stats()
         mock_metric_w.write = AsyncMock(return_value=0)
         mock_log_w.stats = _mock_writer_stats()
@@ -176,5 +181,5 @@ class TestTelemetryCollector:
         args = mock_metric_w.write.call_args
         tenant_id = args[0][0]
         points = args[0][1]
-        assert tenant_id == "default"
+        assert tenant_id == "tenant-abc-123"
         assert len(points) > 20

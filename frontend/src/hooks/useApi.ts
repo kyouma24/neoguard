@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { formatError } from "../services/api";
 
 interface UseApiResult<T> {
   data: T | null;
@@ -19,7 +20,9 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []): UseA
       const result = await fetcher();
       setData(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = formatError(e);
+      console.error("[useApi] fetch failed:", msg);
+      setError(msg);
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -22,6 +23,7 @@ from neoguard.api.routes import (
     health,
     logs,
     metrics,
+    mql,
     notifications,
     resources,
     system,
@@ -75,25 +77,69 @@ app = FastAPI(
 )
 
 
+def _error_envelope(
+    code: str,
+    message: str,
+    correlation_id: str | None,
+    details: dict | list | None = None,
+) -> dict:
+    body: dict = {"error": {"code": code, "message": message, "correlation_id": correlation_id}}
+    if details is not None:
+        body["error"]["details"] = details
+    return body
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    correlation_id = getattr(request.state, "request_id", None)
+    code = _status_to_code(exc.status_code)
+    message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_error_envelope(code, message, correlation_id),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    correlation_id = getattr(request.state, "request_id", None)
+    details = [
+        {"field": ".".join(str(loc) for loc in e["loc"]), "message": e["msg"]}
+        for e in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content=_error_envelope("VALIDATION_ERROR", "Request validation failed", correlation_id, details),
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    request_id = getattr(request.state, "request_id", None)
+    correlation_id = getattr(request.state, "request_id", None)
     await log.aerror(
         "unhandled_exception",
         path=request.url.path,
         method=request.method,
         error=str(exc),
         error_type=type(exc).__name__,
-        request_id=request_id,
+        request_id=correlation_id,
     )
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "internal_server_error",
-            "message": "An unexpected error occurred",
-            "request_id": request_id,
-        },
+        content=_error_envelope("INTERNAL_ERROR", "An unexpected error occurred", correlation_id),
     )
+
+
+def _status_to_code(status: int) -> str:
+    return {
+        400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        422: "VALIDATION_ERROR",
+        429: "RATE_LIMITED",
+    }.get(status, f"HTTP_{status}")
 
 
 app.add_middleware(RequestIDMiddleware)
@@ -113,6 +159,7 @@ app.include_router(health.router)
 app.include_router(user_auth.router)
 app.include_router(auth.router)
 app.include_router(metrics.router)
+app.include_router(mql.router)
 app.include_router(logs.router)
 app.include_router(alerts.router)
 app.include_router(dashboards.router)

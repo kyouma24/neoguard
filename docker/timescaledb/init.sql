@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     threshold       DOUBLE PRECISION NOT NULL,
     duration_sec    INTEGER NOT NULL DEFAULT 60,
     interval_sec    INTEGER NOT NULL DEFAULT 30,
-    severity        TEXT NOT NULL DEFAULT 'warning',
+    severity        TEXT NOT NULL DEFAULT 'P3',
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
     notification    JSONB NOT NULL DEFAULT '{}',
     aggregation     TEXT NOT NULL DEFAULT 'avg',
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS alert_events (
     tenant_id       TEXT NOT NULL DEFAULT 'default',
     rule_id         TEXT NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
     rule_name       TEXT NOT NULL DEFAULT '',
-    severity        TEXT NOT NULL DEFAULT 'warning',
+    severity        TEXT NOT NULL DEFAULT 'P3',
     status          TEXT NOT NULL,  -- 'firing', 'resolved', 'nodata'
     value           DOUBLE PRECISION NOT NULL,
     threshold       DOUBLE PRECISION NOT NULL,
@@ -309,6 +309,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
     expires_at      TIMESTAMPTZ,
     last_used_at    TIMESTAMPTZ,
+    request_count   BIGINT NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

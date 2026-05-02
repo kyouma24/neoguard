@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.aws import AWSAccount, AWSAccountCreate, AWSAccountUpdate
 from neoguard.services.aws.accounts import (
     create_aws_account,
@@ -25,7 +25,12 @@ async def list_all(
     )
 
 
-@router.post("", response_model=AWSAccount, status_code=201)
+@router.post(
+    "",
+    response_model=AWSAccount,
+    status_code=201,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def create(
     data: AWSAccountCreate,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -44,7 +49,11 @@ async def get_one(
     return acct
 
 
-@router.patch("/{acct_id}", response_model=AWSAccount)
+@router.patch(
+    "/{acct_id}",
+    response_model=AWSAccount,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def update(
     acct_id: str,
     data: AWSAccountUpdate,
@@ -56,7 +65,11 @@ async def update(
     return acct
 
 
-@router.delete("/{acct_id}", status_code=204)
+@router.delete(
+    "/{acct_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def delete(
     acct_id: str,
     tenant_id: str = Depends(get_tenant_id_required),

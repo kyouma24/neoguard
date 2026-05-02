@@ -39,7 +39,7 @@ def _make_payload(**kwargs) -> AlertPayload:
         "condition": "gt",
         "threshold": 90.0,
         "current_value": 95.5,
-        "severity": "critical",
+        "severity": "P1",
         "status": "firing",
         "message": "CPU above 90% (current: 95.50)",
         "tenant_id": "default",
@@ -240,7 +240,7 @@ class TestWebhookBody:
         assert body["rule_name"] == "High CPU"
         assert body["status"] == "firing"
         assert body["resolved_at"] is None
-        assert body["severity"] == "critical"
+        assert body["severity"] == "P1"
 
     def test_resolved_includes_timestamp(self):
         now = datetime.now(UTC)
@@ -451,7 +451,7 @@ class TestWebhookSender:
 class TestSlackSender:
     async def test_sends_firing_with_critical_color(self):
         sender = SlackSender()
-        payload = _make_payload(severity="critical")
+        payload = _make_payload(severity="P1")
         config = {
             "webhook_url": "https://hooks.slack.com/test",
             "channel": "#alerts",
@@ -465,7 +465,7 @@ class TestSlackSender:
 
     async def test_sends_firing_with_warning_color(self):
         sender = SlackSender()
-        payload = _make_payload(severity="warning")
+        payload = _make_payload(severity="P3")
         config = {"webhook_url": "https://hooks.slack.com/test"}
 
         with aioresponses() as m:
@@ -546,11 +546,11 @@ class TestFreshdeskSender:
                 status=201, payload={"id": 1},
             )
             result = await sender.send_firing(
-                _make_payload(severity="critical"), config,
+                _make_payload(severity="P1"), config,
             )
         assert result["ticket_id"] == 1
 
-    async def test_severity_mapping_warning(self):
+    async def test_severity_mapping_p2(self):
         sender = FreshdeskSender()
         config = {"domain": "x.freshdesk.com", "api_key": "k"}
 
@@ -560,11 +560,11 @@ class TestFreshdeskSender:
                 status=201, payload={"id": 2},
             )
             result = await sender.send_firing(
-                _make_payload(severity="warning"), config,
+                _make_payload(severity="P2"), config,
             )
         assert result["ticket_id"] == 2
 
-    async def test_severity_mapping_info(self):
+    async def test_severity_mapping_p4(self):
         sender = FreshdeskSender()
         config = {"domain": "x.freshdesk.com", "api_key": "k"}
 
@@ -574,7 +574,7 @@ class TestFreshdeskSender:
                 status=201, payload={"id": 3},
             )
             result = await sender.send_firing(
-                _make_payload(severity="info"), config,
+                _make_payload(severity="P4"), config,
             )
         assert result["ticket_id"] == 3
 
@@ -757,7 +757,7 @@ class TestPagerDutySender:
 
     async def test_send_firing_maps_severity(self):
         sender = PagerDutySender()
-        for sev in ["critical", "warning", "info"]:
+        for sev in ["P1", "P2", "P3", "P4"]:
             payload = _make_payload(severity=sev)
             config = {"routing_key": "key"}
 
@@ -844,7 +844,7 @@ class TestMSTeamsSender:
 
     async def test_send_firing_critical_uses_attention_color(self):
         sender = MSTeamsSender()
-        payload = _make_payload(severity="critical")
+        payload = _make_payload(severity="P1")
         config = {"webhook_url": "https://outlook.office.com/webhook/test"}
 
         with aioresponses() as m:
@@ -853,7 +853,7 @@ class TestMSTeamsSender:
 
     async def test_send_firing_warning_uses_warning_color(self):
         sender = MSTeamsSender()
-        payload = _make_payload(severity="warning")
+        payload = _make_payload(severity="P3")
         config = {"webhook_url": "https://outlook.office.com/webhook/test"}
 
         with aioresponses() as m:

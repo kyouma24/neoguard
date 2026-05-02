@@ -370,7 +370,7 @@ def _row_to_event(r) -> AlertEvent:  # type: ignore[no-untyped-def]
         tenant_id=r["tenant_id"],
         rule_id=r["rule_id"],
         rule_name=r.get("rule_name", ""),
-        severity=AlertSeverity(r.get("severity", "warning")),
+        severity=AlertSeverity(r.get("severity", "P3")),
         status=AlertStatus(r["status"]),
         value=r["value"],
         threshold=r["threshold"],

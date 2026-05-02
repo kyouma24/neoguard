@@ -18,11 +18,13 @@ import aiohttp
 
 from neoguard.core.logging import log
 from neoguard.models.notifications import AlertPayload, ChannelType
+from neoguard.services.notifications.url_validator import SSRFError, validate_outbound_url
 
 _FRESHDESK_SEVERITY_MAP = {
-    "critical": 4,  # Urgent
-    "warning": 3,   # High
-    "info": 1,      # Low
+    "P1": 4,  # Urgent
+    "P2": 3,  # High
+    "P3": 2,  # Medium
+    "P4": 1,  # Low
 }
 
 _FRESHDESK_STATUS_OPEN = 2
@@ -111,7 +113,7 @@ class WebhookSender(BaseSender):
         ).hexdigest()
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
-        url = config["url"]
+        url = validate_outbound_url(config["url"])
         headers = {**config.get("headers", {})}
         body = _build_webhook_body(payload)
         import orjson as _orjson
@@ -142,7 +144,7 @@ class WebhookSender(BaseSender):
     async def send_resolved(
         self, payload: AlertPayload, config: dict, firing_meta: dict,
     ) -> None:
-        url = config["url"]
+        url = validate_outbound_url(config["url"])
         headers = {**config.get("headers", {})}
         body = _build_webhook_body(payload)
         import orjson as _orjson
@@ -174,9 +176,9 @@ class SlackSender(BaseSender):
     """Posts to a Slack incoming webhook URL."""
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
-        webhook_url = config["webhook_url"]
+        webhook_url = validate_outbound_url(config["webhook_url"])
         channel = config.get("channel", "")
-        color = "#e01e5a" if payload.severity == "critical" else "#ecb22e"
+        color = "#e01e5a" if payload.severity in ("P1", "P2") else "#ecb22e"
 
         threshold_val = f"{payload.condition} {payload.threshold}"
         slack_body = {
@@ -223,7 +225,7 @@ class SlackSender(BaseSender):
     async def send_resolved(
         self, payload: AlertPayload, config: dict, firing_meta: dict,
     ) -> None:
-        webhook_url = config["webhook_url"]
+        webhook_url = validate_outbound_url(config["webhook_url"])
         channel = config.get("channel", "")
 
         slack_body = {
@@ -313,6 +315,7 @@ class FreshdeskSender(BaseSender):
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
         domain = config["domain"]
+        validate_outbound_url(f"https://{domain}/api/v2/tickets")
         api_key = config["api_key"]
         requester_email = config.get("email", "neoguard@alerts.internal")
         group_id = config.get("group_id")
@@ -446,7 +449,7 @@ class PagerDutySender(BaseSender):
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
         routing_key = config["routing_key"]
-        severity_map = {"critical": "critical", "warning": "warning", "info": "info"}
+        severity_map = {"P1": "critical", "P2": "error", "P3": "warning", "P4": "info"}
         pd_severity = severity_map.get(payload.severity, "warning")
 
         pd_body = {
@@ -530,8 +533,8 @@ class MSTeamsSender(BaseSender):
     """Posts adaptive cards to Microsoft Teams incoming webhook."""
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
-        webhook_url = config["webhook_url"]
-        color = "attention" if payload.severity == "critical" else "warning"
+        webhook_url = validate_outbound_url(config["webhook_url"])
+        color = "attention" if payload.severity in ("P1", "P2") else "warning"
 
         card = {
             "type": "message",
@@ -588,7 +591,7 @@ class MSTeamsSender(BaseSender):
     async def send_resolved(
         self, payload: AlertPayload, config: dict, firing_meta: dict,
     ) -> None:
-        webhook_url = config["webhook_url"]
+        webhook_url = validate_outbound_url(config["webhook_url"])
 
         card = {
             "type": "message",

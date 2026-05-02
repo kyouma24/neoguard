@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from neoguard.api.deps import require_scope
 from neoguard.core.config import settings
@@ -11,11 +11,13 @@ from neoguard.models.users import (
     InviteCreate,
     MemberRoleUpdate,
     MembershipResponse,
+    TenantAuditEntry,
     TenantCreate,
     TenantResponse,
     TenantRole,
     TenantUpdate,
 )
+from neoguard.services.auth.admin import get_tenant_audit_log, write_tenant_audit
 from neoguard.services.auth.sessions import update_session_tenant
 from neoguard.services.auth.users import (
     create_tenant,
@@ -45,9 +47,18 @@ def _get_tenant_id(request: Request) -> UUID:
     return UUID(tid)
 
 
+MAX_TENANTS_PER_USER = 3
+
+
 @router.post("", status_code=201, response_model=TenantResponse)
 async def create_new_tenant(data: TenantCreate, request: Request) -> TenantResponse:
     user_id = _get_user_id(request)
+    existing = await get_user_tenants(user_id)
+    if len(existing) >= MAX_TENANTS_PER_USER:
+        raise HTTPException(
+            400,
+            f"Maximum of {MAX_TENANTS_PER_USER} tenants per user. Contact support for more.",
+        )
     tenant = await create_tenant(data.name, user_id)
     await log.ainfo("tenant.created", tenant_id=str(tenant["id"]), user_id=str(user_id))
     return TenantResponse(**tenant)
@@ -73,6 +84,12 @@ async def update_existing_tenant(
     tenant = await update_tenant(tenant_id, name=data.name)
     if not tenant:
         raise HTTPException(404, "Tenant not found")
+    await write_tenant_audit(
+        tenant_id=tenant_id, action="tenant.updated", resource_type="tenant",
+        resource_id=str(tenant_id), actor_id=user_id,
+        details={"name": data.name},
+        ip_address=request.client.host if request.client else None,
+    )
     return TenantResponse(**tenant)
 
 
@@ -156,13 +173,33 @@ async def invite_member(
             invited_email=data.email,
             role=data.role.value,
         )
+        await write_tenant_audit(
+            tenant_id=tenant_id, action="member.added", resource_type="membership",
+            resource_id=str(existing_user["id"]), actor_id=user_id,
+            details={"email": data.email, "role": data.role.value},
+            ip_address=request.client.host if request.client else None,
+        )
         return {"message": f"User {data.email} added to tenant", "role": data.role.value}
+
+    from neoguard.services.auth.invites import create_invite
+    await create_invite(
+        tenant_id=tenant_id,
+        email=data.email,
+        role=data.role.value,
+        invited_by=user_id,
+    )
 
     await log.ainfo(
         "tenant.invite_pending",
         tenant_id=str(tenant_id),
         email=data.email,
         role=data.role.value,
+    )
+    await write_tenant_audit(
+        tenant_id=tenant_id, action="member.invited", resource_type="membership",
+        actor_id=user_id,
+        details={"email": data.email, "role": data.role.value},
+        ip_address=request.client.host if request.client else None,
     )
     return {"message": f"Invite sent to {data.email} (email delivery deferred to cloud)", "role": data.role.value}
 
@@ -186,6 +223,12 @@ async def change_member_role(
     if not success:
         raise HTTPException(400, "Cannot change role — ensure at least one owner remains")
 
+    await write_tenant_audit(
+        tenant_id=tenant_id, action="member.role_changed", resource_type="membership",
+        resource_id=str(member_id), actor_id=user_id,
+        details={"new_role": data.role.value},
+        ip_address=request.client.host if request.client else None,
+    )
     return {"message": "Role updated", "role": data.role.value}
 
 
@@ -207,3 +250,24 @@ async def remove_tenant_member(
     success = await remove_member(tenant_id, member_id)
     if not success:
         raise HTTPException(400, "Cannot remove last owner")
+
+    await write_tenant_audit(
+        tenant_id=tenant_id, action="member.removed", resource_type="membership",
+        resource_id=str(member_id), actor_id=user_id,
+        ip_address=request.client.host if request.client else None,
+    )
+
+
+@router.get("/{tenant_id}/audit-log", response_model=list[TenantAuditEntry])
+async def tenant_audit_log(
+    tenant_id: UUID,
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> list[TenantAuditEntry]:
+    user_id = _get_user_id(request)
+    membership = await get_membership(user_id, tenant_id)
+    if not membership or membership["role"] not in ("owner", "admin"):
+        raise HTTPException(403, "Admin or owner role required to view audit log")
+    entries = await get_tenant_audit_log(tenant_id, limit=limit, offset=offset)
+    return [TenantAuditEntry(**e) for e in entries]

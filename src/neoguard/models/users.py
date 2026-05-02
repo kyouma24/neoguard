@@ -17,6 +17,7 @@ class TenantStatus(StrEnum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
     PENDING_DELETION = "pending_deletion"
+    DELETED = "deleted"
 
 
 class TenantRole(StrEnum):
@@ -47,6 +48,12 @@ class PasswordResetRequest(BaseModel):
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class ProfileUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=256)
+    current_password: str | None = None
+    new_password: str | None = Field(None, min_length=8, max_length=128)
 
 
 class TenantCreate(BaseModel):
@@ -148,6 +155,19 @@ class AdminUserResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+class AdminCreateUserRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    name: str = Field(..., min_length=1, max_length=256)
+    tenant_id: UUID | None = None
+    role: TenantRole = TenantRole.MEMBER
+
+
+class AdminCreateTenantRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    owner_id: UUID | None = None
+
+
 class AdminSetStatusRequest(BaseModel):
     status: TenantStatus
 
@@ -158,6 +178,21 @@ class AdminSetSuperAdminRequest(BaseModel):
 
 class AdminSetActiveRequest(BaseModel):
     is_active: bool
+
+
+class TenantAuditEntry(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    actor_id: UUID | None = None
+    actor_email: str | None = None
+    actor_name: str | None = None
+    actor_type: str = "user"
+    action: str
+    resource_type: str
+    resource_id: str | None = None
+    details: dict = {}
+    ip_address: str | None = None
+    created_at: datetime
 
 
 class PlatformAuditEntry(BaseModel):
@@ -171,6 +206,19 @@ class PlatformAuditEntry(BaseModel):
     reason: str
     details: dict = {}
     ip_address: str | None = None
+    created_at: datetime
+
+
+class SecurityLogEntry(BaseModel):
+    id: UUID
+    user_id: UUID | None = None
+    user_email: str | None = None
+    user_name: str | None = None
+    event_type: str
+    success: bool
+    ip_address: str | None = None
+    user_agent: str | None = None
+    details: dict = {}
     created_at: datetime
 
 

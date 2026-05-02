@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { Shield, KeyRound, AlertCircle, CheckCircle } from "lucide-react";
-import { api } from "../services/api";
+import { api, formatError } from "../services/api";
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -34,7 +34,7 @@ export function ResetPasswordPage() {
       setSuccess(true);
       setTimeout(() => navigate("/login"), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reset failed");
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }

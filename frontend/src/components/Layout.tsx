@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -5,7 +6,7 @@ import {
   BarChart3,
   FileText,
   LayoutDashboard,
-  LogOut,
+  Menu,
   Server,
   Settings,
   Shield,
@@ -13,8 +14,12 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useTenantContext } from "../hooks/useTenantContext";
 import { TenantSwitcher } from "./TenantSwitcher";
+import { UserMenu } from "./UserMenu";
 import styles from "./Layout.module.scss";
+
+const SIDEBAR_KEY = "neoguard_sidebar_collapsed";
 
 const navItems = [
   { to: "/", icon: Activity, label: "Overview" },
@@ -26,23 +31,50 @@ const navItems = [
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
-export function Layout({ children }: { children: ReactNode }) {
-  const { user, logout, isImpersonating, endImpersonation } = useAuth();
-  const navigate = useNavigate();
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login");
-  };
+export function Layout({ children }: { children: ReactNode }) {
+  const { user, isImpersonating, endImpersonation } = useAuth();
+  const tenantContext = useTenantContext();
+  const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0"); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
 
   return (
     <div className={styles.layout}>
-      <nav className={styles.sidebar}>
-        <div className={styles.logo}>
-          <Shield size={24} color="var(--color-primary-500)" />
-          <span className={styles.logoText}>NeoGuard</span>
+      {/* ── Sidebar ── */}
+      <nav className={`${styles.sidebar} ${collapsed ? styles.sidebarCollapsed : ""}`}>
+        {/* Header: logo + toggle */}
+        <div className={`${styles.sidebarHeader} ${collapsed ? styles.sidebarHeaderCollapsed : ""}`}>
+          {!collapsed && (
+            <div className={styles.logoGroup}>
+              <Shield size={22} color="var(--color-primary-500)" />
+              <span className={styles.logoText}>NeoGuard</span>
+            </div>
+          )}
+          <button
+            className={styles.collapseBtn}
+            onClick={toggleCollapsed}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <Menu size={16} />
+          </button>
         </div>
 
+        {/* Nav links */}
         <div className={styles.nav}>
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
@@ -50,77 +82,78 @@ export function Layout({ children }: { children: ReactNode }) {
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+                [
+                  styles.navLink,
+                  collapsed ? styles.navLinkCollapsed : "",
+                  isActive ? styles.navLinkActive : "",
+                ].filter(Boolean).join(" ")
               }
+              title={collapsed ? label : undefined}
             >
               <Icon size={18} />
-              {label}
+              {!collapsed && <span className={styles.navLabel}>{label}</span>}
             </NavLink>
           ))}
           {user?.is_super_admin && (
             <NavLink
               to="/admin"
               className={({ isActive }) =>
-                `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+                [
+                  styles.navLink,
+                  styles.navLinkAdmin,
+                  collapsed ? styles.navLinkCollapsed : "",
+                  isActive ? styles.navLinkActive : "",
+                ].filter(Boolean).join(" ")
               }
+              title={collapsed ? "Admin" : undefined}
             >
               <ShieldCheck size={18} />
-              Admin
+              {!collapsed && <span className={styles.navLabel}>Admin</span>}
             </NavLink>
           )}
         </div>
 
-        {user && (
-          <div className={styles.userSection}>
-            <TenantSwitcher />
-            <div className={styles.userInfo}>
-              <span className={styles.userName}>{user.name}</span>
-              <span className={styles.userEmail}>{user.email}</span>
-            </div>
-            <button className={styles.logoutBtn} onClick={handleLogout} title="Sign out">
-              <LogOut size={16} />
-              Sign out
-            </button>
-          </div>
-        )}
+        {/* Tenant switcher — visible when expanded */}
+        <div className={`${styles.tenantSection} ${collapsed ? styles.tenantSectionHidden : ""}`}>
+          <TenantSwitcher />
+        </div>
       </nav>
 
-      <main className={styles.main}>
+      {/* ── Right pane (topbar + content) ── */}
+      <div className={styles.rightPane}>
+        {/* Impersonation banner */}
         {isImpersonating && (
-          <div style={{
-            background: "#fbbf24",
-            color: "#78350f",
-            padding: "8px 16px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: 13,
-            fontWeight: 600,
-            borderBottom: "1px solid #f59e0b",
-          }}>
+          <div className={styles.impersonationBanner}>
             <span>Viewing as {user?.name} ({user?.email}) — read-only mode</span>
             <button
+              className={styles.impersonationEndBtn}
               onClick={async () => {
                 await endImpersonation();
                 navigate("/admin");
-              }}
-              style={{
-                background: "#78350f",
-                color: "#fbbf24",
-                border: "none",
-                borderRadius: 4,
-                padding: "4px 12px",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
               }}
             >
               End Impersonation
             </button>
           </div>
         )}
-        {children}
-      </main>
+
+        {/* Top bar */}
+        <div className={styles.topbar}>
+          <div className={styles.topbarLeft}>
+            {tenantContext && (
+              <span className={styles.tenantContext}>{tenantContext}</span>
+            )}
+          </div>
+          <div className={styles.topbarRight}>
+            <UserMenu />
+          </div>
+        </div>
+
+        {/* Main content */}
+        <main className={styles.main}>
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

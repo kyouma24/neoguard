@@ -28,14 +28,22 @@ async def create_key(
     return await create_api_key(data)
 
 
-@router.get("/keys", response_model=list[APIKeyResponse])
+@router.get(
+    "/keys",
+    response_model=list[APIKeyResponse],
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def list_keys(
     tenant_id: str | None = Depends(get_tenant_id),
 ) -> list[APIKeyResponse]:
     return await list_api_keys(tenant_id)
 
 
-@router.get("/keys/{key_id}", response_model=APIKeyResponse)
+@router.get(
+    "/keys/{key_id}",
+    response_model=APIKeyResponse,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def get_key(
     key_id: str,
     tenant_id: str | None = Depends(get_tenant_id),
@@ -46,7 +54,11 @@ async def get_key(
     return key
 
 
-@router.patch("/keys/{key_id}", response_model=APIKeyResponse)
+@router.patch(
+    "/keys/{key_id}",
+    response_model=APIKeyResponse,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def update_key(
     key_id: str,
     data: APIKeyUpdate,

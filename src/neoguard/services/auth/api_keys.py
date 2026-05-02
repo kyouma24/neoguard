@@ -90,7 +90,7 @@ async def validate_api_key(raw_key: str) -> APIKeyResponse | None:
 
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
+            "UPDATE api_keys SET last_used_at = NOW(), request_count = request_count + 1 WHERE id = $1",
             row["id"],
         )
 
@@ -178,5 +178,6 @@ def _row_to_response(row) -> APIKeyResponse:
         enabled=row["enabled"],
         expires_at=row["expires_at"],
         last_used_at=row["last_used_at"],
+        request_count=row.get("request_count", 0),
         created_at=row["created_at"],
     )

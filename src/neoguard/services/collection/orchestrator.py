@@ -15,6 +15,7 @@ from neoguard.services.azure.accounts import mark_synced as azure_mark_synced
 from neoguard.services.azure.monitor import METRIC_DEFINITIONS as AZURE_METRIC_DEFS
 from neoguard.services.azure.monitor import collect_azure_metrics
 from neoguard.services.collection.jobs import complete_job, create_job
+from neoguard.services.dashboards_starter import maybe_create_starter_dashboard
 from neoguard.services.discovery.aws_discovery import discover_all as aws_discover_all
 from neoguard.services.discovery.azure_discovery import discover_all as azure_discover_all
 from neoguard.services.resources.crud import list_resources
@@ -218,55 +219,58 @@ class CollectionOrchestrator:
             await asyncio.sleep(self._metrics_interval)
 
     async def _run_discovery(self) -> None:
-        tenant_id = settings.default_tenant_id
-        await self._run_aws_discovery(tenant_id)
-        await self._run_azure_discovery(tenant_id)
+        await self._run_aws_discovery()
+        await self._run_azure_discovery()
 
-    async def _run_aws_discovery(self, tenant_id: str) -> None:
-        accounts = await list_aws_accounts(tenant_id, enabled_only=True)
+    async def _run_aws_discovery(self) -> None:
+        accounts = await list_aws_accounts(None, enabled_only=True)
         for acct in accounts:
-            job = await create_job(tenant_id, "discovery", acct.id)
+            tid = acct.tenant_id
+            job = await create_job(tid, "discovery", acct.id)
             try:
                 regions = await _resolve_regions(acct)
                 all_results: dict[str, dict] = {}
                 for region in regions:
-                    results = await aws_discover_all(acct, region, tenant_id)
+                    results = await aws_discover_all(acct, region, tid)
                     all_results[region] = results
 
-                await aws_mark_synced(tenant_id, acct.id)
-                await complete_job(job["id"], tenant_id, result=all_results)
+                await aws_mark_synced(tid, acct.id)
+                await complete_job(job["id"], tid, result=all_results)
+                await maybe_create_starter_dashboard(tid, "aws")
                 await log.ainfo(
                     "AWS discovery complete",
                     account=acct.account_id,
                     regions=len(regions),
                 )
             except Exception as e:
-                await complete_job(job["id"], tenant_id, error=str(e))
+                await complete_job(job["id"], tid, error=str(e))
                 await log.aerror(
                     "AWS discovery failed",
                     account=acct.account_id,
                     error=str(e),
                 )
 
-    async def _run_azure_discovery(self, tenant_id: str) -> None:
-        subs = await list_azure_subscriptions(tenant_id, enabled_only=True)
+    async def _run_azure_discovery(self) -> None:
+        subs = await list_azure_subscriptions(None, enabled_only=True)
         for sub in subs:
-            job = await create_job(tenant_id, "discovery", sub.id)
+            tid = sub.tenant_id
+            job = await create_job(tid, "discovery", sub.id)
             try:
                 all_results: dict[str, dict] = {}
                 for region in sub.regions:
-                    results = await azure_discover_all(sub, region, tenant_id)
+                    results = await azure_discover_all(sub, region, tid)
                     all_results[region] = results
 
-                await azure_mark_synced(tenant_id, sub.id)
-                await complete_job(job["id"], tenant_id, result=all_results)
+                await azure_mark_synced(tid, sub.id)
+                await complete_job(job["id"], tid, result=all_results)
+                await maybe_create_starter_dashboard(tid, "azure")
                 await log.ainfo(
                     "Azure discovery complete",
                     subscription=sub.subscription_id,
                     regions=len(sub.regions),
                 )
             except Exception as e:
-                await complete_job(job["id"], tenant_id, error=str(e))
+                await complete_job(job["id"], tid, error=str(e))
                 await log.aerror(
                     "Azure discovery failed",
                     subscription=sub.subscription_id,
@@ -274,17 +278,17 @@ class CollectionOrchestrator:
                 )
 
     async def _run_metrics_collection(self) -> None:
-        tenant_id = settings.default_tenant_id
-        await self._run_aws_metrics(tenant_id)
-        await self._run_azure_metrics(tenant_id)
+        await self._run_aws_metrics()
+        await self._run_azure_metrics()
 
-    async def _run_aws_metrics(self, tenant_id: str) -> None:
-        accounts = await list_aws_accounts(tenant_id, enabled_only=True)
+    async def _run_aws_metrics(self) -> None:
+        accounts = await list_aws_accounts(None, enabled_only=True)
         for acct in accounts:
+            tid = acct.tenant_id
             regions = await _resolve_regions(acct)
             for region in regions:
                 resources = await list_resources(
-                    tenant_id, provider="aws", account_id=acct.account_id,
+                    tid, provider="aws", account_id=acct.account_id,
                 )
 
                 by_namespace: dict[str, list[tuple[str, dict]]] = {}
@@ -322,11 +326,12 @@ class CollectionOrchestrator:
                             error=str(e),
                         )
 
-    async def _run_azure_metrics(self, tenant_id: str) -> None:
-        subs = await list_azure_subscriptions(tenant_id, enabled_only=True)
+    async def _run_azure_metrics(self) -> None:
+        subs = await list_azure_subscriptions(None, enabled_only=True)
         for sub in subs:
+            tid = sub.tenant_id
             resources = await list_resources(
-                tenant_id, provider="azure", account_id=sub.subscription_id,
+                tid, provider="azure", account_id=sub.subscription_id,
             )
 
             by_type: dict[str, list[tuple[str, dict]]] = {}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Shield, LogIn, AlertCircle } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { formatError } from "../services/api";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -19,7 +20,7 @@ export function LoginPage() {
       await login(email, password);
       navigate("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }

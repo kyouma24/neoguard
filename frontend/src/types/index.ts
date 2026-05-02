@@ -21,6 +21,24 @@ export interface MetricQueryResult {
   datapoints: [string, number | null][];
 }
 
+export interface MQLQueryRequest {
+  query: string;
+  start: string;
+  end: string;
+  interval?: string;
+}
+
+export interface MQLValidateResponse {
+  valid: boolean;
+  aggregator?: string | null;
+  metric_name?: string | null;
+  filter_count: number;
+  function_count: number;
+  has_rollup: boolean;
+  error?: string | null;
+  error_pos?: number | null;
+}
+
 export interface LogEntry {
   timestamp: string;
   severity: string;
@@ -162,6 +180,7 @@ export interface PanelDefinition {
   metric_name?: string;
   tags?: Record<string, string>;
   aggregation?: string;
+  mql_query?: string;
   content?: string;
   display_options?: Record<string, unknown>;
   width: number;
@@ -226,9 +245,9 @@ export interface AzureSubscription {
 
 export interface HealthStatus {
   status: "healthy" | "degraded";
-  degraded_reasons: string[];
+  degraded_reasons?: string[];
   checks: Record<string, string>;
-  pool: {
+  pool?: {
     size: number;
     idle: number;
     active: number;
@@ -236,15 +255,15 @@ export interface HealthStatus {
     max: number;
     utilization: number;
   };
-  writers: {
+  writers?: {
     metrics: WriterStats;
     logs: WriterStats;
   };
-  background_tasks: {
+  background_tasks?: {
     orchestrator: BackgroundTaskStats;
     alert_engine: AlertEngineStats;
   };
-  process: ProcessInfo;
+  process?: ProcessInfo;
 }
 
 export interface WriterStats {
@@ -306,6 +325,15 @@ export interface NotificationChannelCreate {
   enabled?: boolean;
 }
 
+export interface NotificationDelivery {
+  event_id: string;
+  rule_id: string;
+  status: string;
+  notification_meta: Record<string, { delivered: boolean; error?: string; ticket_id?: string }>;
+  fired_at: string;
+  resolved_at: string | null;
+}
+
 export interface APIKey {
   id: string;
   tenant_id: string;
@@ -316,6 +344,7 @@ export interface APIKey {
   enabled: boolean;
   expires_at: string | null;
   last_used_at: string | null;
+  request_count: number;
   created_at: string;
 }
 
@@ -405,6 +434,21 @@ export interface PlatformStats {
   api_keys_active: number;
 }
 
+export interface TenantAuditEntry {
+  id: string;
+  tenant_id: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  actor_name: string | null;
+  actor_type: string;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  details: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+}
+
 export interface PlatformAuditEntry {
   id: string;
   actor_id: string;
@@ -416,6 +460,19 @@ export interface PlatformAuditEntry {
   reason: string;
   details: Record<string, unknown>;
   ip_address: string | null;
+  created_at: string;
+}
+
+export interface SecurityLogEntry {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  event_type: string;
+  success: boolean;
+  ip_address: string | null;
+  user_agent: string | null;
+  details: Record<string, unknown>;
   created_at: string;
 }
 

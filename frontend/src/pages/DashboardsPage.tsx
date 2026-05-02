@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { api } from "../services/api";
+import { useSearchParams } from "react-router-dom";
+import { api, formatError } from "../services/api";
 import type { SystemStats, Dashboard, PanelDefinition, PanelType } from "../types";
 import { format } from "date-fns";
 import {
@@ -26,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { useApi } from "../hooks/useApi";
+import { useAuth } from "../contexts/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 import { WidgetRenderer } from "../components/dashboard/WidgetRenderer";
 import { TimeRangePicker, getTimeRange, getIntervalForRange } from "../components/dashboard/TimeRangePicker";
@@ -47,20 +49,39 @@ import { GridLayout, type Layout as GridLayoutType } from "react-grid-layout";
 type Tab = "system" | "dashboards";
 
 export function DashboardsPage() {
-  const [tab, setTab] = useState<Tab>("system");
+  const { user } = useAuth();
+  const isAdmin = user?.is_super_admin || false;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const defaultTab = isAdmin ? "system" : "dashboards";
+  const tab = (searchParams.get("tab") as Tab) || defaultTab;
+  const setTab = useCallback((t: Tab) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (t === defaultTab) next.delete("tab"); else next.set("tab", t);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams, defaultTab]);
 
-  const tabItems = [
-    {
-      id: "system" as const,
-      label: "System Monitor",
-      content: <SystemMonitorDashboard />,
-    },
-    {
-      id: "dashboards" as const,
-      label: "My Dashboards",
-      content: <DashboardsList />,
-    },
-  ];
+  const tabItems = isAdmin
+    ? [
+        {
+          id: "system" as const,
+          label: "System Monitor",
+          content: <SystemMonitorDashboard />,
+        },
+        {
+          id: "dashboards" as const,
+          label: "My Dashboards",
+          content: <DashboardsList />,
+        },
+      ]
+    : [
+        {
+          id: "dashboards" as const,
+          label: "My Dashboards",
+          content: <DashboardsList />,
+        },
+      ];
 
   return (
     <div>
@@ -78,7 +99,7 @@ export function DashboardsPage() {
 
 function SystemMonitorDashboard() {
   const [stats, setStats] = useState<SystemStats | null>(null);
-  const [health, setHealth] = useState<{ status: string; degraded_reasons: string[]; checks: Record<string, string> } | null>(null);
+  const [health, setHealth] = useState<{ status: string; degraded_reasons?: string[]; checks: Record<string, string> } | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -150,14 +171,14 @@ function SystemMonitorDashboard() {
       </div>
 
       {/* Degraded Warning */}
-      {health && health.degraded_reasons.length > 0 && (
+      {health && (health.degraded_reasons?.length ?? 0) > 0 && (
         <Card variant="bordered" padding="md">
           <div style={{ borderLeft: "4px solid var(--color-danger-500)", paddingLeft: 12, background: "rgba(239, 68, 68, 0.05)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: "var(--color-danger-500)", marginBottom: 6 }}>
               <AlertTriangle size={16} /> System Degraded
             </div>
             <div style={{ fontSize: 13, color: "var(--color-neutral-500)" }}>
-              {health.degraded_reasons.map(r => r.replace(/_/g, " ")).join(", ")}
+              {(health.degraded_reasons ?? []).map(r => r.replace(/_/g, " ")).join(", ")}
             </div>
           </div>
         </Card>
@@ -461,7 +482,7 @@ function DashboardsList() {
       refetch();
       setView({ kind: "edit", dashboard: d });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
     }
   };
 
@@ -471,7 +492,7 @@ function DashboardsList() {
       setDeleteConfirm(null);
       refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
     }
   };
 
@@ -481,7 +502,7 @@ function DashboardsList() {
       refetch();
       setView({ kind: "edit", dashboard: d });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
     }
   };
 
@@ -635,7 +656,15 @@ function CreateDashboardModal({ isOpen, onSave, onClose }: { isOpen: boolean; on
 // ─── Dashboard Viewer (Grid + Time Range + Auto Refresh) ────────────────────
 
 function DashboardViewer({ dashboard, onBack, onEdit }: { dashboard: Dashboard; onBack: () => void; onEdit: () => void }) {
-  const [timeRangeKey, setTimeRangeKey] = useState("1h");
+  const [dvParams, setDvParams] = useSearchParams();
+  const timeRangeKey = dvParams.get("range") || "1h";
+  const setTimeRangeKey = useCallback((v: string) => {
+    setDvParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (v === "1h") next.delete("range"); else next.set("range", v);
+      return next;
+    }, { replace: true });
+  }, [setDvParams]);
   const [autoRefreshKey, setAutoRefreshKey] = useState("off");
   const [refreshKey, setRefreshKey] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -930,6 +959,8 @@ const PANEL_TYPE_OPTIONS: { value: PanelType; label: string }[] = [
   { value: "text", label: "Text (Markdown)" },
 ];
 
+type QueryMode = "simple" | "mql";
+
 function PanelEditorDrawer({
   panel,
   isNew,
@@ -943,13 +974,18 @@ function PanelEditorDrawer({
 }) {
   const [title, setTitle] = useState(panel.title);
   const [panelType, setPanelType] = useState<PanelType>(panel.panel_type);
+  const [queryMode, setQueryMode] = useState<QueryMode>(panel.mql_query ? "mql" : "simple");
   const [metricName, setMetricName] = useState(panel.metric_name ?? "");
   const [metricSearch, setMetricSearch] = useState("");
   const [aggregation, setAggregation] = useState(panel.aggregation ?? "avg");
+  const [mqlQuery, setMqlQuery] = useState(panel.mql_query ?? "");
+  const [mqlError, setMqlError] = useState<string | null>(null);
+  const [mqlValid, setMqlValid] = useState(false);
   const [content, setContent] = useState(panel.content ?? "");
   const [stacked, setStacked] = useState(panel.display_options?.stacked !== false);
   const [limit, setLimit] = useState((panel.display_options?.limit as number) ?? 10);
   const { data: metricNames } = useApi<string[]>(() => api.metrics.names(), []);
+  const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filteredMetrics = metricSearch
     ? (metricNames ?? []).filter((n) => n.toLowerCase().includes(metricSearch.toLowerCase())).slice(0, 30)
@@ -960,20 +996,74 @@ function PanelEditorDrawer({
   const now = new Date();
   const start = new Date(now.getTime() - 60 * 60_000);
 
+  useEffect(() => {
+    if (queryMode !== "mql" || !mqlQuery.trim()) {
+      setMqlError(null);
+      setMqlValid(false);
+      return;
+    }
+
+    if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
+
+    validateTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await api.mql.validate({
+          query: mqlQuery,
+          start: start.toISOString(),
+          end: now.toISOString(),
+        });
+        if (result.valid) {
+          setMqlError(null);
+          setMqlValid(true);
+        } else {
+          setMqlError(result.error ?? "Invalid query");
+          setMqlValid(false);
+        }
+      } catch (e) {
+        setMqlError(e instanceof Error ? e.message : "Validation failed");
+        setMqlValid(false);
+      }
+    }, 400);
+
+    return () => {
+      if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
+    };
+  }, [mqlQuery, queryMode]);
+
   const handleSave = () => {
     const displayOptions: Record<string, unknown> = {};
     if (panelType === "area") displayOptions.stacked = stacked;
     if (panelType === "top_list") displayOptions.limit = limit;
 
+    const isMql = queryMode === "mql" && !isTextType;
+
     onSave({
       ...panel,
-      title: title || metricName || "Untitled",
+      title: title || (isMql ? mqlQuery.split(":")[1]?.split("{")[0] ?? "MQL" : metricName) || "Untitled",
       panel_type: panelType,
-      metric_name: isTextType ? undefined : metricName,
-      aggregation: isTextType ? undefined : aggregation,
+      metric_name: isTextType || isMql ? undefined : metricName,
+      aggregation: isTextType || isMql ? undefined : aggregation,
+      mql_query: isMql ? mqlQuery : undefined,
       content: isTextType ? content : undefined,
       display_options: displayOptions,
     });
+  };
+
+  const hasValidSource = isTextType
+    ? !!content
+    : queryMode === "mql"
+      ? mqlValid
+      : !!metricName.trim();
+
+  const previewPanel = {
+    ...panel,
+    title,
+    panel_type: panelType,
+    metric_name: isTextType || queryMode === "mql" ? undefined : metricName,
+    aggregation: isTextType || queryMode === "mql" ? undefined : aggregation,
+    mql_query: !isTextType && queryMode === "mql" ? mqlQuery : undefined,
+    content: isTextType ? content : undefined,
+    display_options: panelType === "area" ? { stacked } : panelType === "top_list" ? { limit } : {},
   };
 
   return (
@@ -1031,43 +1121,119 @@ function PanelEditorDrawer({
               </div>
             ) : (
               <>
-                <NativeSelect
-                  label="Aggregation"
-                  options={["avg", "min", "max", "sum", "count", "last", "p95", "p99"].map((a) => ({ value: a, label: a }))}
-                  value={aggregation}
-                  onChange={(v) => setAggregation(v)}
-                />
-
+                {/* Query Mode Toggle */}
                 <div>
-                  <Input
-                    label="Metric"
-                    value={metricName || metricSearch}
-                    onChange={(e) => { setMetricSearch(e.target.value); setMetricName(e.target.value); }}
-                    placeholder="Search metrics..."
-                  />
-                  {metricSearch && filteredMetrics.length > 0 && (
-                    <div style={{
-                      background: "var(--bg-tertiary)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-sm)",
-                      maxHeight: 180,
-                      overflowY: "auto",
-                      marginTop: 4,
-                    }}>
-                      {filteredMetrics.map((n) => (
-                        <div
-                          key={n}
-                          style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(99,91,255,0.1)")}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                          onClick={() => { setMetricName(n); setMetricSearch(""); }}
-                        >
-                          <code style={{ fontSize: 12 }}>{n}</code>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6 }}>
+                    Query Mode
+                  </label>
+                  <div style={{ display: "flex", gap: 0, borderRadius: "var(--border-radius-md)", overflow: "hidden", border: "1px solid var(--color-neutral-200)" }}>
+                    {(["simple", "mql"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setQueryMode(mode)}
+                        style={{
+                          flex: 1,
+                          padding: "8px 16px",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          border: "none",
+                          background: queryMode === mode ? "var(--color-primary-500)" : "var(--color-neutral-50)",
+                          color: queryMode === mode ? "#fff" : "var(--color-neutral-600)",
+                          transition: "background 0.15s, color 0.15s",
+                        }}
+                      >
+                        {mode === "simple" ? "Simple" : "MQL"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {queryMode === "mql" ? (
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6 }}>
+                      MQL Query
+                    </label>
+                    <textarea
+                      value={mqlQuery}
+                      onChange={(e) => setMqlQuery(e.target.value)}
+                      maxLength={2000}
+                      placeholder="avg:aws.rds.cpu{env:prod}.rate()"
+                      rows={3}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        fontSize: 13,
+                        fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                        background: "var(--bg-tertiary)",
+                        border: `1px solid ${mqlError ? "var(--color-danger-500)" : mqlValid ? "var(--color-success-500)" : "var(--border)"}`,
+                        borderRadius: "var(--radius-sm)",
+                        color: "var(--text-primary)",
+                        resize: "vertical",
+                      }}
+                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: 4 }}>
+                      <div>
+                        {mqlError && (
+                          <span style={{ fontSize: 12, color: "var(--color-danger-500)" }}>
+                            {mqlError}
+                          </span>
+                        )}
+                        {mqlValid && !mqlError && (
+                          <span style={{ fontSize: 12, color: "var(--color-success-500)" }}>
+                            Valid query
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 11, color: mqlQuery.length > 1900 ? "var(--color-danger-500)" : "var(--color-neutral-400)", whiteSpace: "nowrap", marginLeft: 8 }}>
+                        {mqlQuery.length}/2000
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--color-neutral-400)", marginTop: 6 }}>
+                      Format: <code style={{ fontSize: 11 }}>aggregator:metric{"{"}tag:value{"}"}.function().rollup(method,seconds)</code>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <NativeSelect
+                      label="Aggregation"
+                      options={["avg", "min", "max", "sum", "count", "last", "p95", "p99"].map((a) => ({ value: a, label: a }))}
+                      value={aggregation}
+                      onChange={(v) => setAggregation(v)}
+                    />
+
+                    <div>
+                      <Input
+                        label="Metric"
+                        value={metricName || metricSearch}
+                        onChange={(e) => { setMetricSearch(e.target.value); setMetricName(e.target.value); }}
+                        placeholder="Search metrics..."
+                      />
+                      {metricSearch && filteredMetrics.length > 0 && (
+                        <div style={{
+                          background: "var(--bg-tertiary)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--radius-sm)",
+                          maxHeight: 180,
+                          overflowY: "auto",
+                          marginTop: 4,
+                        }}>
+                          {filteredMetrics.map((n) => (
+                            <div
+                              key={n}
+                              style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(99,91,255,0.1)")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                              onClick={() => { setMetricName(n); setMetricSearch(""); }}
+                            >
+                              <code style={{ fontSize: 12 }}>{n}</code>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
 
                 {panelType === "area" && (
                   <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
@@ -1094,7 +1260,7 @@ function PanelEditorDrawer({
             )}
 
             {/* Preview */}
-            {(isTextType ? content : metricName) && (
+            {(isTextType ? content : hasValidSource) && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 6 }}>
                   Preview
@@ -1106,15 +1272,7 @@ function PanelEditorDrawer({
                   overflow: "hidden",
                 }}>
                   <WidgetRenderer
-                    panel={{
-                      ...panel,
-                      title,
-                      panel_type: panelType,
-                      metric_name: isTextType ? undefined : metricName,
-                      aggregation: isTextType ? undefined : aggregation,
-                      content: isTextType ? content : undefined,
-                      display_options: panelType === "area" ? { stacked } : panelType === "top_list" ? { limit } : {},
-                    }}
+                    panel={previewPanel}
                     from={start}
                     to={now}
                     interval="1m"
@@ -1131,7 +1289,7 @@ function PanelEditorDrawer({
           <Button
             variant="primary"
             onClick={handleSave}
-            disabled={!isTextType && !metricName.trim() && !title.trim()}
+            disabled={!isTextType && !hasValidSource && !title.trim()}
           >
             {isNew ? "Add Panel" : "Update Panel"}
           </Button>

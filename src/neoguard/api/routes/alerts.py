@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.alerts import (
     AlertAcknowledge,
     AlertEvent,
@@ -37,7 +37,11 @@ from neoguard.services.alerts.silences import (
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
 
-@router.post("/rules", status_code=201)
+@router.post(
+    "/rules",
+    status_code=201,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def create_rule(
     data: AlertRuleCreate,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -65,7 +69,10 @@ async def get_rule(
     return rule
 
 
-@router.patch("/rules/{rule_id}")
+@router.patch(
+    "/rules/{rule_id}",
+    dependencies=[Depends(require_scope("write"))],
+)
 async def update_rule(
     rule_id: str,
     data: AlertRuleUpdate,
@@ -77,7 +84,11 @@ async def update_rule(
     return rule
 
 
-@router.delete("/rules/{rule_id}", status_code=204)
+@router.delete(
+    "/rules/{rule_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def delete_rule(
     rule_id: str,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -103,7 +114,10 @@ async def list_events(
     )
 
 
-@router.post("/events/{event_id}/ack")
+@router.post(
+    "/events/{event_id}/ack",
+    dependencies=[Depends(require_scope("write"))],
+)
 async def acknowledge_event(
     event_id: str,
     data: AlertAcknowledge,
@@ -115,7 +129,10 @@ async def acknowledge_event(
     return event
 
 
-@router.post("/rules/preview")
+@router.post(
+    "/rules/preview",
+    dependencies=[Depends(require_scope("write"))],
+)
 async def preview_rule(
     data: AlertRulePreview,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -126,7 +143,11 @@ async def preview_rule(
 # ── Silence endpoints ──────────────────────────────────────────────
 
 
-@router.post("/silences", status_code=201)
+@router.post(
+    "/silences",
+    status_code=201,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def create_silence_route(
     data: SilenceCreate,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -154,7 +175,10 @@ async def get_silence_route(
     return silence
 
 
-@router.patch("/silences/{silence_id}")
+@router.patch(
+    "/silences/{silence_id}",
+    dependencies=[Depends(require_scope("write"))],
+)
 async def update_silence_route(
     silence_id: str,
     data: SilenceUpdate,
@@ -166,7 +190,11 @@ async def update_silence_route(
     return silence
 
 
-@router.delete("/silences/{silence_id}", status_code=204)
+@router.delete(
+    "/silences/{silence_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def delete_silence_route(
     silence_id: str,
     tenant_id: str = Depends(get_tenant_id_required),

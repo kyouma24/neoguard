@@ -37,7 +37,7 @@ def _make_rule(
     duration_sec: int = 60,
     tags_filter: str = "{}",
     name: str = "High CPU",
-    severity: str = "warning",
+    severity: str = "P3",
     notification: str = "{}",
     aggregation: str = "avg",
     cooldown_sec: int = 300,
@@ -479,7 +479,7 @@ class TestFireAndResolve:
         assert args[2] == "default"    # tenant_id
         assert args[3] == "rule-1"     # rule_id
         assert args[4] == "High CPU"   # rule_name
-        assert args[5] == "warning"    # severity
+        assert args[5] == "P3"    # severity
         assert args[6] == 95.0         # value
         assert args[7] == 80.0         # threshold
 

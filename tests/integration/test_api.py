@@ -139,7 +139,7 @@ class TestAlertRules:
             "metric_name": "test.metric",
             "condition": "gt",
             "threshold": 90.0,
-            "severity": "warning",
+            "severity": "P3",
             "duration_sec": 60,
         })
         assert resp.status_code == 201
@@ -341,7 +341,7 @@ class TestAlertSilences:
             "metric_name": "test.cpu",
             "condition": "gt",
             "threshold": 90.0,
-            "severity": "warning",
+            "severity": "P3",
             "duration_sec": 60,
         })
         assert rule_resp.status_code == 201
@@ -526,7 +526,7 @@ class TestAlertRuleWithSilence:
             "metric_name": "e2e.cpu.test",
             "condition": "gt",
             "threshold": 50.0,
-            "severity": "critical",
+            "severity": "P1",
             "duration_sec": 10,
             "interval_sec": 10,
         })

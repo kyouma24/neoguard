@@ -20,7 +20,7 @@ class PanelDefinition(BaseModel):
     metric_name: str | None = None
     tags: dict[str, str] = Field(default_factory=dict)
     aggregation: str = "avg"
-    query: str | None = None
+    mql_query: str | None = None
     display_options: dict = Field(default_factory=dict)
     content: str = ""
     width: int = Field(default=6, ge=1, le=12)

@@ -74,7 +74,7 @@ class TestAlertModels:
             condition=AlertCondition.GT,
             threshold=90.0,
             duration_sec=60,
-            severity=AlertSeverity.CRITICAL,
+            severity=AlertSeverity.P1,
         )
         assert rule.name == "High CPU"
         assert rule.condition == AlertCondition.GT
@@ -98,4 +98,4 @@ class TestAlertModels:
         )
         assert rule.duration_sec == 60
         assert rule.interval_sec == 30
-        assert rule.severity == AlertSeverity.WARNING
+        assert rule.severity == AlertSeverity.P3

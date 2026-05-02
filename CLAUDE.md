@@ -99,7 +99,8 @@
 - **Notifications**: 6 channel types (webhook+HMAC signing, slack, email, freshdesk, pagerduty Events API v2, msteams Adaptive Cards), pluggable senders, dispatch on fire/resolve, Freshdesk ticket lifecycle, retry with backoff
 - **Self-monitoring**: Request correlation IDs (ULID), metrics registry, telemetry collector (32 neoguard.* series), /system/stats, enhanced /health
 - **Frontend** (26 TS/TSX files, 10 pages): Login, Signup, Overview, Infrastructure (24 AWS tabs + drill-down), Metrics, Logs, Alerts (with silences), Dashboards, Settings (wizard onboarding + notifications + API keys + team), Admin (super admin only — stats, tenants, users, audit log). Auth context, protected routes, tenant switcher.
-- **Tests**: 665 total passing (593 unit + 72 frontend)
+- **MQL**: Tokenizer, recursive-descent parser, parameterized SQL compiler (defense-in-depth: tag key regex validation + parameterized values), post-processing executor (rate, derivative, moving_average, as_rate, as_count, abs, log). 3 API routes: query, batch, validate — all scope-enforced (`require_scope("read")`), tenant-isolated at compile time. Frontend MQL API client + panel editor MQL mode (maxLength=2000, debounced validation) + WidgetRenderer MQL-first integration.
+- **Tests**: 1,001 total passing (891 unit + 110 frontend)
 - **Infra**: Docker Compose (TimescaleDB + ClickHouse + API), Dockerfile (single-stage), Alembic migrations, CFT template for IAM role
 - **Docs**: 8 docs in docs/ + ADR-001
 
@@ -138,13 +139,15 @@
 - [x] Frontend: Admin page (overview stats, tenants table, users table, audit log)
 - [x] Admin nav item (visible only to super admins)
 
-**Laptop Demo TODO (remaining):**
-- [ ] Alembic migrations for new tables (currently in init.sql only)
-- [ ] CSRF protection middleware
-- [ ] Super admin bootstrap CLI: `python -m neoguard.cli.bootstrap_admin`
-- [ ] Password reset flow
-- [ ] User impersonation (read-only session, logged with reason)
-- [ ] Role-based UI constraints (viewer=read-only)
+**Laptop Demo TODO — ALL COMPLETE:**
+- [x] Alembic migrations for new tables (001 initial schema + 002 password reset tokens)
+- [x] CSRF protection middleware (double-submit cookie, stale session recovery on /auth/me)
+- [x] Super admin bootstrap CLI: `python -m neoguard.cli bootstrap-admin`
+- [x] Password reset flow (backend tokens + frontend pages + console email)
+- [x] User impersonation (read-only session, time-limited, audit-logged, yellow banner)
+- [x] Role-based UI constraints (viewer=read-only, usePermissions hook across all pages)
+- [x] Tenant ID migration (1.18M+ rows from "default" to UUID, fixed 4 source files)
+- [x] Super admin platform-wide access audited and documented (bypass filtering, tenant_id=None)
 
 ### After Cloud TODO (post-approval)
 - [ ] Google/GitHub OAuth (needs public callback URL + registered OAuth app)
@@ -159,8 +162,9 @@
 - [ ] GDPR export/delete (needs S3)
 - [ ] Multi-stage production Dockerfile
 - [ ] WebSocket/real-time dashboards
-- [ ] MQL query language (parser + compiler)
-- [ ] Dashboard grid upgrade (react-grid-layout, 4 widget types, variables)
+- [x] MQL query language (tokenizer + parser + compiler + executor + API + frontend integration)
+- [x] Dashboard grid (react-grid-layout, 6 widget types, MQL query mode, time controls)
+- [ ] Dashboard variables system ($env substitution, dropdown in header)
 - [ ] Home page redesign (spec 01 — health banner, firing alerts, favorites)
 - [ ] Metrics explorer upgrade (typeahead, multi-query overlay, save-to-dashboard)
 - [ ] Load testing (Locust, 100 concurrent users)
@@ -190,6 +194,16 @@
 - Lucide icons
 - date-fns for date formatting
 - API client in `services/api.ts`, types in `types/index.ts`
+- Count badges inside buttons/tabs: ALWAYS set explicit `color` and `background` — never rely on inherited text color from parent. Active state: white text on semi-transparent white bg. Inactive state: `var(--color-neutral-700)` text on `var(--color-neutral-200)` bg.
+
+**Super Admin Access**:
+- Super admin (`is_super_admin=True`) has unrestricted access to the entire platform regardless of tenant
+- Implementation: bypass filtering approach — `get_tenant_id()` returns `None` for super admin, service functions skip `WHERE tenant_id` filter, returning all data across all tenants (including future tenants automatically)
+- Reads: `get_tenant_id()` → `None` → no tenant filter → sees ALL data. Can scope to one tenant via `?tenant_id=X` query param
+- Writes: `get_tenant_id_required()` → falls back to session's own tenant (prevents accidental cross-tenant writes)
+- Super admin is NOT added to every tenant's membership table — access is via flag bypass, not membership rows
+- Revoking `is_super_admin=False` immediately removes all cross-tenant visibility
+- Every new `list_*` / `get_*` service function MUST handle `tenant_id: str | None` with an `if tenant_id:` guard — never assume tenant_id is present
 
 **Commits**: Conventional commits (`feat()`, `fix()`, `test()`, `docs()`, `chore()`)
 
@@ -244,9 +258,9 @@ cd frontend && npm run build        # Production build
 cd frontend && npm run test         # Vitest
 
 # Tests
-pytest tests/unit/ -v                                     # 467 unit tests
-NEOGUARD_DB_PORT=5433 pytest tests/integration/ -v        # 46 integration tests
-cd frontend && npx vitest run                             # 47 frontend tests
+pytest tests/unit/ -v                                     # 891 backend tests
+NEOGUARD_DB_PORT=5433 pytest tests/integration/ -v        # 48 integration tests
+cd frontend && npx vitest run                             # 72 frontend tests
 
 # Quality
 python -m ruff check src/ tests/
@@ -270,7 +284,8 @@ cd frontend && npx tsc --noEmit
 - [ ] HTTPS/TLS deferred to cloud deployment
 - [ ] Secrets in env vars — Secrets Manager integration deferred to cloud
 - [ ] No Playwright E2E tests (Phase 8)
-- [ ] Overview, Metrics, Logs, Dashboards, Alerts pages have no frontend tests
+- [x] Dashboards page has frontend tests (23 tests). Overview, Metrics, Logs, Alerts pages still untested.
+- [ ] Overview, Metrics, Logs, Alerts pages have no frontend tests
 - **Cross-spec conflicts to resolve (from integration-map.md):**
   - ID format: ULID (current) vs UUIDv7 (spec) — both time-ordered, can coexist during transition
   - CSS framework: custom SCSS (current) vs Shadcn/Tailwind (spec) — decide at Phase 1 gate
@@ -283,28 +298,58 @@ cd frontend && npx tsc --noEmit
 
 ## 9. Last Session Summary
 
-**Date**: 2026-05-01
+**Date**: 2026-05-02
 **Branch**: `master`
 
-**Completed (this session)**:
-- Phase 1 Auth + Multi-Tenancy fully implemented
-- Redis integration (docker-compose + connection singleton)
-- 7 new DB tables: users, tenants, tenant_memberships, user_invites, audit_log, platform_audit_log, security_log
-- RLS policies on all 11+ tenant-scoped tables
-- Password auth (Argon2id, OWASP params) + Redis sessions (HttpOnly, 30d sliding TTL)
-- Auth middleware rewrite: dual-path (session cookies + API keys)
-- Auth routes: signup, login, logout, /me
-- Tenant routes: create, list, update, switch, members, invite, role change, remove
-- API key v2 (Argon2id, `obl_live_` prefix) with v1 SHA-256 backward compatibility
-- Auth telemetry: 9 counters + 7 structured emit functions
-- Admin panel backend: stats, tenant suspend/activate, user grant/revoke super_admin, activate/deactivate, platform audit log
-- Frontend: AuthContext, login page, signup page, protected routes, public routes
-- Frontend: tenant switcher in sidebar, user info + logout
-- Frontend: Team tab in Settings (invite, role management, remove)
-- Frontend: Admin page (stats, tenants, users, audit log — super admin only)
-- All 665 tests green (593 unit + 72 frontend)
+**Completed (previous session — 2026-05-01)**:
+- Phase 1 Auth + Multi-Tenancy core: Redis, 7 DB tables, RLS, Argon2id auth, sessions, middleware, routes
+- Admin panel: stats, tenant/user management, platform audit log
+- Frontend: AuthContext, login/signup, protected routes, tenant switcher, Team tab, Admin page
+- All 6 Phase 1 remaining tasks: bootstrap CLI, Alembic migrations, CSRF middleware, password reset, role-based UI, impersonation
 
-**Next**: Remaining laptop demo items — bootstrap CLI, password reset, CSRF middleware, Alembic migrations for new tables.
+**Completed (earlier — 2026-05-02)**:
+- Tenant ID migration: 1.18M+ metric rows + 350 rows across 11 tables from `tenant_id='default'` to UUID
+- Fixed 4 source files (cloudwatch, azure monitor, orchestrator, telemetry collector) to derive tenant_id from account objects
+- CSRF stale session fix: `/auth/me` sets CSRF cookie when missing, UI shows errors instead of silent empty state
+- Sprint A (RBAC hardening) + Sprint B (admin create user + invite flow)
+- Platform audit: `docs/platform-audit.md` (gap analysis), `CHANGELOG.md`, `docs/todo.md` (master to-do), `docs/test-inventory.md`
+
+**Completed (Sprint 1 — 2026-05-02)**:
+- Tenant context in global top bar: Layout.tsx shows "ACME Corp · owner" on every page automatically
+- Auth rate limiting: Redis-backed on login (5/15min/IP) and signup (10/hr/IP), fail-open, 21 tests
+- Azure metric name alignment: 12 frontend/backend mismatches fixed in InfrastructurePage.tsx
+- Dependency audit: pip-audit clean (except pip CVE-2026-3219), npm audit 0 vulnerabilities
+- Discovered P1-P4 severity, error envelope, SSRF protection were already implemented
+- 796 tests passing (724 backend + 72 frontend), TypeScript clean
+
+**Completed (Sprint 2 Phase A — MQL Core — 2026-05-02)**:
+- MQL tokenizer: 14 token types, identifier-with-hyphens, negative numbers, IN keyword, aggregator position detection
+- MQL parser: recursive descent, all grammar productions (aggregator, metric, filters, functions, rollup), 2-token lookahead for metric-vs-function boundary
+- MQL compiler: parameterized SQL ($N placeholders), source table selection (raw/1m/1h), aggregation per rollup method, tag filter compilation (exact/wildcard/negation/in-set), tenant_id injection at compile time
+- MQL executor: post-processing pipeline (rate, derivative, moving_average, as_rate, as_count, abs, log), None propagation, counter reset clamping
+- MQL API: POST /api/v1/mql/query, /query/batch (up to 10), /validate (dry-run), admin-gated neoguard.* metrics
+- MQL tests: 153 backend tests (tokenizer 20 + parser 49 + compiler 42 + executor 20 + routes 22)
+
+**Completed (Sprint 2 Phase B — Dashboard MQL Integration — 2026-05-02)**:
+- Frontend MQL API client (api.mql.query, queryBatch, validate) + types (MQLQueryRequest, MQLValidateResponse)
+- PanelDefinition: added mql_query field (frontend types + backend Pydantic model)
+- WidgetRenderer: MQL-first rendering — prefers mql_query over legacy metric_name when both present
+- PanelEditorDrawer: Simple/MQL toggle, MQL textarea with debounced validation (400ms), valid/error indicators, syntax hint
+- Dashboard + Widget frontend tests: 38 new tests (15 WidgetRenderer + 23 DashboardsPage)
+
+**Completed (Sprint 2 Phase C — MQL Security Hardening — 2026-05-02)**:
+- SQL injection fix: tag key regex validation (`^[a-zA-Z_][a-zA-Z0-9_\-]*$`, 128 char max) in compiler before f-string interpolation — defense-in-depth (tokenizer rejects → parser limits → compiler validates)
+- Scope enforcement: added `require_scope("read")` to all 3 MQL routes (query, batch, validate)
+- Parser security boundaries: 6 new tests — SQL injection in tag key/metric name, backtick/semicolon/double-dash rejection
+- Compiler tag key sanitization: 14 new tests — valid/invalid keys across all 4 filter types, injection attempts
+- MQL route auth + tenancy tests: 22 new tests — scope enforcement, tenant isolation (compile-time injection), internal metric protection, input validation, batch limits, end-to-end tag key injection
+- Frontend MQL textarea: maxLength=2000 with character counter (red at >1900)
+- 1,001 tests passing (891 backend + 110 frontend), TypeScript clean
+
+**Phase 1 Status**: COMPLETE — all laptop demo items done
+**Sprint 1 Status**: COMPLETE — all P0 demo blockers resolved
+**Sprint 2 Status**: Phase A (MQL Core) COMPLETE, Phase B (Dashboard MQL Integration) COMPLETE, Phase C (Security Hardening) COMPLETE
+**Next**: User direction needed — remaining Sprint 2 backlog items or demo prep
 
 ---
 
@@ -332,7 +377,11 @@ cd frontend && npx tsc --noEmit
 - [x] Per-key rate limiting (sliding window, 429 + Retry-After)
 - [x] Scope-based authorization (read/write/admin/platform_admin)
 - [x] Tenant isolation (tenant_id on every table, enforced in service layer)
-- [x] Parameterized SQL everywhere
+- [x] Super admin platform-wide access (bypass filtering — `tenant_id=None` skips WHERE clause, sees all tenants including future ones; writes scoped to session tenant)
+- [x] Parameterized SQL everywhere (values via $N placeholders, tag keys via regex validation)
+- [x] MQL defense-in-depth: tokenizer rejects dangerous chars → parser limits to IDENTIFIER tokens → compiler validates tag keys (`^[a-zA-Z_][a-zA-Z0-9_\-]*$`, 128 max) → values always parameterized
+- [x] MQL scope enforcement: all routes require `read` scope minimum
+- [x] MQL tenant isolation: tenant_id injected at compile time from auth state, never from user input
 - [x] Input validation via Pydantic models
 - [x] Request correlation IDs for audit trail
 - [x] No secrets in code (env vars only)
@@ -340,5 +389,8 @@ cd frontend && npx tsc --noEmit
 - [ ] HTTPS/TLS (deferred to cloud)
 - [ ] CORS production lock-down (deferred)
 - [ ] Secrets Manager integration (deferred)
-- [ ] Dependency audit (`pip-audit`, `npm audit`) — not run yet
+- [x] Dependency audit (`pip-audit`, `npm audit`) — clean (Sprint 1, 2026-05-02)
+- [x] Auth rate limiting on login/signup (Redis-backed, fail-open) (Sprint 1, 2026-05-02)
+- [x] SSRF protection on webhook/notification URLs (validate_outbound_url, 13 tests)
+- [x] Standardized error envelope on all HTTP errors ({error: {code, message, correlation_id}})
 - [ ] Log scrubbing for PII/tokens — not audited

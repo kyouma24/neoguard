@@ -317,7 +317,7 @@ async def collect_cloudwatch_metrics(
         try:
             points = await _fetch_batch(
                 cw, batch, query_map, start_time, end_time,
-                namespace, region, account.account_id,
+                namespace, region, account.account_id, account.tenant_id,
             )
             total_points += points
         except Exception as e:
@@ -334,7 +334,7 @@ async def collect_cloudwatch_metrics(
 async def _fetch_batch(
     cw, queries: list, query_map: dict,
     start_time: datetime, end_time: datetime,
-    namespace: str, region: str, account_id: str,
+    namespace: str, region: str, account_id: str, tenant_id: str,
 ) -> int:
     paginator = cw.get_paginator("get_metric_data")
     points: list[MetricPoint] = []
@@ -380,7 +380,7 @@ async def _fetch_batch(
                 ))
 
     if points:
-        await metric_writer.write("default", points)
+        await metric_writer.write(tenant_id, points)
 
     return len(points)
 

@@ -5,6 +5,7 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { MetricsPage } from "./pages/MetricsPage";
 import { LogsPage } from "./pages/LogsPage";
 import { AlertsPage } from "./pages/AlertsPage";
+import { AlertDetailPage } from "./pages/AlertDetailPage";
 import { DashboardsPage } from "./pages/DashboardsPage";
 import { InfrastructurePage } from "./pages/InfrastructurePage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -73,6 +74,7 @@ function AppRoutes() {
                 <Route path="/metrics" element={<MetricsPage />} />
                 <Route path="/logs" element={<LogsPage />} />
                 <Route path="/alerts" element={<AlertsPage />} />
+                <Route path="/alerts/:id" element={<AlertDetailPage />} />
                 <Route path="/dashboards" element={<DashboardsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/admin" element={<ProtectedRoute requireSuperAdmin><AdminPage /></ProtectedRoute>} />

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { UserPlus, Shield, Trash2, Crown } from "lucide-react";
-import { api } from "../services/api";
+import { api, formatError } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 import type { MembershipInfo } from "../types";
@@ -24,7 +24,7 @@ export function TeamTab() {
       const data = await api.tenants.members(tenant.id);
       setMembers(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load members");
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -45,7 +45,7 @@ export function TeamTab() {
       setInviteRole("member");
       await fetchMembers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to invite");
+      setError(formatError(err));
     } finally {
       setInviting(false);
     }
@@ -58,7 +58,7 @@ export function TeamTab() {
       await api.tenants.changeRole(tenant.id, memberId, newRole);
       await fetchMembers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to change role");
+      setError(formatError(err));
     }
   };
 
@@ -69,7 +69,7 @@ export function TeamTab() {
       await api.tenants.removeMember(tenant.id, memberId);
       await fetchMembers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove member");
+      setError(formatError(err));
     }
   };
 

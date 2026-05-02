@@ -16,10 +16,20 @@ vi.mock("../services/api", () => ({
     azure: { listSubscriptions: vi.fn() },
     metrics: { query: vi.fn() },
   },
+  formatError: (e: unknown) => e instanceof Error ? e.message : String(e),
 }));
 
 vi.mock("../components/TimeSeriesChart", () => ({
   TimeSeriesChart: () => <div data-testid="chart" />,
+}));
+
+vi.mock("../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: "u1", email: "test@test.com", name: "Test", is_super_admin: false, is_active: true, email_verified: true, created_at: "2026-01-01" },
+    tenant: { id: "t1", slug: "test", name: "Test Org", tier: "free", status: "active", created_at: "2026-01-01" },
+    role: "owner",
+    loading: false,
+  }),
 }));
 
 const AWS_ACCOUNT: AWSAccount = {

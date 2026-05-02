@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useURLState } from "../hooks/useURLState";
 import {
-  Building2,
-  Users,
-  ScrollText,
-  BarChart3,
   Eye,
   ShieldCheck,
   ShieldOff,
@@ -12,46 +9,146 @@ import {
   UserX,
 } from "lucide-react";
 import { format } from "date-fns";
-import { api } from "../services/api";
+import { api, formatError } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
-import type { AdminTenant, AdminUser, PlatformStats, PlatformAuditEntry } from "../types";
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  DataTable,
+  Input,
+  Modal,
+  PageHeader,
+  StatusBadge,
+  Tabs,
+} from "../design-system";
+import type { DataTableColumn } from "../design-system";
+import type { AdminTenant, AdminUser, PlatformStats, PlatformAuditEntry, SecurityLogEntry } from "../types";
 
-type AdminTab = "overview" | "tenants" | "users" | "audit";
+interface DestructiveConfirm {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  tone: "danger" | "warning" | "info";
+  targetName?: string;
+  onConfirm: () => Promise<void>;
+}
+
+function TypedConfirmDialog({
+  confirm,
+  onClose,
+}: {
+  confirm: DestructiveConfirm | null;
+  onClose: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const [loading, setLoading] = useState(false);
+  const requiresTyping = confirm?.targetName != null;
+  const canConfirm = !requiresTyping || typed === confirm?.targetName;
+
+  const handleConfirm = async () => {
+    if (!confirm || !canConfirm) return;
+    setLoading(true);
+    try {
+      await confirm.onConfirm();
+    } finally {
+      setLoading(false);
+      setTyped("");
+      onClose();
+    }
+  };
+
+  const handleCancel = () => {
+    setTyped("");
+    onClose();
+  };
+
+  if (!confirm) return null;
+
+  if (requiresTyping) {
+    return (
+      <Modal isOpen title={confirm.title} onClose={handleCancel} size="sm">
+        <p style={{ fontSize: 13, color: "var(--color-neutral-600)", marginBottom: 16 }}>
+          {confirm.description}
+        </p>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--color-neutral-700)" }}>
+            Type <strong>{confirm.targetName}</strong> to confirm
+          </label>
+          <Input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder={confirm.targetName}
+          />
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Button variant="ghost" onClick={handleCancel} disabled={loading}>Cancel</Button>
+          <Button variant="danger" onClick={handleConfirm} disabled={!canConfirm || loading}>
+            {loading ? "Working..." : confirm.confirmLabel}
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <ConfirmDialog
+      isOpen
+      title={confirm.title}
+      description={confirm.description}
+      confirmLabel={confirm.confirmLabel}
+      tone={confirm.tone}
+      loading={loading}
+      onConfirm={handleConfirm}
+      onCancel={handleCancel}
+    />
+  );
+}
 
 export function AdminPage() {
-  const [tab, setTab] = useState<AdminTab>("overview");
+  const [tab, setTab] = useURLState("tab", "overview");
 
-  const tabs: { id: AdminTab; label: string; icon: typeof BarChart3 }[] = [
-    { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "tenants", label: "Tenants", icon: Building2 },
-    { id: "users", label: "Users", icon: Users },
-    { id: "audit", label: "Audit Log", icon: ScrollText },
+  const tabItems = [
+    { id: "overview", label: "Overview", content: <OverviewTab /> },
+    { id: "tenants", label: "Tenants", content: <TenantsTab /> },
+    { id: "users", label: "Users", content: <UsersTab /> },
+    { id: "audit", label: "Audit Log", content: <AuditTab /> },
+    { id: "security", label: "Security Log", content: <SecurityTab /> },
   ];
 
   return (
     <div>
-      <div style={styles.header}>
-        <ShieldCheck size={24} color="var(--color-primary-500)" />
-        <h1 style={styles.title}>Admin Panel</h1>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "8px 16px", marginBottom: "var(--spacing-md)",
+        background: "var(--color-danger-50, #fef2f2)",
+        border: "1px solid var(--color-danger-200, #fecaca)",
+        borderLeft: "4px solid var(--color-danger-600, #dc2626)",
+        borderRadius: "var(--border-radius-md)",
+        color: "var(--color-danger-700, #b91c1c)",
+        fontSize: "var(--typography-font-size-sm)", fontWeight: 700,
+        letterSpacing: "0.05em", textTransform: "uppercase",
+      }}>
+        <ShieldCheck size={16} />
+        <span>SUPER ADMIN MODE</span>
       </div>
 
-      <div style={styles.tabBar}>
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            style={{ ...styles.tab, ...(tab === id ? styles.tabActive : {}) }}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
-      </div>
+      <PageHeader
+        title="[ADMIN] Platform Administration"
+        actions={
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ShieldCheck size={20} color="var(--color-danger-600, #dc2626)" />
+          </div>
+        }
+      />
 
-      {tab === "overview" && <OverviewTab />}
-      {tab === "tenants" && <TenantsTab />}
-      {tab === "users" && <UsersTab />}
-      {tab === "audit" && <AuditTab />}
+      <Tabs
+        tabs={tabItems}
+        activeTab={tab}
+        onChange={setTab}
+        variant="pill"
+      />
     </div>
   );
 }
@@ -64,8 +161,8 @@ function OverviewTab() {
     api.admin.stats().then(setStats).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div style={styles.loading}>Loading stats...</div>;
-  if (!stats) return <div style={styles.error}>Failed to load stats</div>;
+  if (loading) return <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-neutral-500)" }}>Loading stats...</div>;
+  if (!stats) return <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-danger-500)" }}>Failed to load stats</div>;
 
   const cards = [
     { label: "Total Tenants", value: stats.tenants.total, sub: `${stats.tenants.active} active` },
@@ -75,100 +172,272 @@ function OverviewTab() {
   ];
 
   return (
-    <div style={styles.grid}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--spacing-md)" }}>
       {cards.map((c) => (
-        <div key={c.label} style={styles.statCard}>
-          <div style={styles.statValue}>{c.value}</div>
-          <div style={styles.statLabel}>{c.label}</div>
-          <div style={styles.statSub}>{c.sub}</div>
-        </div>
+        <Card key={c.label} variant="bordered" padding="lg">
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "var(--typography-font-size-3xl, 30px)", fontWeight: 700, color: "var(--color-neutral-900)" }}>{c.value}</div>
+            <div style={{ fontSize: "var(--typography-font-size-sm)", fontWeight: 600, color: "var(--color-neutral-700)", marginTop: "var(--spacing-xs)" }}>{c.label}</div>
+            <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-400)" }}>{c.sub}</div>
+          </div>
+        </Card>
       ))}
     </div>
   );
 }
+
+type TenantRow = AdminTenant & { _actions?: never };
 
 function TenantsTab() {
   const [tenants, setTenants] = useState<AdminTenant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirm, setConfirm] = useState<DestructiveConfirm | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTenantName, setNewTenantName] = useState("");
+  const [creating, setCreating] = useState(false);
 
-  const fetch = useCallback(() => {
+  const fetchTenants = useCallback(() => {
     setLoading(true);
     api.admin.tenants().then(setTenants).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { fetchTenants(); }, [fetchTenants]);
 
-  const handleStatus = async (id: string, status: string) => {
-    await api.admin.setTenantStatus(id, status);
-    fetch();
+  const handleCreateTenant = async () => {
+    if (!newTenantName.trim()) return;
+    setCreating(true);
+    try {
+      await api.admin.createTenant({ name: newTenantName.trim() });
+      setNewTenantName("");
+      setShowCreate(false);
+      fetchTenants();
+    } catch { /* handled by API layer */ }
+    finally { setCreating(false); }
   };
 
-  if (loading) return <div style={styles.loading}>Loading tenants...</div>;
+  const requestDelete = (t: AdminTenant) => {
+    setConfirm({
+      title: `Delete "${t.name}"?`,
+      description: `This will permanently mark "${t.name}" as deleted. All members will lose access. Type the tenant name to confirm.`,
+      confirmLabel: "Delete Tenant",
+      tone: "danger",
+      targetName: t.name,
+      onConfirm: async () => {
+        await api.admin.deleteTenant(t.id);
+        fetchTenants();
+      },
+    });
+  };
+
+  const requestSuspend = (t: AdminTenant) => {
+    setConfirm({
+      title: `Suspend "${t.name}"?`,
+      description: `This will immediately block all members of "${t.name}" from accessing the platform. Type the tenant name to confirm.`,
+      confirmLabel: "Suspend Tenant",
+      tone: "danger",
+      targetName: t.name,
+      onConfirm: async () => {
+        await api.admin.setTenantStatus(t.id, "suspended");
+        fetchTenants();
+      },
+    });
+  };
+
+  const requestActivate = (t: AdminTenant) => {
+    setConfirm({
+      title: `Activate "${t.name}"?`,
+      description: `This will restore access for all members of "${t.name}".`,
+      confirmLabel: "Activate",
+      tone: "info",
+      onConfirm: async () => {
+        await api.admin.setTenantStatus(t.id, "active");
+        fetchTenants();
+      },
+    });
+  };
+
+  const statusTone = (s: string) =>
+    s === "active" ? "success" as const : s === "deleted" ? "neutral" as const : "danger" as const;
+
+  const columns: DataTableColumn<TenantRow>[] = [
+    {
+      key: "name",
+      label: "Tenant",
+      render: (_, row) => (
+        <div>
+          <div style={{ fontWeight: 600, color: "var(--color-neutral-900)" }}>{row.name}</div>
+          <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>{row.slug}</div>
+        </div>
+      ),
+    },
+    {
+      key: "tier",
+      label: "Tier",
+      render: (_, row) => <Badge variant="info" size="sm">{row.tier}</Badge>,
+    },
+    {
+      key: "status",
+      label: "Status",
+      render: (_, row) => <StatusBadge label={row.status} tone={statusTone(row.status)} />,
+    },
+    {
+      key: "member_count",
+      label: "Members",
+    },
+    {
+      key: "created_at",
+      label: "Created",
+      render: (_, row) => (
+        <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
+          {format(new Date(row.created_at), "MMM d, yyyy")}
+        </span>
+      ),
+    },
+    {
+      key: "_actions",
+      label: "",
+      render: (_, row) => (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+          {row.status !== "deleted" && (
+            <>
+              {row.status === "active" ? (
+                <Button variant="danger" size="sm" onClick={() => requestSuspend(row)}>Suspend</Button>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={() => requestActivate(row)}>Activate</Button>
+              )}
+              <Button variant="danger" size="sm" onClick={() => requestDelete(row)}>Delete</Button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  if (loading) return <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-neutral-500)" }}>Loading tenants...</div>;
 
   return (
-    <div style={styles.table}>
-      <div style={styles.tableHeader}>
-        <span style={{ flex: 2 }}>Tenant</span>
-        <span style={{ flex: 1 }}>Tier</span>
-        <span style={{ flex: 1 }}>Status</span>
-        <span style={{ flex: 1, textAlign: "center" }}>Members</span>
-        <span style={{ flex: 1, textAlign: "center" }}>Created</span>
-        <span style={{ flex: 1, textAlign: "right" }}>Actions</span>
+    <>
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, alignItems: "center" }}>
+        {showCreate ? (
+          <>
+            <Input
+              value={newTenantName}
+              onChange={(e) => setNewTenantName(e.target.value)}
+              placeholder="New tenant name"
+              style={{ maxWidth: 300 }}
+            />
+            <Button variant="primary" size="sm" onClick={handleCreateTenant} disabled={creating || !newTenantName.trim()}>
+              {creating ? "Creating..." : "Create"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowCreate(false); setNewTenantName(""); }}>Cancel</Button>
+          </>
+        ) : (
+          <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>Create Tenant</Button>
+        )}
       </div>
-      {tenants.map((t) => (
-        <div key={t.id} style={styles.tableRow}>
-          <span style={{ flex: 2 }}>
-            <div style={styles.cellPrimary}>{t.name}</div>
-            <div style={styles.cellSub}>{t.slug}</div>
-          </span>
-          <span style={{ flex: 1 }}>
-            <span style={styles.badge}>{t.tier}</span>
-          </span>
-          <span style={{ flex: 1 }}>
-            <span style={{
-              ...styles.badge,
-              background: t.status === "active" ? "var(--color-success-50, #f0fdf4)" : "var(--color-danger-50, #fef2f2)",
-              color: t.status === "active" ? "var(--color-success-700, #15803d)" : "var(--color-danger-700, #b91c1c)",
-            }}>{t.status}</span>
-          </span>
-          <span style={{ flex: 1, textAlign: "center" }}>{t.member_count}</span>
-          <span style={{ flex: 1, textAlign: "center", fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
-            {format(new Date(t.created_at), "MMM d, yyyy")}
-          </span>
-          <span style={{ flex: 1, textAlign: "right" }}>
-            {t.status === "active" ? (
-              <button onClick={() => handleStatus(t.id, "suspended")} style={styles.dangerBtn}>Suspend</button>
-            ) : (
-              <button onClick={() => handleStatus(t.id, "active")} style={styles.successBtn}>Activate</button>
-            )}
-          </span>
-        </div>
-      ))}
-    </div>
+      <DataTable
+        columns={columns}
+        data={tenants as TenantRow[]}
+        emptyMessage="No tenants found."
+        striped
+        hoverable
+      />
+      <TypedConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
+    </>
   );
 }
+
+type UserRow = AdminUser & { _actions?: never };
 
 function UsersTab() {
   const { user: currentUser, refreshAuth } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirm, setConfirm] = useState<DestructiveConfirm | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newUser, setNewUser] = useState({ name: "", email: "", password: "" });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
 
-  const fetch = useCallback(() => {
+  const fetchUsers = useCallback(() => {
     setLoading(true);
     api.admin.users().then(setUsers).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
-  const toggleSuperAdmin = async (userId: string, current: boolean) => {
-    await api.admin.setSuperAdmin(userId, !current);
-    fetch();
+  const requestToggleSuperAdmin = (u: AdminUser) => {
+    if (u.is_super_admin) {
+      setConfirm({
+        title: `Revoke super admin from "${u.name}"?`,
+        description: `This will remove platform-level admin access for ${u.email}. They will retain their tenant-level roles.`,
+        confirmLabel: "Revoke",
+        tone: "danger",
+        onConfirm: async () => {
+          await api.admin.setSuperAdmin(u.id, false);
+          fetchUsers();
+        },
+      });
+    } else {
+      setConfirm({
+        title: `Grant super admin to "${u.name}"?`,
+        description: `This will give ${u.email} full platform-level admin access including tenant management and user management.`,
+        confirmLabel: "Grant Admin",
+        tone: "warning",
+        onConfirm: async () => {
+          await api.admin.setSuperAdmin(u.id, true);
+          fetchUsers();
+        },
+      });
+    }
   };
 
-  const toggleActive = async (userId: string, current: boolean) => {
-    await api.admin.setUserActive(userId, !current);
-    fetch();
+  const requestToggleActive = (u: AdminUser) => {
+    if (u.is_active) {
+      setConfirm({
+        title: `Deactivate "${u.name}"?`,
+        description: `This will immediately prevent ${u.email} from logging in. All active sessions will be invalidated. Type the user's name to confirm.`,
+        confirmLabel: "Deactivate",
+        tone: "danger",
+        targetName: u.name,
+        onConfirm: async () => {
+          await api.admin.setUserActive(u.id, false);
+          fetchUsers();
+        },
+      });
+    } else {
+      setConfirm({
+        title: `Activate "${u.name}"?`,
+        description: `This will restore login access for ${u.email}.`,
+        confirmLabel: "Activate",
+        tone: "info",
+        onConfirm: async () => {
+          await api.admin.setUserActive(u.id, true);
+          fetchUsers();
+        },
+      });
+    }
+  };
+
+  const handleCreateUser = async () => {
+    if (!newUser.name.trim() || !newUser.email.trim() || !newUser.password.trim()) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      await api.admin.createUser({
+        name: newUser.name.trim(),
+        email: newUser.email.trim(),
+        password: newUser.password,
+      });
+      setNewUser({ name: "", email: "", password: "" });
+      setShowCreate(false);
+      fetchUsers();
+    } catch (err) {
+      setCreateError(formatError(err));
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleImpersonate = async (userId: string, userName: string) => {
@@ -179,74 +448,133 @@ function UsersTab() {
       await refreshAuth();
       navigate("/");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Impersonation failed");
+      alert(formatError(err));
     }
   };
 
-  if (loading) return <div style={styles.loading}>Loading users...</div>;
+  const columns: DataTableColumn<UserRow>[] = [
+    {
+      key: "name",
+      label: "User",
+      render: (_, row) => (
+        <div>
+          <div style={{ fontWeight: 600, color: "var(--color-neutral-900)" }}>{row.name}</div>
+          <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>{row.email}</div>
+        </div>
+      ),
+    },
+    { key: "tenant_count", label: "Tenants" },
+    {
+      key: "is_super_admin",
+      label: "Super Admin",
+      render: (_, row) => row.is_super_admin
+        ? <ShieldCheck size={16} color="var(--color-primary-500)" />
+        : <ShieldOff size={16} color="var(--color-neutral-300)" />,
+    },
+    {
+      key: "is_active",
+      label: "Active",
+      render: (_, row) => row.is_active
+        ? <UserCheck size={16} color="var(--color-success-500, #22c55e)" />
+        : <UserX size={16} color="var(--color-danger-500, #ef4444)" />,
+    },
+    {
+      key: "created_at",
+      label: "Created",
+      render: (_, row) => (
+        <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
+          {format(new Date(row.created_at), "MMM d, yyyy")}
+        </span>
+      ),
+    },
+    {
+      key: "_actions",
+      label: "",
+      render: (_, row) => (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+          <Button
+            variant={row.is_super_admin ? "danger" : "primary"}
+            size="sm"
+            onClick={() => requestToggleSuperAdmin(row)}
+            title={row.is_super_admin ? "Revoke super admin" : "Grant super admin"}
+          >
+            {row.is_super_admin ? "Revoke" : "Grant"}
+          </Button>
+          <Button
+            variant={row.is_active ? "danger" : "ghost"}
+            size="sm"
+            onClick={() => requestToggleActive(row)}
+            title={row.is_active ? "Deactivate" : "Activate"}
+          >
+            {row.is_active ? "Disable" : "Enable"}
+          </Button>
+          {row.id !== currentUser?.id && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleImpersonate(row.id, row.name)}
+              title="Impersonate user"
+            >
+              <Eye size={12} />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  if (loading) return <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-neutral-500)" }}>Loading users...</div>;
 
   return (
-    <div style={styles.table}>
-      <div style={styles.tableHeader}>
-        <span style={{ flex: 2 }}>User</span>
-        <span style={{ flex: 1, textAlign: "center" }}>Tenants</span>
-        <span style={{ flex: 1, textAlign: "center" }}>Super Admin</span>
-        <span style={{ flex: 1, textAlign: "center" }}>Active</span>
-        <span style={{ flex: 1, textAlign: "center" }}>Created</span>
-        <span style={{ flex: 1, textAlign: "right" }}>Actions</span>
+    <>
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {showCreate ? (
+          <>
+            <Input
+              value={newUser.name}
+              onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+              placeholder="Full name"
+              style={{ maxWidth: 180 }}
+            />
+            <Input
+              value={newUser.email}
+              onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+              placeholder="email@example.com"
+              style={{ maxWidth: 220 }}
+            />
+            <Input
+              type="password"
+              value={newUser.password}
+              onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+              placeholder="Password (min 8)"
+              style={{ maxWidth: 180 }}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleCreateUser}
+              disabled={creating || !newUser.name.trim() || !newUser.email.trim() || newUser.password.length < 8}
+            >
+              {creating ? "Creating..." : "Create"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowCreate(false); setNewUser({ name: "", email: "", password: "" }); setCreateError(""); }}>
+              Cancel
+            </Button>
+            {createError && <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-danger-500)" }}>{createError}</span>}
+          </>
+        ) : (
+          <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>Create User</Button>
+        )}
       </div>
-      {users.map((u) => (
-        <div key={u.id} style={styles.tableRow}>
-          <span style={{ flex: 2 }}>
-            <div style={styles.cellPrimary}>{u.name}</div>
-            <div style={styles.cellSub}>{u.email}</div>
-          </span>
-          <span style={{ flex: 1, textAlign: "center" }}>{u.tenant_count}</span>
-          <span style={{ flex: 1, textAlign: "center" }}>
-            {u.is_super_admin ? (
-              <ShieldCheck size={16} color="var(--color-primary-500)" />
-            ) : (
-              <ShieldOff size={16} color="var(--color-neutral-300)" />
-            )}
-          </span>
-          <span style={{ flex: 1, textAlign: "center" }}>
-            {u.is_active ? (
-              <UserCheck size={16} color="var(--color-success-500, #22c55e)" />
-            ) : (
-              <UserX size={16} color="var(--color-danger-500, #ef4444)" />
-            )}
-          </span>
-          <span style={{ flex: 1, textAlign: "center", fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
-            {format(new Date(u.created_at), "MMM d, yyyy")}
-          </span>
-          <span style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
-            <button
-              onClick={() => toggleSuperAdmin(u.id, u.is_super_admin)}
-              style={u.is_super_admin ? styles.dangerBtn : styles.primaryBtn}
-              title={u.is_super_admin ? "Revoke super admin" : "Grant super admin"}
-            >
-              {u.is_super_admin ? "Revoke" : "Grant"}
-            </button>
-            <button
-              onClick={() => toggleActive(u.id, u.is_active)}
-              style={u.is_active ? styles.dangerBtn : styles.successBtn}
-              title={u.is_active ? "Deactivate" : "Activate"}
-            >
-              {u.is_active ? "Disable" : "Enable"}
-            </button>
-            {u.id !== currentUser?.id && (
-              <button
-                onClick={() => handleImpersonate(u.id, u.name)}
-                style={styles.ghostBtn}
-                title="Impersonate user"
-              >
-                <Eye size={12} />
-              </button>
-            )}
-          </span>
-        </div>
-      ))}
-    </div>
+      <DataTable
+        columns={columns}
+        data={users as UserRow[]}
+        emptyMessage="No users found."
+        striped
+        hoverable
+      />
+      <TypedConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
+    </>
   );
 }
 
@@ -261,133 +589,147 @@ function AuditTab() {
 
   useEffect(() => { fetch(); }, [fetch]);
 
-  if (loading) return <div style={styles.loading}>Loading audit log...</div>;
+  const columns: DataTableColumn<PlatformAuditEntry>[] = [
+    {
+      key: "action",
+      label: "Action",
+      render: (_, row) => <Badge variant="info">{row.action}</Badge>,
+    },
+    {
+      key: "actor_name",
+      label: "Actor",
+      render: (_, row) => (
+        <div>
+          <div style={{ fontWeight: 600, color: "var(--color-neutral-900)" }}>{row.actor_name || "Unknown"}</div>
+          <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>{row.actor_email}</div>
+        </div>
+      ),
+    },
+    {
+      key: "target_type",
+      label: "Target",
+      render: (_, row) => (
+        <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
+          {row.target_type}: {row.target_id?.slice(0, 8)}...
+        </span>
+      ),
+    },
+    {
+      key: "created_at",
+      label: "Time",
+      render: (_, row) => (
+        <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
+          {format(new Date(row.created_at), "MMM d, HH:mm")}
+        </span>
+      ),
+    },
+  ];
+
+  if (loading) return <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-neutral-500)" }}>Loading audit log...</div>;
 
   if (entries.length === 0) {
-    return <div style={styles.empty}>No audit log entries yet. Admin actions will appear here.</div>;
+    return <div style={{ padding: "var(--spacing-2xl)", textAlign: "center", color: "var(--color-neutral-400)" }}>No audit log entries yet. Admin actions will appear here.</div>;
   }
 
   return (
-    <div style={styles.table}>
-      <div style={styles.tableHeader}>
-        <span style={{ flex: 2 }}>Action</span>
-        <span style={{ flex: 1 }}>Actor</span>
-        <span style={{ flex: 1 }}>Target</span>
-        <span style={{ flex: 1, textAlign: "right" }}>Time</span>
-      </div>
-      {entries.map((e) => (
-        <div key={e.id} style={styles.tableRow}>
-          <span style={{ flex: 2 }}>
-            <span style={styles.actionBadge}>{e.action}</span>
-          </span>
-          <span style={{ flex: 1 }}>
-            <div style={styles.cellPrimary}>{e.actor_name || "Unknown"}</div>
-            <div style={styles.cellSub}>{e.actor_email}</div>
-          </span>
-          <span style={{ flex: 1 }}>
-            <div style={styles.cellSub}>{e.target_type}: {e.target_id?.slice(0, 8)}...</div>
-          </span>
-          <span style={{ flex: 1, textAlign: "right", fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
-            {format(new Date(e.created_at), "MMM d, HH:mm")}
-          </span>
-        </div>
-      ))}
-    </div>
+    <DataTable
+      columns={columns}
+      data={entries}
+      emptyMessage="No audit log entries yet."
+      striped
+      hoverable
+    />
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  header: {
-    display: "flex", alignItems: "center", gap: "var(--spacing-sm)", marginBottom: "var(--spacing-lg)",
-  },
-  title: {
-    fontSize: "var(--typography-font-size-2xl)", fontWeight: 700,
-    color: "var(--color-neutral-900)", margin: 0,
-  },
-  tabBar: {
-    display: "flex", gap: "var(--spacing-xs)", marginBottom: "var(--spacing-lg)",
-    borderBottom: "1px solid var(--color-neutral-200)", paddingBottom: "var(--spacing-sm)",
-  },
-  tab: {
-    display: "flex", alignItems: "center", gap: 6,
-    padding: "var(--spacing-xs) var(--spacing-md)",
-    border: "none", borderRadius: "var(--border-radius-md)",
-    background: "transparent", color: "var(--color-neutral-500)",
-    fontSize: "var(--typography-font-size-sm)", cursor: "pointer",
-  },
-  tabActive: {
-    background: "var(--color-primary-50)", color: "var(--color-primary-700)", fontWeight: 600,
-  },
-  loading: { padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-neutral-500)" },
-  error: { padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-danger-500, #ef4444)" },
-  empty: { padding: "var(--spacing-2xl)", textAlign: "center", color: "var(--color-neutral-400)" },
-  grid: {
-    display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--spacing-md)",
-  },
-  statCard: {
-    background: "var(--color-neutral-0, #fff)", border: "1px solid var(--color-neutral-200)",
-    borderRadius: "var(--border-radius-lg)", padding: "var(--spacing-lg)",
-    textAlign: "center",
-  },
-  statValue: {
-    fontSize: "var(--typography-font-size-3xl, 30px)", fontWeight: 700, color: "var(--color-neutral-900)",
-  },
-  statLabel: {
-    fontSize: "var(--typography-font-size-sm)", fontWeight: 600, color: "var(--color-neutral-700)",
-    marginTop: "var(--spacing-xs)",
-  },
-  statSub: { fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-400)" },
-  table: {
-    background: "var(--color-neutral-0, #fff)", border: "1px solid var(--color-neutral-200)",
-    borderRadius: "var(--border-radius-lg)", overflow: "hidden",
-  },
-  tableHeader: {
-    display: "flex", padding: "var(--spacing-sm) var(--spacing-md)",
-    background: "var(--color-neutral-50)", borderBottom: "1px solid var(--color-neutral-200)",
-    fontSize: "var(--typography-font-size-xs)", fontWeight: 600, color: "var(--color-neutral-500)",
-    textTransform: "uppercase", letterSpacing: "0.05em",
-  },
-  tableRow: {
-    display: "flex", alignItems: "center", padding: "var(--spacing-sm) var(--spacing-md)",
-    borderBottom: "1px solid var(--color-neutral-100)",
-    fontSize: "var(--typography-font-size-sm)",
-  },
-  cellPrimary: { fontWeight: 600, color: "var(--color-neutral-900)" },
-  cellSub: { fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" },
-  badge: {
-    display: "inline-block", padding: "1px 8px", borderRadius: "var(--border-radius-sm)",
-    fontSize: "var(--typography-font-size-xs)", fontWeight: 600,
-    background: "var(--color-neutral-100)", color: "var(--color-neutral-600)",
-    textTransform: "capitalize",
-  },
-  actionBadge: {
-    display: "inline-block", padding: "1px 8px", borderRadius: "var(--border-radius-sm)",
-    fontSize: "var(--typography-font-size-xs)", fontWeight: 500,
-    background: "var(--color-primary-50)", color: "var(--color-primary-700)",
-    fontFamily: "monospace",
-  },
-  primaryBtn: {
-    padding: "2px 8px", borderRadius: "var(--border-radius-sm)",
-    border: "1px solid var(--color-primary-200)", background: "var(--color-primary-50)",
-    color: "var(--color-primary-700)", fontSize: "var(--typography-font-size-xs)",
-    fontWeight: 600, cursor: "pointer",
-  },
-  successBtn: {
-    padding: "2px 8px", borderRadius: "var(--border-radius-sm)",
-    border: "1px solid var(--color-success-200, #bbf7d0)", background: "var(--color-success-50, #f0fdf4)",
-    color: "var(--color-success-700, #15803d)", fontSize: "var(--typography-font-size-xs)",
-    fontWeight: 600, cursor: "pointer",
-  },
-  dangerBtn: {
-    padding: "2px 8px", borderRadius: "var(--border-radius-sm)",
-    border: "1px solid var(--color-danger-200, #fecaca)", background: "var(--color-danger-50, #fef2f2)",
-    color: "var(--color-danger-700, #b91c1c)", fontSize: "var(--typography-font-size-xs)",
-    fontWeight: 600, cursor: "pointer",
-  },
-  ghostBtn: {
-    display: "flex", alignItems: "center", padding: "2px 6px",
-    borderRadius: "var(--border-radius-sm)",
-    border: "1px solid var(--color-neutral-200)", background: "transparent",
-    color: "var(--color-neutral-500)", cursor: "pointer",
-  },
-};
+function SecurityTab() {
+  const [entries, setEntries] = useState<SecurityLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>("all");
+
+  const fetchEntries = useCallback(() => {
+    setLoading(true);
+    const params: { event_type?: string; success?: boolean; limit: number } = { limit: 100 };
+    if (filter === "failures") params.success = false;
+    if (filter !== "all" && filter !== "failures") params.event_type = filter;
+    api.admin.securityLog(params).then(setEntries).catch(() => {}).finally(() => setLoading(false));
+  }, [filter]);
+
+  useEffect(() => { fetchEntries(); }, [fetchEntries]);
+
+  const columns: DataTableColumn<SecurityLogEntry>[] = [
+    {
+      key: "event_type",
+      label: "Event",
+      render: (_, row) => <Badge variant="info">{row.event_type}</Badge>,
+    },
+    {
+      key: "success",
+      label: "Result",
+      render: (_, row) => (
+        <StatusBadge
+          label={row.success ? "success" : "failure"}
+          tone={row.success ? "success" : "danger"}
+        />
+      ),
+    },
+    {
+      key: "user_name",
+      label: "User",
+      render: (_, row) => row.user_name ? (
+        <div>
+          <div style={{ fontWeight: 600, color: "var(--color-neutral-900)" }}>{row.user_name}</div>
+          <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>{row.user_email}</div>
+        </div>
+      ) : (
+        <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
+          {(row.details?.email as string) || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "ip_address",
+      label: "IP Address",
+      render: (_, row) => (
+        <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)", fontFamily: "monospace" }}>
+          {row.ip_address || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "created_at",
+      label: "Time",
+      render: (_, row) => (
+        <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)" }}>
+          {format(new Date(row.created_at), "MMM d, HH:mm:ss")}
+        </span>
+      ),
+    },
+  ];
+
+  if (loading) return <div style={{ padding: "var(--spacing-xl)", textAlign: "center", color: "var(--color-neutral-500)" }}>Loading security log...</div>;
+
+  return (
+    <>
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {["all", "login", "logout", "signup", "password_change", "failures"].map((f) => (
+          <Button
+            key={f}
+            variant={filter === f ? "primary" : "ghost"}
+            size="sm"
+            onClick={() => setFilter(f)}
+          >
+            {f === "password_change" ? "password" : f}
+          </Button>
+        ))}
+      </div>
+      <DataTable
+        columns={columns}
+        data={entries}
+        emptyMessage="No security log entries match this filter."
+        striped
+        hoverable
+      />
+    </>
+  );
+}

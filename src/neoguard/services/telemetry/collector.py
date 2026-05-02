@@ -56,6 +56,7 @@ class TelemetryCollector:
         self._interval = interval or settings.telemetry_interval_sec
         self._task: asyncio.Task | None = None
         self._running = False
+        self._resolved_tenant_id: str | None = None
 
     async def start(self) -> None:
         if not settings.telemetry_enabled:
@@ -82,6 +83,19 @@ class TelemetryCollector:
                 await log.aerror("Telemetry collection failed", error=str(e))
             await asyncio.sleep(self._interval)
 
+    async def _resolve_tenant_id(self) -> str:
+        if self._resolved_tenant_id:
+            return self._resolved_tenant_id
+        from neoguard.db.timescale.connection import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT id::text FROM tenants ORDER BY created_at LIMIT 1")
+        if row:
+            self._resolved_tenant_id = row["id"]
+        else:
+            self._resolved_tenant_id = settings.default_tenant_id
+        return self._resolved_tenant_id
+
     async def _collect(self) -> None:
         from neoguard.db.timescale.connection import get_pool
         from neoguard.services.alerts.engine import alert_engine
@@ -98,7 +112,8 @@ class TelemetryCollector:
         points.extend(self._collect_api_metrics())
 
         if points:
-            await metric_writer.write(settings.default_tenant_id, points)
+            tid = await self._resolve_tenant_id()
+            await metric_writer.write(tid, points)
 
     def _collect_pool(self, pool) -> list[MetricPoint]:
         size = pool.get_size()

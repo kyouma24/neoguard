@@ -142,6 +142,143 @@ async def get_platform_audit_log(
     return [dict(r) for r in rows]
 
 
+async def admin_create_tenant(name: str, owner_id: UUID | None = None) -> dict:
+    """Create a tenant from admin panel. Optionally assign an owner."""
+    pool = await get_pool()
+    from neoguard.services.auth.users import slugify
+    tenant_id = uuid7()
+    base_slug = slugify(name)
+    slug = base_slug
+    for i in range(1, 100):
+        existing = await pool.fetchval("SELECT id FROM tenants WHERE slug = $1", slug)
+        if existing is None:
+            break
+        slug = f"{base_slug}-{i}"
+
+    row = await pool.fetchrow(
+        """
+        INSERT INTO tenants (id, slug, name)
+        VALUES ($1, $2, $3)
+        RETURNING *, 0 AS member_count
+        """,
+        tenant_id, slug, name,
+    )
+    if owner_id:
+        await pool.execute(
+            "INSERT INTO tenant_memberships (user_id, tenant_id, role) VALUES ($1, $2, 'owner')",
+            owner_id, tenant_id,
+        )
+    return dict(row)
+
+
+async def admin_delete_tenant(tenant_id: UUID) -> bool:
+    pool = await get_pool()
+    result = await pool.execute(
+        "UPDATE tenants SET status = 'deleted', updated_at = NOW() WHERE id = $1 AND status != 'deleted'",
+        tenant_id,
+    )
+    return result == "UPDATE 1"
+
+
+async def write_tenant_audit(
+    tenant_id: UUID,
+    action: str,
+    resource_type: str,
+    resource_id: str | None = None,
+    actor_id: UUID | None = None,
+    actor_type: str = "user",
+    details: dict | None = None,
+    ip_address: str | None = None,
+) -> None:
+    pool = await get_pool()
+    import orjson
+    await pool.execute(
+        """
+        INSERT INTO audit_log (id, tenant_id, actor_id, actor_type, action, resource_type, resource_id, details, ip_address)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """,
+        uuid7(), tenant_id, actor_id, actor_type, action, resource_type,
+        resource_id, orjson.dumps(details or {}).decode(), ip_address,
+    )
+
+
+async def get_tenant_audit_log(
+    tenant_id: UUID,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT al.*, u.email AS actor_email, u.name AS actor_name
+        FROM audit_log al
+        LEFT JOIN users u ON u.id = al.actor_id
+        WHERE al.tenant_id = $1
+        ORDER BY al.created_at DESC
+        LIMIT $2 OFFSET $3
+        """,
+        tenant_id, limit, offset,
+    )
+    return [dict(r) for r in rows]
+
+
+async def write_security_log(
+    event_type: str,
+    success: bool,
+    user_id: UUID | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    details: dict | None = None,
+) -> None:
+    pool = await get_pool()
+    import orjson
+    await pool.execute(
+        """
+        INSERT INTO security_log (id, user_id, event_type, success, ip_address, user_agent, details)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        """,
+        uuid7(), user_id, event_type, success, ip_address, user_agent,
+        orjson.dumps(details or {}).decode(),
+    )
+
+
+async def get_security_log(
+    event_type: str | None = None,
+    success: bool | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    pool = await get_pool()
+    conditions = []
+    params: list = []
+    idx = 1
+
+    if event_type is not None:
+        conditions.append(f"sl.event_type = ${idx}")
+        params.append(event_type)
+        idx += 1
+    if success is not None:
+        conditions.append(f"sl.success = ${idx}")
+        params.append(success)
+        idx += 1
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.extend([limit, offset])
+
+    rows = await pool.fetch(
+        f"""
+        SELECT sl.*, u.email AS user_email, u.name AS user_name
+        FROM security_log sl
+        LEFT JOIN users u ON u.id = sl.user_id
+        {where}
+        ORDER BY sl.created_at DESC
+        LIMIT ${idx} OFFSET ${idx + 1}
+        """,
+        *params,
+    )
+    return [dict(r) for r in rows]
+
+
 async def get_platform_stats() -> dict:
     pool = await get_pool()
     tenant_count = await pool.fetchval("SELECT COUNT(*) FROM tenants")

@@ -205,7 +205,7 @@ async def collect_azure_metrics(
                         ))
 
             if points:
-                await metric_writer.write("default", points)
+                await metric_writer.write(sub.tenant_id, points)
             total_points += len(points)
 
         except Exception as e:

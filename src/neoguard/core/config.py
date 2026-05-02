@@ -39,7 +39,14 @@ class Settings(BaseSettings):
     auth_bootstrap_token: str = ""
     session_secret: str = "change-me-in-production"  # noqa: S105
     session_ttl_seconds: int = 2592000  # 30 days
+    super_admin_session_ttl_seconds: int = 14400  # 4 hours — absolute, no sliding
     session_cookie_name: str = "neoguard_session"
+
+    # Auth rate limiting (per IP, Redis-backed)
+    auth_login_rate_limit: int = 5          # max attempts
+    auth_login_rate_window: int = 900       # 15 minutes in seconds
+    auth_signup_rate_limit: int = 10        # max attempts
+    auth_signup_rate_window: int = 3600     # 1 hour in seconds
 
     telemetry_enabled: bool = True
     telemetry_interval_sec: int = 15

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.services.aws.accounts import get_aws_account
 from neoguard.services.aws.credentials import get_enabled_regions
 from neoguard.services.azure.accounts import get_azure_subscription
@@ -21,7 +21,11 @@ class TriggerDiscoveryRequest(BaseModel):
     region: str | None = None
 
 
-@router.post("/discover", status_code=202)
+@router.post(
+    "/discover",
+    status_code=202,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def trigger_discovery(
     req: TriggerDiscoveryRequest,
     tenant_id: str = Depends(get_tenant_id_required),

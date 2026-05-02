@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.resources import Resource, ResourceCreate, ResourceUpdate
 from neoguard.services.resources.crud import (
     create_resource,
@@ -42,7 +42,12 @@ async def summary(
     return await get_resource_summary(tenant_id)
 
 
-@router.post("", response_model=Resource, status_code=201)
+@router.post(
+    "",
+    response_model=Resource,
+    status_code=201,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def create(
     data: ResourceCreate,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -61,7 +66,11 @@ async def get_one(
     return res
 
 
-@router.patch("/{resource_id}", response_model=Resource)
+@router.patch(
+    "/{resource_id}",
+    response_model=Resource,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def update(
     resource_id: str,
     data: ResourceUpdate,
@@ -73,7 +82,11 @@ async def update(
     return res
 
 
-@router.delete("/{resource_id}", status_code=204)
+@router.delete(
+    "/{resource_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def delete(
     resource_id: str,
     tenant_id: str = Depends(get_tenant_id_required),

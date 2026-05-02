@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { subHours, format } from "date-fns";
 import {
   Server,
@@ -36,6 +37,7 @@ import {
   PageHeader,
 } from "../design-system";
 import type {
+  AlertEvent,
   Resource,
   ResourceSummary,
   MetricQueryResult,
@@ -70,15 +72,6 @@ interface UnifiedAccount {
   lastSyncAt: string | null;
   providerColor: string;
 }
-
-type View =
-  | { kind: "accounts" }
-  | {
-      kind: "resources";
-      provider: CloudProvider;
-      accountId: string;
-      accountName: string;
-    };
 
 // ---------------------------------------------------------------------------
 // Service Tab Definitions
@@ -333,9 +326,9 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     metricPrefix: "azure.azure_sql",
     keyMetrics: [
       { name: "azure.azure_sql.cpu_percent", label: "CPU %", unit: "%" },
-      { name: "azure.azure_sql.dtu_used", label: "DTU Used", unit: "count" },
-      { name: "azure.azure_sql.storage_percent", label: "Storage %", unit: "%" },
-      { name: "azure.azure_sql.connection_successful", label: "Connections", unit: "count" },
+      { name: "azure.azure_sql.dtu_pct", label: "DTU %", unit: "%" },
+      { name: "azure.azure_sql.storage_pct", label: "Storage %", unit: "%" },
+      { name: "azure.azure_sql.conn_ok", label: "Connections", unit: "count" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -352,8 +345,10 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     resourceType: "azure_function",
     metricPrefix: "azure.azure_function",
     keyMetrics: [
-      { name: "azure.azure_function.function_execution_count", label: "Executions", unit: "count" },
-      { name: "azure.azure_function.function_execution_units", label: "Execution Units", unit: "count" },
+      { name: "azure.azure_function.exec_count", label: "Executions", unit: "count" },
+      { name: "azure.azure_function.exec_units", label: "Execution Units", unit: "count" },
+      { name: "azure.azure_function.requests", label: "Requests", unit: "count" },
+      { name: "azure.azure_function.http_5xx", label: "HTTP 5xx", unit: "count" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -375,7 +370,8 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     keyMetrics: [
       { name: "azure.azure_app_service.cpu_time", label: "CPU Time", unit: "sec" },
       { name: "azure.azure_app_service.requests", label: "Requests", unit: "count" },
-      { name: "azure.azure_app_service.average_response_time", label: "Avg Response", unit: "sec" },
+      { name: "azure.azure_app_service.response_time", label: "Avg Response", unit: "sec" },
+      { name: "azure.azure_app_service.mem_working_set", label: "Memory Working Set", unit: "bytes" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -395,8 +391,9 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     resourceType: "azure_aks",
     metricPrefix: "azure.azure_aks",
     keyMetrics: [
-      { name: "azure.azure_aks.node_cpu_usage", label: "Node CPU", unit: "%" },
-      { name: "azure.azure_aks.node_memory_usage", label: "Node Memory", unit: "%" },
+      { name: "azure.azure_aks.node_cpu_pct", label: "Node CPU", unit: "%" },
+      { name: "azure.azure_aks.node_mem_pct", label: "Node Memory", unit: "%" },
+      { name: "azure.azure_aks.node_disk_pct", label: "Node Disk", unit: "%" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -415,6 +412,8 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     keyMetrics: [
       { name: "azure.azure_storage.used_capacity", label: "Used Capacity", unit: "bytes" },
       { name: "azure.azure_storage.transactions", label: "Transactions", unit: "count" },
+      { name: "azure.azure_storage.ingress", label: "Ingress", unit: "bytes" },
+      { name: "azure.azure_storage.egress", label: "Egress", unit: "bytes" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -433,7 +432,9 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     keyMetrics: [
       { name: "azure.azure_lb.byte_count", label: "Bytes", unit: "bytes" },
       { name: "azure.azure_lb.packet_count", label: "Packets", unit: "count" },
-      { name: "azure.azure_lb.snat_connection_count", label: "SNAT Connections", unit: "count" },
+      { name: "azure.azure_lb.snat_conns", label: "SNAT Connections", unit: "count" },
+      { name: "azure.azure_lb.health_probe", label: "Health Probe", unit: "%" },
+      { name: "azure.azure_lb.data_path", label: "Data Path Avail.", unit: "%" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -451,7 +452,9 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     metricPrefix: "azure.azure_cosmosdb",
     keyMetrics: [
       { name: "azure.azure_cosmosdb.total_requests", label: "Total Requests", unit: "count" },
-      { name: "azure.azure_cosmosdb.total_request_units", label: "Request Units", unit: "count" },
+      { name: "azure.azure_cosmosdb.total_ru", label: "Request Units", unit: "count" },
+      { name: "azure.azure_cosmosdb.server_latency", label: "Server Latency", unit: "ms" },
+      { name: "azure.azure_cosmosdb.normalized_ru", label: "Normalized RU %", unit: "%" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -468,10 +471,12 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     resourceType: "azure_redis",
     metricPrefix: "azure.azure_redis",
     keyMetrics: [
-      { name: "azure.azure_redis.connected_clients", label: "Connected Clients", unit: "count" },
+      { name: "azure.azure_redis.connected", label: "Connected Clients", unit: "count" },
       { name: "azure.azure_redis.cache_hits", label: "Cache Hits", unit: "count" },
       { name: "azure.azure_redis.cache_misses", label: "Cache Misses", unit: "count" },
       { name: "azure.azure_redis.server_load", label: "Server Load", unit: "%" },
+      { name: "azure.azure_redis.used_memory", label: "Used Memory", unit: "bytes" },
+      { name: "azure.azure_redis.ops_sec", label: "Ops/sec", unit: "ops/s" },
     ],
     columns: [
       { key: "name", label: "Name" },
@@ -504,12 +509,8 @@ const AZURE_SERVICE_TABS: ServiceTab[] = [
     label: "App Gateway",
     icon: Layers,
     resourceType: "azure_app_gw",
-    metricPrefix: "azure.azure_app_gw",
-    keyMetrics: [
-      { name: "azure.azure_app_gw.total_requests", label: "Total Requests", unit: "count" },
-      { name: "azure.azure_app_gw.healthy_host_count", label: "Healthy Hosts", unit: "count" },
-      { name: "azure.azure_app_gw.unhealthy_host_count", label: "Unhealthy Hosts", unit: "count" },
-    ],
+    metricPrefix: "",
+    keyMetrics: [],
     columns: [
       { key: "name", label: "Name" },
       { key: "sku", label: "SKU", render: (r) => String(r.metadata.sku_name ?? "-") },
@@ -576,29 +577,34 @@ function InfraStatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export function InfrastructurePage() {
-  const [view, setView] = useState<View>({ kind: "accounts" });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const provider = searchParams.get("provider") ?? "";
+  const accountId = searchParams.get("account") ?? "";
+  const accountName = searchParams.get("name") ?? "";
+
+  const isResourcesView = provider !== "" && accountId !== "";
 
   const navigateToAccount = useCallback(
-    (provider: CloudProvider, accountId: string, accountName: string) => {
-      setView({ kind: "resources", provider, accountId, accountName });
+    (p: CloudProvider, id: string, name: string) => {
+      setSearchParams({ provider: p, account: id, name }, { replace: true });
     },
-    []
+    [setSearchParams]
   );
 
   const navigateHome = useCallback(() => {
-    setView({ kind: "accounts" });
-  }, []);
+    setSearchParams({}, { replace: true });
+  }, [setSearchParams]);
 
   return (
     <div>
-      {view.kind === "accounts" && (
+      {!isResourcesView && (
         <AccountsGridView onSelectAccount={navigateToAccount} />
       )}
-      {view.kind === "resources" && (
+      {isResourcesView && (
         <AccountResourcesView
-          provider={view.provider}
-          accountId={view.accountId}
-          accountName={view.accountName}
+          provider={provider as CloudProvider}
+          accountId={accountId}
+          accountName={accountName}
           onBack={navigateHome}
           onNavigateToProviders={navigateHome}
         />
@@ -1068,12 +1074,17 @@ function AccountResourcesView({
                     style={{
                       background:
                         activeTab === t.id
-                          ? "rgba(255,255,255,0.2)"
-                          : "var(--color-neutral-0)",
+                          ? "rgba(255,255,255,0.25)"
+                          : "var(--color-neutral-200)",
+                      color:
+                        activeTab === t.id
+                          ? "#fff"
+                          : "var(--color-neutral-700)",
                       padding: "1px 7px",
                       borderRadius: 10,
                       fontSize: 11,
                       fontWeight: 600,
+                      lineHeight: "16px",
                     }}
                   >
                     {count}
@@ -1361,6 +1372,63 @@ function ResourceDrillDown({
             title={`Metrics not available for ${tab.label}.`}
             description="This service does not have standard metric collection configured."
           />
+        </Card>
+      )}
+
+      <ResourceAlerts />
+    </div>
+  );
+}
+
+function ResourceAlerts() {
+  const navigate = useNavigate();
+  const { data: events } = useApi<AlertEvent[]>(
+    () => api.alerts.listEvents({ status: "firing", limit: 5 }),
+    [],
+  );
+
+  const firingEvents = events ?? [];
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-neutral-500)" }}>
+          Active Alerts {firingEvents.length > 0 && `(${firingEvents.length})`}
+        </h2>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => navigate("/alerts")}
+        >
+          Create Alert
+        </Button>
+      </div>
+      {firingEvents.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {firingEvents.map((e) => (
+            <Card key={e.id} variant="bordered" padding="sm" className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <DSStatusBadge label={e.severity} tone={e.severity === "P1" || e.severity === "P2" ? "danger" : "warning"} />
+                  <span
+                    style={{ fontWeight: 500, cursor: "pointer", color: "var(--color-primary-600)" }}
+                    onClick={() => navigate(`/alerts/${e.rule_id}`)}
+                  >
+                    {e.rule_name}
+                  </span>
+                </div>
+                <span style={{ fontSize: 12, color: "var(--color-neutral-400)" }}>
+                  {e.fired_at ? format(new Date(e.fired_at), "MMM d, HH:mm") : ""}
+                </span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card variant="bordered" padding="sm" className="card">
+          <div style={{ textAlign: "center", padding: "16px 0", color: "var(--color-neutral-400)", fontSize: 13 }}>
+            No active alerts for this resource
+          </div>
         </Card>
       )}
     </div>

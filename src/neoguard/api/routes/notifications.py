@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required
+from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.notifications import (
     NotificationChannel,
     NotificationChannelCreate,
@@ -19,7 +19,11 @@ from neoguard.services.notifications.crud import (
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
 
-@router.post("/channels", status_code=201)
+@router.post(
+    "/channels",
+    status_code=201,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def create(
     data: NotificationChannelCreate,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -47,7 +51,10 @@ async def get_one(
     return ch
 
 
-@router.patch("/channels/{channel_id}")
+@router.patch(
+    "/channels/{channel_id}",
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def update(
     channel_id: str,
     data: NotificationChannelUpdate,
@@ -62,7 +69,11 @@ async def update(
     return ch
 
 
-@router.delete("/channels/{channel_id}", status_code=204)
+@router.delete(
+    "/channels/{channel_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def delete(
     channel_id: str,
     tenant_id: str = Depends(get_tenant_id_required),
@@ -72,7 +83,11 @@ async def delete(
         raise HTTPException(status_code=404, detail="Channel not found")
 
 
-@router.post("/channels/{channel_id}/test", status_code=200)
+@router.post(
+    "/channels/{channel_id}/test",
+    status_code=200,
+    dependencies=[Depends(require_scope("admin"))],
+)
 async def test_channel(
     channel_id: str,
     tenant_id: str = Depends(get_tenant_id_required),
