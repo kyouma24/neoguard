@@ -5,6 +5,8 @@ import type {
   AlertPreviewResult,
   AlertRule,
   AlertRulePreview,
+  Annotation,
+  AnnotationCreate,
   APIKey,
   APIKeyCreate,
   APIKeyCreated,
@@ -14,13 +16,20 @@ import type {
   AWSAccountCreate,
   AzureSubscription,
   AzureSubscriptionCreate,
+  BatchQueryRequest,
+  BatchStreamMessage,
   Dashboard,
+  DashboardMyPermission,
+  DashboardPermission,
+  DashboardPermissionLevel,
+  DashboardVersion,
   HealthStatus,
   LogQuery,
   LogQueryResult,
   MembershipInfo,
   MetricQuery,
   MetricQueryResult,
+  MQLFunctionInfo,
   MQLQueryRequest,
   MQLValidateResponse,
   NotificationChannel,
@@ -52,6 +61,14 @@ function getCsrfToken(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** Auth endpoints that should NOT trigger a 401 redirect (to avoid loops). */
+const AUTH_PATHS = ["/auth/login", "/auth/signup", "/auth/me", "/auth/logout",
+  "/auth/password-reset/request", "/auth/password-reset/confirm"];
+
+function isAuthPath(path: string): boolean {
+  return AUTH_PATHS.some((p) => path === p || path.startsWith(p + "?"));
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -70,6 +87,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
+    // 401 handler: session expired — redirect to login (unless already on an auth endpoint)
+    if (res.status === 401 && !isAuthPath(path)) {
+      window.location.href = "/login";
+      // Return a never-resolving promise so callers don't see an error flash
+      return new Promise<T>(() => {});
+    }
+
     const body = await res.text();
     try {
       const parsed = JSON.parse(body);
@@ -105,6 +129,11 @@ export const api = {
         body: JSON.stringify({ queries }),
       }),
     names: () => request<string[]>(`${BASE}/metrics/names`),
+    tagValues: (tag: string, metric?: string) => {
+      const params = new URLSearchParams({ tag });
+      if (metric) params.set("metric", metric);
+      return request<string[]>(`${BASE}/metrics/tag-values?${params}`);
+    },
     stats: () => request<Record<string, number>>(`${BASE}/metrics/stats`),
   },
 
@@ -124,6 +153,83 @@ export const api = {
         method: "POST",
         body: JSON.stringify(q),
       }),
+    /**
+     * Streaming batch query using NDJSON.
+     * Each line is yielded as it arrives, enabling progressive widget rendering.
+     */
+    batchQueryStream: async function* (req: BatchQueryRequest): AsyncGenerator<BatchStreamMessage> {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        headers["X-CSRF-Token"] = csrfToken;
+      }
+
+      const response = await fetch(`${BASE}/mql/query/batch/stream`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify(req),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        try {
+          const parsed = JSON.parse(text);
+          throw new Error(parsed?.error?.message ?? parsed?.detail ?? text);
+        } catch (e) {
+          if (e instanceof Error && !e.message.startsWith("API ")) throw e;
+          throw new Error(`API ${response.status}: ${text}`);
+        }
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop()!;
+          for (const line of lines) {
+            if (line.trim()) {
+              yield JSON.parse(line) as BatchStreamMessage;
+            }
+          }
+        }
+        // Flush remaining buffer
+        if (buffer.trim()) {
+          yield JSON.parse(buffer) as BatchStreamMessage;
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    },
+  },
+
+  metadata: {
+    metrics: (q?: string, limit?: number) => {
+      const qs = new URLSearchParams();
+      if (q) qs.set("q", q);
+      if (limit !== undefined) qs.set("limit", String(limit));
+      const query = qs.toString();
+      return request<string[]>(`${BASE}/metadata/metrics${query ? `?${query}` : ""}`);
+    },
+    tagKeys: (metric: string) =>
+      request<string[]>(`${BASE}/metadata/metrics/${encodeURIComponent(metric)}/tag_keys`),
+    tagValues: (metric: string, key: string, q?: string, limit?: number) => {
+      const qs = new URLSearchParams({ key });
+      if (q) qs.set("q", q);
+      if (limit !== undefined) qs.set("limit", String(limit));
+      return request<string[]>(
+        `${BASE}/metadata/metrics/${encodeURIComponent(metric)}/tag_values?${qs}`,
+      );
+    },
+    functions: () => request<MQLFunctionInfo[]>(`${BASE}/metadata/functions`),
   },
 
   logs: {
@@ -295,7 +401,12 @@ export const api = {
   },
 
   dashboards: {
-    list: () => request<Dashboard[]>(`${BASE}/dashboards`),
+    list: (params?: { search?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.search) qs.set("search", params.search);
+      const query = qs.toString();
+      return request<Dashboard[]>(`${BASE}/dashboards${query ? `?${query}` : ""}`);
+    },
     get: (id: string) => request<Dashboard>(`${BASE}/dashboards/${id}`),
     create: (data: Partial<Dashboard>) =>
       request<Dashboard>(`${BASE}/dashboards`, {
@@ -309,8 +420,35 @@ export const api = {
       }),
     delete: (id: string) =>
       request<void>(`${BASE}/dashboards/${id}`, { method: "DELETE" }),
+    listFavorites: () => request<string[]>(`${BASE}/dashboards/favorites`),
+    toggleFavorite: (id: string) =>
+      request<{ favorited: boolean }>(`${BASE}/dashboards/${id}/favorite`, { method: "POST" }),
     duplicate: (id: string) =>
       request<Dashboard>(`${BASE}/dashboards/${id}/duplicate`, { method: "POST" }),
+    exportJson: (id: string) =>
+      request<Record<string, unknown>>(`${BASE}/dashboards/${id}/export`),
+    importJson: (payload: Record<string, unknown>) =>
+      request<Dashboard>(`${BASE}/dashboards/import`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    listVersions: (id: string) =>
+      request<DashboardVersion[]>(`${BASE}/dashboards/${id}/versions`),
+    getVersion: (id: string, version: number) =>
+      request<DashboardVersion>(`${BASE}/dashboards/${id}/versions/${version}`),
+    restoreVersion: (id: string, version: number) =>
+      request<Dashboard>(`${BASE}/dashboards/${id}/versions/${version}/restore`, { method: "POST" }),
+    getPermissions: (id: string) =>
+      request<DashboardPermission[]>(`${BASE}/dashboards/${id}/permissions`),
+    setPermission: (id: string, userId: string, permission: DashboardPermissionLevel) =>
+      request<DashboardPermission>(`${BASE}/dashboards/${id}/permissions`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, permission }),
+      }),
+    removePermission: (id: string, userId: string) =>
+      request<{ message: string }>(`${BASE}/dashboards/${id}/permissions/${userId}`, { method: "DELETE" }),
+    getMyPermission: (id: string) =>
+      request<DashboardMyPermission>(`${BASE}/dashboards/${id}/my-permission`),
   },
 
   auth: {
@@ -390,6 +528,30 @@ export const api = {
     },
   },
 
+  annotations: {
+    list: (params?: { dashboard_id?: string; from?: string; to?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.dashboard_id) qs.set("dashboard_id", params.dashboard_id);
+      if (params?.from) qs.set("from", params.from);
+      if (params?.to) qs.set("to", params.to);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return request<Annotation[]>(`${BASE}/annotations${query ? `?${query}` : ""}`);
+    },
+    create: (data: AnnotationCreate) =>
+      request<Annotation>(`${BASE}/annotations`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: Partial<AnnotationCreate>) =>
+      request<Annotation>(`${BASE}/annotations/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<void>(`${BASE}/annotations/${id}`, { method: "DELETE" }),
+  },
+
   admin: {
     stats: () => request<PlatformStats>(`${BASE}/admin/stats`),
     tenants: (params?: { status?: string; limit?: number; offset?: number }) => {
@@ -462,5 +624,26 @@ export const api = {
       request<{ message: string }>(`${BASE}/admin/end-impersonation`, {
         method: "POST",
       }),
+    tenantMembers: (tenantId: string) =>
+      request<MembershipInfo[]>(`${BASE}/admin/tenants/${tenantId}/members`),
+    userTenants: (userId: string) =>
+      request<{ id: string; slug: string; name: string; tier: string; status: string; created_at: string; role: string }[]>(
+        `${BASE}/admin/users/${userId}/tenants`,
+      ),
+    addUserToTenant: (userId: string, tenantId: string, role: string) =>
+      request<{ message: string; role: string }>(
+        `${BASE}/admin/users/${userId}/tenants/${tenantId}`,
+        { method: "POST", body: JSON.stringify({ role }) },
+      ),
+    changeUserRole: (userId: string, tenantId: string, role: string) =>
+      request<{ message: string; role: string }>(
+        `${BASE}/admin/users/${userId}/tenants/${tenantId}/role`,
+        { method: "PATCH", body: JSON.stringify({ role }) },
+      ),
+    removeUserFromTenant: (userId: string, tenantId: string) =>
+      request<{ message: string }>(
+        `${BASE}/admin/users/${userId}/tenants/${tenantId}`,
+        { method: "DELETE" },
+      ),
   },
 };

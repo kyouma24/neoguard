@@ -192,51 +192,40 @@ input, select, textarea {
   animation: spin 2s linear infinite;
 }
 
-/* react-grid-layout */
-.react-grid-layout {
+/* @dnd-kit dashboard grid */
+.dashboard-grid {
   position: relative;
   transition: height 200ms ease;
 }
-.react-grid-item {
-  transition: all 200ms ease;
-  transition-property: left, top, width, height;
+.dashboard-grid-item {
+  transition: transform 200ms ease, width 200ms ease, height 200ms ease;
 }
-.react-grid-item.cssTransforms {
-  transition-property: transform, width, height;
-}
-.react-grid-item.resizing {
-  z-index: 1;
-  will-change: width, height;
-}
-.react-grid-item.react-draggable-dragging {
+.dashboard-grid-item--dragging {
   transition: none;
   z-index: 3;
   will-change: transform;
 }
-.react-grid-placeholder {
-  background: var(--accent);
-  opacity: 0.15;
-  border-radius: var(--radius-md, 8px);
-  transition-duration: 100ms;
+.dashboard-grid-item--resizing {
   z-index: 2;
+  will-change: width, height;
 }
-.react-grid-item > .react-resizable-handle {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  bottom: 0;
-  right: 0;
-  cursor: se-resize;
+/* Hide drag/resize handles in view mode */
+.dashboard-grid:not(.dashboard-grid--editable) .panel-drag-handle,
+.dashboard-grid:not(.dashboard-grid--editable) .dashboard-grid-resize-handle {
+  display: none;
 }
-.react-grid-item > .react-resizable-handle::after {
-  content: "";
-  position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid rgba(150, 150, 150, 0.5);
-  border-bottom: 2px solid rgba(150, 150, 150, 0.5);
+/* Resize handle triangle */
+.dashboard-grid-resize-handle {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.dashboard-grid--editable .dashboard-grid-item:hover .dashboard-grid-resize-handle,
+.dashboard-grid--editable .dashboard-grid-item:focus-within .dashboard-grid-resize-handle {
+  opacity: 1;
+}
+/* Grid lines shown during drag */
+.dashboard-grid-lines {
+  pointer-events: none;
 }
 
 /* Skeleton shimmer */
@@ -316,6 +305,56 @@ input, select, textarea {
   min-height: 0;
   position: relative;
 }
+/* Inspect button: hidden by default, shown on panel hover */
+.dashboard-panel:hover .panel-inspect-btn {
+  opacity: 0.5 !important;
+}
+.panel-inspect-btn:hover {
+  opacity: 1 !important;
+}
+/* Change Intelligence Bar — scroll-to-panel highlight flash */
+@keyframes panel-highlight-flash {
+  0% { box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.6); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+.panel-highlight {
+  animation: panel-highlight-flash 1.5s ease-out;
+}
+
+/* Panel description tooltip */
+.panel-description-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+}
+.panel-description-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  background: var(--bg-secondary, #12121e);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border, #2a2a3e);
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  max-width: 300px;
+  width: max-content;
+  white-space: normal;
+  z-index: 100;
+  pointer-events: none;
+  transition: opacity 0.15s ease-in-out, visibility 0.15s ease-in-out;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.panel-description-tooltip-wrapper:hover .panel-description-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
 /* Let tooltips and legends escape the grid cell */
 .react-grid-item:hover {
   z-index: 10;
@@ -323,4 +362,24 @@ input, select, textarea {
 .react-grid-item .recharts-tooltip-wrapper,
 .react-grid-item .recharts-legend-wrapper {
   z-index: 20;
+}
+
+/* Screen reader only — visually hidden but accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Reduced motion — disable animations for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer { animation: none !important; }
+  .dashboard-grid-item { transition: none !important; }
+  * { animation-duration: 0.001ms !important; }
 }

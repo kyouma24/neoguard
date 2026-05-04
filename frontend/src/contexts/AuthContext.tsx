@@ -8,12 +8,15 @@ import {
 import type { ReactNode } from "react";
 import type { AuthTenant, AuthUser } from "../types";
 import { api } from "../services/api";
+import { resetAllStores } from "../stores/resetAllStores";
 
 interface AuthState {
   user: AuthUser | null;
   tenant: AuthTenant | null;
   role: string | null;
   loading: boolean;
+  /** Non-null when the auth check failed due to a network/server error (not a 401). */
+  serverError: string | null;
   isImpersonating: boolean;
   impersonatedBy: string | null;
 }
@@ -35,23 +38,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tenant: null,
     role: null,
     loading: true,
+    serverError: null,
     isImpersonating: false,
     impersonatedBy: null,
   });
 
   const refreshAuth = useCallback(async () => {
     try {
-      const data = await api.auth.me();
-      setState({
-        user: data.user,
-        tenant: data.tenant,
-        role: data.role,
-        loading: false,
-        isImpersonating: data.is_impersonating ?? false,
-        impersonatedBy: data.impersonated_by ?? null,
-      });
+      const res = await fetch("/auth/me", { credentials: "include", headers: { "Content-Type": "application/json" } });
+      if (res.ok) {
+        const data = (await res.json()) as { user: AuthUser; tenant: AuthTenant; role: string; is_impersonating?: boolean; impersonated_by?: string | null };
+        setState({
+          user: data.user,
+          tenant: data.tenant,
+          role: data.role,
+          loading: false,
+          serverError: null,
+          isImpersonating: data.is_impersonating ?? false,
+          impersonatedBy: data.impersonated_by ?? null,
+        });
+      } else if (res.status === 401) {
+        // Session truly invalid — show login
+        setState({ user: null, tenant: null, role: null, loading: false, serverError: null, isImpersonating: false, impersonatedBy: null });
+      } else {
+        // Server returned a non-401 error (5xx, etc.)
+        setState((prev) => ({ ...prev, loading: false, serverError: `Server error (${res.status}). Please try again.` }));
+      }
     } catch {
-      setState({ user: null, tenant: null, role: null, loading: false, isImpersonating: false, impersonatedBy: null });
+      // Network error — server unreachable
+      setState((prev) => ({ ...prev, loading: false, serverError: "Unable to reach the server. Please check your connection and try again." }));
     }
   }, []);
 
@@ -61,17 +76,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const data = await api.auth.login({ email, password });
-    setState({ user: data.user, tenant: data.tenant, role: data.role, loading: false, isImpersonating: false, impersonatedBy: null });
+    setState({ user: data.user, tenant: data.tenant, role: data.role, loading: false, serverError: null, isImpersonating: false, impersonatedBy: null });
   }, []);
 
   const signup = useCallback(async (email: string, password: string, name: string, tenantName: string) => {
     const data = await api.auth.signup({ email, password, name, tenant_name: tenantName });
-    setState({ user: data.user, tenant: data.tenant, role: data.role, loading: false, isImpersonating: false, impersonatedBy: null });
+    setState({ user: data.user, tenant: data.tenant, role: data.role, loading: false, serverError: null, isImpersonating: false, impersonatedBy: null });
   }, []);
 
   const logout = useCallback(async () => {
     await api.auth.logout();
-    setState({ user: null, tenant: null, role: null, loading: false, isImpersonating: false, impersonatedBy: null });
+    setState({ user: null, tenant: null, role: null, loading: false, serverError: null, isImpersonating: false, impersonatedBy: null });
   }, []);
 
   const endImpersonation = useCallback(async () => {
@@ -81,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const switchTenant = useCallback(async (tenantId: string) => {
     await api.tenants.switchTenant(tenantId);
+    resetAllStores();
     await refreshAuth();
   }, [refreshAuth]);
 

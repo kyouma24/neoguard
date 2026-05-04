@@ -135,25 +135,35 @@ class TestEndpointIndependence:
 
 
 class TestIPExtraction:
-    def test_extracts_from_x_forwarded_for(self):
+    def test_ignores_forwarded_by_default(self):
+        request = MagicMock()
+        request.headers = {"X-Forwarded-For": "203.0.113.50, 70.41.3.18"}
+        request.client = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        ip = extract_client_ip(request)
+        assert ip == "127.0.0.1"
+
+    def test_extracts_from_x_forwarded_for_when_trusted(self, monkeypatch):
+        monkeypatch.setenv("NEOGUARD_TRUST_PROXY_HEADERS", "true")
+        from neoguard.core.config import Settings
+        _settings = Settings()
+        monkeypatch.setattr("neoguard.services.auth.rate_limiter.extract_client_ip.__module__", "neoguard.services.auth.rate_limiter")
+        from neoguard.services.auth import rate_limiter
+        monkeypatch.setattr(rate_limiter, "extract_client_ip", rate_limiter.extract_client_ip)
+
         request = MagicMock()
         request.headers = {"X-Forwarded-For": "203.0.113.50, 70.41.3.18, 150.172.238.178"}
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
 
-        ip = extract_client_ip(request)
+        with monkeypatch.context() as m:
+            m.setattr("neoguard.core.config.settings.trust_proxy_headers", True)
+            ip = extract_client_ip(request)
         assert ip == "203.0.113.50"
 
-    def test_extracts_single_forwarded_ip(self):
-        request = MagicMock()
-        request.headers = {"X-Forwarded-For": "10.20.30.40"}
-        request.client = MagicMock()
-        request.client.host = "127.0.0.1"
-
-        ip = extract_client_ip(request)
-        assert ip == "10.20.30.40"
-
-    def test_strips_whitespace_from_forwarded(self):
+    def test_strips_whitespace_from_forwarded_when_trusted(self, monkeypatch):
+        monkeypatch.setattr("neoguard.core.config.settings.trust_proxy_headers", True)
         request = MagicMock()
         request.headers = {"X-Forwarded-For": "  203.0.113.50 , 70.41.3.18"}
         request.client = MagicMock()

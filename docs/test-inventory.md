@@ -1,10 +1,10 @@
 # NeoGuard Test Inventory
 
-> Generated: 2026-05-02
-> Total tests: **796** (724 backend + 72 frontend)
-> Backend breakdown: 676 unit + 48 integration = 724 (via `pytest --collect-only`)
-> Frontend: 72 passing (via `npx vitest run`) across 35 test files (2 page tests + 33 design-system component tests)
-> All tests passing.
+> Last Updated: 2026-05-04
+> Total tests: **1,838** (1,345 backend + 493 frontend passing)
+> Backend breakdown: 1,297 unit + 48 integration = 1,345 (via `pytest tests/unit/ -v`)
+> Frontend: 493 passing across 29/31 test files (design-system excluded; DashboardsPage viewer+mql OOM in jsdom worker)
+> Known issue: DashboardsPage.viewer.test.tsx + DashboardsPage.mql.test.tsx OOM (15 tests, jsdom memory leak with heavy component tree)
 
 ---
 

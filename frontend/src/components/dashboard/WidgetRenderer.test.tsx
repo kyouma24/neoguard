@@ -8,25 +8,51 @@ vi.mock("../../services/api", () => ({
   api: {
     metrics: { query: vi.fn() },
     mql: { query: vi.fn() },
+    alerts: { listEvents: vi.fn().mockResolvedValue([]) },
   },
   formatError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
-vi.mock("../TimeSeriesChart", () => ({
-  TimeSeriesChart: ({ data }: { data: unknown[] }) => (
+vi.mock("../charts/widgetRegistry", () => {
+  const TimeSeriesChart = ({ data }: { data: unknown[] }) => (
     <div data-testid="timeseries-chart">series={data.length}</div>
-  ),
-}));
-
-vi.mock("../charts", () => ({
-  AreaChartWidget: () => <div data-testid="area-chart" />,
-  BarChartWidget: () => <div data-testid="bar-chart" />,
-  PieChartWidget: () => <div data-testid="pie-chart" />,
-  StatWidget: () => <div data-testid="stat-widget" />,
-  TextWidget: ({ content }: { content: string }) => (
+  );
+  const AreaChartWidget = () => <div data-testid="area-chart" />;
+  const BarChartWidget = () => <div data-testid="bar-chart" />;
+  const PieChartWidget = () => <div data-testid="pie-chart" />;
+  const StatWidget = () => <div data-testid="stat-widget" />;
+  const TextWidget = ({ content }: { content: string }) => (
     <div data-testid="text-widget">{content}</div>
-  ),
-}));
+  );
+  const GaugeWidget = () => <div data-testid="gauge-widget" />;
+  const TableWidget = () => <div data-testid="table-widget" />;
+  const ScatterWidget = () => <div data-testid="scatter-widget" />;
+  const HistogramWidget = () => <div data-testid="histogram-widget" />;
+  const ChangeWidget = () => <div data-testid="change-widget" />;
+  const StatusWidget = () => <div data-testid="status-widget" />;
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const registry: Record<string, { type: string; label: string; minSize: { w: number; h: number }; defaultSize: { w: number; h: number }; Renderer: React.ComponentType<any> }> = {
+    timeseries: { type: "timeseries", label: "Time Series (Line)", minSize: { w: 3, h: 2 }, defaultSize: { w: 6, h: 4 }, Renderer: TimeSeriesChart },
+    area: { type: "area", label: "Area Chart", minSize: { w: 3, h: 2 }, defaultSize: { w: 6, h: 4 }, Renderer: AreaChartWidget },
+    stat: { type: "stat", label: "Single Stat", minSize: { w: 2, h: 2 }, defaultSize: { w: 3, h: 3 }, Renderer: StatWidget },
+    top_list: { type: "top_list", label: "Top List (Bar)", minSize: { w: 3, h: 2 }, defaultSize: { w: 6, h: 4 }, Renderer: BarChartWidget },
+    pie: { type: "pie", label: "Pie / Donut", minSize: { w: 3, h: 3 }, defaultSize: { w: 4, h: 4 }, Renderer: PieChartWidget },
+    text: { type: "text", label: "Text (Markdown)", minSize: { w: 2, h: 2 }, defaultSize: { w: 6, h: 3 }, Renderer: TextWidget },
+    gauge: { type: "gauge", label: "Gauge", minSize: { w: 2, h: 2 }, defaultSize: { w: 3, h: 3 }, Renderer: GaugeWidget },
+    table: { type: "table", label: "Table", minSize: { w: 4, h: 3 }, defaultSize: { w: 6, h: 4 }, Renderer: TableWidget },
+    scatter: { type: "scatter", label: "Scatter Plot", minSize: { w: 3, h: 3 }, defaultSize: { w: 6, h: 4 }, Renderer: ScatterWidget },
+    histogram: { type: "histogram", label: "Histogram", minSize: { w: 3, h: 3 }, defaultSize: { w: 6, h: 4 }, Renderer: HistogramWidget },
+    change: { type: "change", label: "Change", minSize: { w: 2, h: 2 }, defaultSize: { w: 3, h: 3 }, Renderer: ChangeWidget },
+    status: { type: "status", label: "Status", minSize: { w: 2, h: 2 }, defaultSize: { w: 3, h: 3 }, Renderer: StatusWidget },
+  };
+
+  return {
+    WIDGET_REGISTRY: registry,
+    getWidgetDefinition: (type: string) => registry[type],
+    PANEL_TYPE_OPTIONS: Object.values(registry).map((def: { type: string; label: string }) => ({ value: def.type, label: def.label })),
+  };
+});
 
 const FROM = new Date("2026-05-01T00:00:00Z");
 const TO = new Date("2026-05-01T01:00:00Z");

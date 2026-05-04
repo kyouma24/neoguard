@@ -26,6 +26,7 @@ export interface MQLQueryRequest {
   start: string;
   end: string;
   interval?: string;
+  variables?: Record<string, string | string[]>;
 }
 
 export interface MQLValidateResponse {
@@ -38,6 +39,45 @@ export interface MQLValidateResponse {
   error?: string | null;
   error_pos?: number | null;
 }
+
+// --- Streaming batch query types (spec D.4) ---
+
+export interface BatchQueryItem {
+  id: string;
+  query: string;
+  start: string;
+  end: string;
+  interval?: string;
+  max_points?: number;
+  max_series?: number;
+}
+
+export interface BatchQueryRequest {
+  queries: BatchQueryItem[];
+  variables?: Record<string, string | string[]>;
+  dashboard_id?: string;
+}
+
+export interface BatchQueryResultLine {
+  type: "query_result";
+  id: string;
+  status: "ok" | "error";
+  series?: MetricQueryResult[];
+  meta?: {
+    total_series: number;
+    truncated_series: boolean;
+    max_points: number;
+  };
+  error?: { code: string; message: string };
+}
+
+export interface BatchCompleteMessage {
+  type: "batch_complete";
+  took_ms: number;
+  total: number;
+}
+
+export type BatchStreamMessage = BatchQueryResultLine | BatchCompleteMessage;
 
 export interface LogEntry {
   timestamp: string;
@@ -161,17 +201,95 @@ export interface SilenceCreate {
   recurrence_end_time?: string;
 }
 
+export type VariableType = "query" | "custom" | "textbox";
+
+export interface DashboardVariable {
+  name: string;
+  label: string;
+  type: VariableType;
+  tag_key?: string;
+  values: string[];
+  default_value: string;
+  multi: boolean;
+  include_all: boolean;
+  depends_on?: string;
+}
+
+export interface PanelGroup {
+  id: string;
+  label: string;
+  collapsed: boolean;
+  panel_ids: string[];
+}
+
+export interface DashboardLink {
+  label: string;
+  url: string;
+  tooltip?: string;
+  include_vars?: boolean;
+  include_time?: boolean;
+}
+
 export interface Dashboard {
   id: string;
   tenant_id: string;
   name: string;
   description: string;
+  layout_version?: number;
   panels: PanelDefinition[];
+  variables: DashboardVariable[];
+  groups?: PanelGroup[];
+  tags?: string[];
+  links?: DashboardLink[];
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export type PanelType = "timeseries" | "area" | "stat" | "top_list" | "pie" | "text";
+export type DashboardPermissionLevel = "view" | "edit" | "admin";
+
+export interface DashboardPermission {
+  id: number;
+  dashboard_id: string;
+  user_id: string;
+  user_email?: string | null;
+  user_name?: string | null;
+  permission: DashboardPermissionLevel;
+  granted_by?: string | null;
+  created_at: string;
+}
+
+export interface DashboardMyPermission {
+  permission: DashboardPermissionLevel | null;
+  can_view: boolean;
+  can_edit: boolean;
+  can_admin: boolean;
+}
+
+export interface DashboardVersion {
+  id: string;
+  dashboard_id: string;
+  version_number: number;
+  data: Record<string, unknown>;
+  change_summary: string;
+  created_by: string;
+  created_at: string;
+}
+
+export type PanelType =
+  | "timeseries" | "area" | "stat" | "top_list" | "pie" | "text"
+  | "gauge" | "table" | "scatter" | "histogram" | "change" | "status"
+  | "hexbin_map" | "heatmap" | "treemap" | "geomap" | "sankey"
+  | "topology" | "sparkline_table" | "bar_gauge" | "radar"
+  | "candlestick" | "calendar_heatmap" | "bubble" | "waterfall"
+  | "box_plot" | "funnel" | "slo_tracker" | "alert_list"
+  | "log_stream" | "resource_inventory" | "progress" | "forecast_line"
+  | "diff_comparison";
+
+export type { PanelDisplayOptions, UnitConfig, ThresholdConfig, LegendConfig, YAxisConfig, YAxisRightConfig, ColorConfig } from "./display-options";
+export type { ThresholdStep, LegendColumn, LegendPosition, LegendMode, UnitCategory } from "./display-options";
+export type { StatDisplayConfig, GaugeDisplayConfig, TableDisplayConfig, HistogramDisplayConfig } from "./display-options";
+export type { DataTransform } from "./display-options";
 
 export interface PanelDefinition {
   id: string;
@@ -182,7 +300,7 @@ export interface PanelDefinition {
   aggregation?: string;
   mql_query?: string;
   content?: string;
-  display_options?: Record<string, unknown>;
+  display_options?: import("./display-options").PanelDisplayOptions;
   width: number;
   height: number;
   position_x: number;
@@ -306,6 +424,13 @@ export interface ProcessInfo {
   uptime_seconds: number;
   thread_count: number;
   open_fds?: number;
+}
+
+export interface MQLFunctionInfo {
+  name: string;
+  description: string;
+  arity: number;
+  example: string;
 }
 
 export interface NotificationChannel {
@@ -474,6 +599,28 @@ export interface SecurityLogEntry {
   user_agent: string | null;
   details: Record<string, unknown>;
   created_at: string;
+}
+
+export interface Annotation {
+  id: string;
+  tenant_id: string;
+  dashboard_id: string | null;
+  title: string;
+  text: string;
+  tags: string[];
+  starts_at: string;
+  ends_at: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface AnnotationCreate {
+  dashboard_id?: string;
+  title: string;
+  text?: string;
+  tags?: string[];
+  starts_at: string;
+  ends_at?: string;
 }
 
 export interface MembershipInfo {

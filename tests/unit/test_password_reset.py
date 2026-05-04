@@ -92,16 +92,14 @@ class TestCreateResetToken:
 class TestValidateAndConsumeToken:
     async def test_valid_token_returns_user_id(self, mock_pool):
         user_id = UUID("00000000-0000-0000-0000-000000000001")
-        token_id = UUID("00000000-0000-0000-0000-000000000099")
-        mock_pool.fetchrow.return_value = {
-            "id": token_id,
-            "user_id": user_id,
-            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
-            "used_at": None,
-        }
+        mock_pool.fetchrow.return_value = {"user_id": user_id}
         result = await validate_and_consume_token("some_token")
         assert result == user_id
-        mock_pool.execute.assert_called_once()
+        sql = mock_pool.fetchrow.call_args[0][0]
+        assert "UPDATE" in sql
+        assert "RETURNING" in sql
+        assert "used_at IS NULL" in sql
+        assert "expires_at" in sql
 
     async def test_nonexistent_token_returns_none(self, mock_pool):
         mock_pool.fetchrow.return_value = None
@@ -109,26 +107,14 @@ class TestValidateAndConsumeToken:
         assert result is None
 
     async def test_already_used_returns_none(self, mock_pool):
-        mock_pool.fetchrow.return_value = {
-            "id": UUID("00000000-0000-0000-0000-000000000099"),
-            "user_id": UUID("00000000-0000-0000-0000-000000000001"),
-            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
-            "used_at": datetime.now(timezone.utc) - timedelta(minutes=5),
-        }
+        mock_pool.fetchrow.return_value = None
         result = await validate_and_consume_token("used_token")
         assert result is None
-        mock_pool.execute.assert_not_called()
 
     async def test_expired_token_returns_none(self, mock_pool):
-        mock_pool.fetchrow.return_value = {
-            "id": UUID("00000000-0000-0000-0000-000000000099"),
-            "user_id": UUID("00000000-0000-0000-0000-000000000001"),
-            "expires_at": datetime.now(timezone.utc) - timedelta(minutes=5),
-            "used_at": None,
-        }
+        mock_pool.fetchrow.return_value = None
         result = await validate_and_consume_token("expired_token")
         assert result is None
-        mock_pool.execute.assert_not_called()
 
 
 class TestUpdateUserPassword:

@@ -19,6 +19,7 @@ async def init_pool() -> asyncpg.Pool:
         dsn=settings.asyncpg_dsn,
         min_size=settings.db_pool_min,
         max_size=settings.db_pool_max,
+        statement_cache_size=0,
     )
     await log.ainfo(
         "TimescaleDB pool initialized", min=settings.db_pool_min, max=settings.db_pool_max

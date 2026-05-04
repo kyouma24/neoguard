@@ -65,7 +65,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 self._set_tenant(request, str(session_info.tenant_id))
                 request.state.scopes = _role_to_scopes(session_info.role)
                 request.state.api_key_id = None
-                request.state.user_id = session_info.user_id
+                request.state.user_id = str(session_info.user_id)
                 request.state.user_role = session_info.role
                 request.state.is_super_admin = session_info.is_super_admin
                 request.state.impersonated_by = session_info.impersonated_by
@@ -104,6 +104,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         if settings.auth_bootstrap_token and raw_key == settings.auth_bootstrap_token:
+            await log.awarn(
+                "bootstrap_token_used",
+                path=path,
+                method=request.method,
+                ip=request.client.host if request.client else "unknown",
+            )
             self._set_tenant(request, settings.default_tenant_id)
             request.state.scopes = ["admin"]
             request.state.api_key_id = None

@@ -12,15 +12,17 @@ class TestValidateOutboundUrl:
         with patch("socket.getaddrinfo", return_value=[
             (2, 1, 6, "", ("93.184.216.34", 443)),
         ]):
-            result = validate_outbound_url("https://example.com/webhook")
-            assert result == "https://example.com/webhook"
+            url, ips = validate_outbound_url("https://example.com/webhook")
+            assert url == "https://example.com/webhook"
+            assert "93.184.216.34" in ips
 
     def test_allows_public_http_url(self):
         with patch("socket.getaddrinfo", return_value=[
             (2, 1, 6, "", ("93.184.216.34", 80)),
         ]):
-            result = validate_outbound_url("http://hooks.slack.com/services/T00/B00")
-            assert result == "http://hooks.slack.com/services/T00/B00"
+            url, ips = validate_outbound_url("http://hooks.slack.com/services/T00/B00")
+            assert url == "http://hooks.slack.com/services/T00/B00"
+            assert len(ips) == 1
 
     def test_blocks_private_10_network(self):
         with patch("socket.getaddrinfo", return_value=[
@@ -51,11 +53,8 @@ class TestValidateOutboundUrl:
                 validate_outbound_url("https://loopback.example.com/admin")
 
     def test_blocks_link_local(self):
-        with patch("socket.getaddrinfo", return_value=[
-            (2, 1, 6, "", ("169.254.169.254", 80)),
-        ]):
-            with pytest.raises(SSRFError, match="private address"):
-                validate_outbound_url("http://169.254.169.254/latest/meta-data/")
+        with pytest.raises(SSRFError, match="Blocked"):
+            validate_outbound_url("http://169.254.169.254/latest/meta-data/")
 
     def test_blocks_metadata_ip_directly(self):
         with patch("socket.getaddrinfo", return_value=[

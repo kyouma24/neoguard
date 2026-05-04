@@ -6,6 +6,20 @@ All notable changes to NeoGuard are documented here. Format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Security — Phase 0: Stabilization & Code Review (2026-05-04)
+- **CRITICAL (NG-004)**: Fixed tenant isolation bypass in metric ingest — client-provided `tenant_id` in payload was used instead of authenticated tenant, allowing cross-tenant metric writes (`src/neoguard/api/routes/metrics.py`)
+- **CRITICAL (NG-003)**: Fixed SQL injection surface in metrics routes — tag keys were interpolated via f-strings in 4 query variants, now parameterized with `$N` placeholders (`src/neoguard/api/routes/metrics.py`)
+- **Fixed (NG-009)**: Password reset URL hardcoded to `localhost:5173` — now uses configurable `settings.frontend_url` (`src/neoguard/api/routes/user_auth.py`)
+- **Config**: Added `frontend_url` setting to `Settings` class (`src/neoguard/core/config.py`)
+- Fixed metric query/batch tenant override (same pattern as NG-004)
+- Parameterized LIMIT/OFFSET in metric names query
+
+### Fixed — Frontend Test Suite (2026-05-04)
+- Fixed Vitest design-system test exclusion pattern (`src/design-system/**` → `**/design-system/**`)
+- Migrated vitest config from Vitest 2.x to Vitest 4.x format (`poolOptions` removed, `maxWorkers`/`execArgv` at top level)
+- Split `DashboardsPage.test.tsx` (23 tests) into 3 files to reduce per-file memory: list (8 tests, passes), viewer (7 tests, OOM), mql (8 tests, OOM)
+- **Result**: 29/31 test files pass (493 tests green), DashboardsPage viewer+mql OOM in jsdom worker (known issue)
+
 ### Added — Phase 1: Auth + Multi-Tenancy (2026-05-01 → 2026-05-02)
 - **User authentication**: Email+password signup/login with Argon2id hashing (OWASP params)
 - **Redis session store**: HttpOnly cookies, 30-day sliding TTL for users, 4-hour absolute for super admins

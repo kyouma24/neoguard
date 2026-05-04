@@ -3,10 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { useURLState } from "../hooks/useURLState";
 import {
   Eye,
+  Plus,
   ShieldCheck,
   ShieldOff,
   UserCheck,
   UserX,
+  Users,
 } from "lucide-react";
 import { format } from "date-fns";
 import { api, formatError } from "../services/api";
@@ -24,7 +26,19 @@ import {
   Tabs,
 } from "../design-system";
 import type { DataTableColumn } from "../design-system";
-import type { AdminTenant, AdminUser, PlatformStats, PlatformAuditEntry, SecurityLogEntry } from "../types";
+import type { AdminTenant, AdminUser, MembershipInfo, PlatformStats, PlatformAuditEntry, SecurityLogEntry } from "../types";
+
+const ROLES = ["owner", "admin", "member", "viewer"] as const;
+
+const selectStyle: React.CSSProperties = {
+  padding: "6px 10px",
+  fontSize: "var(--typography-font-size-sm)",
+  border: "1px solid var(--color-neutral-300)",
+  borderRadius: "var(--border-radius-md)",
+  background: "var(--color-neutral-50)",
+  color: "var(--color-neutral-900)",
+  minWidth: 120,
+};
 
 interface DestructiveConfirm {
   title: string;
@@ -188,6 +202,82 @@ function OverviewTab() {
 
 type TenantRow = AdminTenant & { _actions?: never };
 
+function TenantMembersModal({
+  tenant,
+  onClose,
+}: {
+  tenant: AdminTenant | null;
+  onClose: () => void;
+}) {
+  const [members, setMembers] = useState<MembershipInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchMembers = useCallback(async () => {
+    if (!tenant) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api.admin.tenantMembers(tenant.id);
+      setMembers(data);
+    } catch (err) { setError(formatError(err)); }
+    finally { setLoading(false); }
+  }, [tenant]);
+
+  useEffect(() => { fetchMembers(); }, [fetchMembers]);
+
+  if (!tenant) return null;
+
+  const roleTone = (r: string) =>
+    r === "owner" ? "danger" as const : r === "admin" ? "warning" as const : "info" as const;
+
+  return (
+    <Modal isOpen title={`Members — ${tenant.name}`} onClose={onClose} size="lg">
+      <div style={{ fontSize: 13, color: "var(--color-neutral-500)", marginBottom: 16 }}>
+        {tenant.slug} &middot; {tenant.tier} &middot; <StatusBadge label={tenant.status} tone={tenant.status === "active" ? "success" : "danger"} />
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--color-neutral-500)" }}>Loading members...</div>
+      ) : error ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--color-danger-500)" }}>{error}</div>
+      ) : members.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--color-neutral-400)" }}>No members found.</div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid var(--color-neutral-200)" }}>
+              <th style={{ textAlign: "left", padding: "8px 12px", color: "var(--color-neutral-600)", fontWeight: 600 }}>User</th>
+              <th style={{ textAlign: "left", padding: "8px 12px", color: "var(--color-neutral-600)", fontWeight: 600 }}>Role</th>
+              <th style={{ textAlign: "left", padding: "8px 12px", color: "var(--color-neutral-600)", fontWeight: 600 }}>Joined</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map(m => (
+              <tr key={m.user_id} style={{ borderBottom: "1px solid var(--color-neutral-100)" }}>
+                <td style={{ padding: "8px 12px" }}>
+                  <div style={{ fontWeight: 600, color: "var(--color-neutral-900)" }}>{m.user_name || "—"}</div>
+                  <div style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>{m.user_email || "—"}</div>
+                </td>
+                <td style={{ padding: "8px 12px" }}>
+                  <Badge variant={roleTone(m.role)} size="sm">{m.role}</Badge>
+                </td>
+                <td style={{ padding: "8px 12px", fontSize: 12, color: "var(--color-neutral-500)" }}>
+                  {format(new Date(m.joined_at), "MMM d, yyyy")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+        <Button variant="ghost" onClick={onClose}>Close</Button>
+      </div>
+    </Modal>
+  );
+}
+
 function TenantsTab() {
   const [tenants, setTenants] = useState<AdminTenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,6 +285,7 @@ function TenantsTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [newTenantName, setNewTenantName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [selectedTenant, setSelectedTenant] = useState<AdminTenant | null>(null);
 
   const fetchTenants = useCallback(() => {
     setLoading(true);
@@ -283,6 +374,17 @@ function TenantsTab() {
     {
       key: "member_count",
       label: "Members",
+      render: (_, row) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSelectedTenant(row)}
+          title="View members"
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          <Users size={13} /> {row.member_count}
+        </Button>
+      ),
     },
     {
       key: "created_at",
@@ -332,7 +434,9 @@ function TenantsTab() {
             <Button variant="ghost" size="sm" onClick={() => { setShowCreate(false); setNewTenantName(""); }}>Cancel</Button>
           </>
         ) : (
-          <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>Create Tenant</Button>
+          <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>
+            <Plus size={14} /> Create Tenant
+          </Button>
         )}
       </div>
       <DataTable
@@ -342,6 +446,7 @@ function TenantsTab() {
         striped
         hoverable
       />
+      <TenantMembersModal tenant={selectedTenant} onClose={() => setSelectedTenant(null)} />
       <TypedConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
     </>
   );
@@ -349,20 +454,302 @@ function TenantsTab() {
 
 type UserRow = AdminUser & { _actions?: never };
 
+interface CreateUserForm {
+  name: string;
+  email: string;
+  password: string;
+  role: string;
+  tenant_id: string;
+}
+
+const EMPTY_CREATE_USER: CreateUserForm = { name: "", email: "", password: "", role: "member", tenant_id: "" };
+
+function CreateUserModal({
+  isOpen,
+  tenants,
+  onClose,
+  onCreated,
+}: {
+  isOpen: boolean;
+  tenants: AdminTenant[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [form, setForm] = useState<CreateUserForm>(EMPTY_CREATE_USER);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async () => {
+    if (!form.name.trim() || !form.email.trim() || form.password.length < 8) return;
+    setCreating(true);
+    setError("");
+    try {
+      await api.admin.createUser({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        ...(form.tenant_id ? { tenant_id: form.tenant_id, role: form.role } : {}),
+      });
+      setForm(EMPTY_CREATE_USER);
+      onCreated();
+      onClose();
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleClose = () => {
+    setForm(EMPTY_CREATE_USER);
+    setError("");
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  const fieldLabel: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--color-neutral-700)" };
+  const fieldGroup: React.CSSProperties = { marginBottom: 14 };
+
+  return (
+    <Modal isOpen title="Create New User" onClose={handleClose} size="md">
+      <div style={fieldGroup}>
+        <label style={fieldLabel}>Full Name *</label>
+        <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="John Doe" />
+      </div>
+      <div style={fieldGroup}>
+        <label style={fieldLabel}>Email *</label>
+        <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="john@example.com" />
+      </div>
+      <div style={fieldGroup}>
+        <label style={fieldLabel}>Password * (min 8 chars, uppercase, lowercase, digit)</label>
+        <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 8 characters" />
+      </div>
+      <div style={fieldGroup}>
+        <label style={fieldLabel}>Assign to Tenant</label>
+        <select
+          value={form.tenant_id}
+          onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
+          style={{ ...selectStyle, width: "100%" }}
+        >
+          <option value="">No tenant (create user only)</option>
+          {tenants.filter(t => t.status === "active").map(t => (
+            <option key={t.id} value={t.id}>{t.name} ({t.slug})</option>
+          ))}
+        </select>
+      </div>
+      {form.tenant_id && (
+        <div style={fieldGroup}>
+          <label style={fieldLabel}>Role in Tenant</label>
+          <select
+            value={form.role}
+            onChange={(e) => setForm({ ...form, role: e.target.value })}
+            style={{ ...selectStyle, width: "100%" }}
+          >
+            {ROLES.map(r => (
+              <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11, color: "var(--color-neutral-500)", marginTop: 4 }}>
+            {form.role === "owner" && "Full control: manage members, settings, billing, and all data."}
+            {form.role === "admin" && "Manage members and data. Cannot change tenant settings or billing."}
+            {form.role === "member" && "Read and write data. Cannot manage members or settings."}
+            {form.role === "viewer" && "Read-only access to dashboards, metrics, and alerts."}
+          </div>
+        </div>
+      )}
+      {error && (
+        <div style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-danger-500)", marginBottom: 12 }}>{error}</div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <Button variant="ghost" onClick={handleClose} disabled={creating}>Cancel</Button>
+        <Button
+          variant="primary"
+          onClick={handleSubmit}
+          disabled={creating || !form.name.trim() || !form.email.trim() || form.password.length < 8}
+        >
+          {creating ? "Creating..." : "Create User"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+interface UserTenantInfo {
+  id: string;
+  slug: string;
+  name: string;
+  tier: string;
+  status: string;
+  created_at: string;
+  role: string;
+}
+
+function UserTenantsModal({
+  user,
+  allTenants,
+  onClose,
+  onChanged,
+}: {
+  user: AdminUser | null;
+  allTenants: AdminTenant[];
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [tenants, setTenants] = useState<UserTenantInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [addingTenant, setAddingTenant] = useState(false);
+  const [newTenantId, setNewTenantId] = useState("");
+  const [newRole, setNewRole] = useState("member");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchTenants = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const data = await api.admin.userTenants(user.id);
+      setTenants(data);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, [user]);
+
+  useEffect(() => { fetchTenants(); }, [fetchTenants]);
+
+  if (!user) return null;
+
+  const existingTenantIds = new Set(tenants.map(t => t.id));
+  const availableTenants = allTenants.filter(t => t.status === "active" && !existingTenantIds.has(t.id));
+
+  const handleAddToTenant = async () => {
+    if (!newTenantId) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api.admin.addUserToTenant(user.id, newTenantId, newRole);
+      setAddingTenant(false);
+      setNewTenantId("");
+      setNewRole("member");
+      await fetchTenants();
+      onChanged();
+    } catch (err) { setError(formatError(err)); }
+    finally { setSaving(false); }
+  };
+
+  const handleChangeRole = async (tenantId: string, role: string) => {
+    try {
+      await api.admin.changeUserRole(user.id, tenantId, role);
+      await fetchTenants();
+      onChanged();
+    } catch (err) { setError(formatError(err)); }
+  };
+
+  const handleRemove = async (tenantId: string, tenantName: string) => {
+    if (!window.confirm(`Remove ${user.name} from ${tenantName}?`)) return;
+    try {
+      await api.admin.removeUserFromTenant(user.id, tenantId);
+      await fetchTenants();
+      onChanged();
+    } catch (err) { setError(formatError(err)); }
+  };
+
+  return (
+    <Modal isOpen title={`Tenants & Roles — ${user.name}`} onClose={onClose} size="lg">
+      <div style={{ fontSize: 13, color: "var(--color-neutral-600)", marginBottom: 16 }}>
+        {user.email} {user.is_super_admin && <Badge variant="danger" size="sm">Super Admin</Badge>}
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--color-neutral-500)" }}>Loading...</div>
+      ) : tenants.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--color-neutral-400)" }}>
+          This user is not a member of any tenant.
+        </div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 16 }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid var(--color-neutral-200)" }}>
+              <th style={{ textAlign: "left", padding: "8px 12px", color: "var(--color-neutral-600)", fontWeight: 600 }}>Tenant</th>
+              <th style={{ textAlign: "left", padding: "8px 12px", color: "var(--color-neutral-600)", fontWeight: 600 }}>Role</th>
+              <th style={{ textAlign: "right", padding: "8px 12px" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {tenants.map(t => (
+              <tr key={t.id} style={{ borderBottom: "1px solid var(--color-neutral-100)" }}>
+                <td style={{ padding: "8px 12px" }}>
+                  <div style={{ fontWeight: 600, color: "var(--color-neutral-900)" }}>{t.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>{t.slug}</div>
+                </td>
+                <td style={{ padding: "8px 12px" }}>
+                  <select
+                    value={t.role}
+                    onChange={(e) => handleChangeRole(t.id, e.target.value)}
+                    style={selectStyle}
+                  >
+                    {ROLES.map(r => (
+                      <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                    ))}
+                  </select>
+                </td>
+                <td style={{ padding: "8px 12px", textAlign: "right" }}>
+                  <Button variant="danger" size="sm" onClick={() => handleRemove(t.id, t.name)}>Remove</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {error && <div style={{ fontSize: 12, color: "var(--color-danger-500)", marginBottom: 8 }}>{error}</div>}
+
+      {addingTenant ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+          <select value={newTenantId} onChange={(e) => setNewTenantId(e.target.value)} style={selectStyle}>
+            <option value="">Select tenant...</option>
+            {availableTenants.map(t => (
+              <option key={t.id} value={t.id}>{t.name} ({t.slug})</option>
+            ))}
+          </select>
+          <select value={newRole} onChange={(e) => setNewRole(e.target.value)} style={selectStyle}>
+            {ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+          </select>
+          <Button variant="primary" size="sm" onClick={handleAddToTenant} disabled={saving || !newTenantId}>
+            {saving ? "Adding..." : "Add"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => { setAddingTenant(false); setNewTenantId(""); setError(""); }}>Cancel</Button>
+        </div>
+      ) : (
+        availableTenants.length > 0 && (
+          <Button variant="ghost" size="sm" onClick={() => setAddingTenant(true)}>
+            <Plus size={14} /> Add to Tenant
+          </Button>
+        )
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+        <Button variant="ghost" onClick={onClose}>Close</Button>
+      </div>
+    </Modal>
+  );
+}
+
 function UsersTab() {
   const { user: currentUser, refreshAuth } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [allTenants, setAllTenants] = useState<AdminTenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState<DestructiveConfirm | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [newUser, setNewUser] = useState({ name: "", email: "", password: "" });
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState("");
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
 
   const fetchUsers = useCallback(() => {
     setLoading(true);
-    api.admin.users().then(setUsers).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([api.admin.users(), api.admin.tenants()])
+      .then(([u, t]) => { setUsers(u); setAllTenants(t); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -420,26 +807,6 @@ function UsersTab() {
     }
   };
 
-  const handleCreateUser = async () => {
-    if (!newUser.name.trim() || !newUser.email.trim() || !newUser.password.trim()) return;
-    setCreating(true);
-    setCreateError("");
-    try {
-      await api.admin.createUser({
-        name: newUser.name.trim(),
-        email: newUser.email.trim(),
-        password: newUser.password,
-      });
-      setNewUser({ name: "", email: "", password: "" });
-      setShowCreate(false);
-      fetchUsers();
-    } catch (err) {
-      setCreateError(formatError(err));
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const handleImpersonate = async (userId: string, userName: string) => {
     const reason = window.prompt(`Reason for impersonating ${userName}:`);
     if (!reason) return;
@@ -463,7 +830,21 @@ function UsersTab() {
         </div>
       ),
     },
-    { key: "tenant_count", label: "Tenants" },
+    {
+      key: "tenant_count",
+      label: "Tenants",
+      render: (_, row) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSelectedUser(row)}
+          title="View and manage tenant memberships"
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          <Users size={13} /> {row.tenant_count}
+        </Button>
+      ),
+    },
     {
       key: "is_super_admin",
       label: "Super Admin",
@@ -527,44 +908,10 @@ function UsersTab() {
 
   return (
     <>
-      <div style={{ marginBottom: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        {showCreate ? (
-          <>
-            <Input
-              value={newUser.name}
-              onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-              placeholder="Full name"
-              style={{ maxWidth: 180 }}
-            />
-            <Input
-              value={newUser.email}
-              onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-              placeholder="email@example.com"
-              style={{ maxWidth: 220 }}
-            />
-            <Input
-              type="password"
-              value={newUser.password}
-              onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-              placeholder="Password (min 8)"
-              style={{ maxWidth: 180 }}
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleCreateUser}
-              disabled={creating || !newUser.name.trim() || !newUser.email.trim() || newUser.password.length < 8}
-            >
-              {creating ? "Creating..." : "Create"}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setShowCreate(false); setNewUser({ name: "", email: "", password: "" }); setCreateError(""); }}>
-              Cancel
-            </Button>
-            {createError && <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-danger-500)" }}>{createError}</span>}
-          </>
-        ) : (
-          <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>Create User</Button>
-        )}
+      <div style={{ marginBottom: 12 }}>
+        <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>
+          <Plus size={14} /> Create User
+        </Button>
       </div>
       <DataTable
         columns={columns}
@@ -572,6 +919,18 @@ function UsersTab() {
         emptyMessage="No users found."
         striped
         hoverable
+      />
+      <CreateUserModal
+        isOpen={showCreate}
+        tenants={allTenants}
+        onClose={() => setShowCreate(false)}
+        onCreated={fetchUsers}
+      />
+      <UserTenantsModal
+        user={selectedUser}
+        allTenants={allTenants}
+        onClose={() => setSelectedUser(null)}
+        onChanged={fetchUsers}
       />
       <TypedConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
     </>

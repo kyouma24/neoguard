@@ -19,7 +19,7 @@ from neoguard.models.users import (
 )
 from neoguard.services.auth import telemetry as auth_telemetry
 from neoguard.services.auth.email import send_password_reset
-from neoguard.services.auth.rate_limiter import check_rate_limit as check_auth_rate_limit
+from neoguard.services.auth.rate_limiter import RateLimitRule, check_rate_limit as check_auth_rate_limit
 from neoguard.services.auth.password_reset import (
     check_rate_limit,
     create_reset_token,
@@ -52,10 +52,8 @@ def _correlation_id(request: Request) -> str | None:
 
 
 def _client_ip(request: Request) -> str | None:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
+    from neoguard.services.auth.rate_limiter import extract_client_ip
+    return extract_client_ip(request)
 
 
 def _user_agent(request: Request) -> str | None:
@@ -113,7 +111,7 @@ async def signup(data: SignupRequest, request: Request, response: Response) -> A
         max_age=cookie_ttl,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
     )
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
@@ -121,7 +119,7 @@ async def signup(data: SignupRequest, request: Request, response: Response) -> A
         max_age=cookie_ttl,
         httponly=False,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
         path="/",
     )
 
@@ -191,7 +189,7 @@ async def login(data: LoginRequest, request: Request, response: Response) -> Aut
         max_age=cookie_ttl,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
     )
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
@@ -199,7 +197,7 @@ async def login(data: LoginRequest, request: Request, response: Response) -> Aut
         max_age=cookie_ttl,
         httponly=False,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
         path="/",
     )
 
@@ -267,7 +265,7 @@ async def get_current_user(request: Request, response: Response) -> AuthResponse
             max_age=settings.session_ttl_seconds,
             httponly=False,
             samesite="lax",
-            secure=False,
+            secure=settings.cookie_secure,
             path="/",
         )
 
@@ -316,14 +314,33 @@ async def request_password_reset(data: PasswordResetRequest, request: Request) -
         within_limit = await check_rate_limit(user["id"])
         if within_limit:
             raw_token = await create_reset_token(user["id"])
-            reset_url = f"http://localhost:5173/reset-password?token={raw_token}"
+            reset_url = f"{settings.frontend_url}/reset-password?token={raw_token}"
             await send_password_reset(data.email, reset_url)
 
     return {"message": "If that email exists, a reset link has been sent"}
 
 
 @router.post("/auth/password-reset/confirm")
-async def confirm_password_reset(data: PasswordResetConfirm) -> dict:
+async def confirm_password_reset(data: PasswordResetConfirm, request: Request) -> dict:
+    rl = await check_auth_rate_limit(
+        "password_reset_confirm",
+        _client_ip(request) or "unknown",
+        rule=RateLimitRule(max_attempts=5, window_seconds=900),
+    )
+    if not rl.allowed:
+        retry_after = max(rl.reset_at - int(_time.time()), 1)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": {
+                    "code": "RATE_LIMITED",
+                    "message": "Too many reset attempts. Please try again later.",
+                    "correlation_id": _correlation_id(request),
+                },
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user_id = await validate_and_consume_token(data.token)
     if not user_id:
         raise HTTPException(400, "Invalid or expired reset token")

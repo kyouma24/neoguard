@@ -1,4 +1,5 @@
 import Markdown from "react-markdown";
+import { isSafeHref } from "../../utils/sanitize";
 
 interface Props {
   content: string;
@@ -28,11 +29,16 @@ export function TextWidget({ content, height = 200 }: Props) {
     >
       <Markdown
         components={{
-          a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--primary)" }}>
-              {children}
-            </a>
-          ),
+          a: ({ children, href }) => {
+            if (!isSafeHref(href)) {
+              return <span>{children}</span>;
+            }
+            return (
+              <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--primary)" }}>
+                {children}
+              </a>
+            );
+          },
         }}
       >
         {content}

@@ -56,24 +56,18 @@ async def validate_and_consume_token(token: str) -> UUID | None:
 
     row = await pool.fetchrow(
         """
-        SELECT id, user_id, expires_at, used_at
-        FROM password_reset_tokens
-        WHERE token_hash = $1
+        UPDATE password_reset_tokens
+        SET used_at = $1
+        WHERE token_hash = $2
+          AND used_at IS NULL
+          AND expires_at > $1
+        RETURNING user_id
         """,
-        token_hash,
+        now, token_hash,
     )
 
     if not row:
         return None
-    if row["used_at"] is not None:
-        return None
-    if row["expires_at"] < now:
-        return None
-
-    await pool.execute(
-        "UPDATE password_reset_tokens SET used_at = $1 WHERE id = $2",
-        now, row["id"],
-    )
 
     return row["user_id"]
 

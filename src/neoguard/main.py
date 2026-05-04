@@ -15,6 +15,7 @@ from neoguard.api.middleware.request_id import RequestIDMiddleware
 from neoguard.api.routes import (
     admin,
     alerts,
+    annotations,
     auth,
     aws_accounts,
     azure_accounts,
@@ -22,10 +23,12 @@ from neoguard.api.routes import (
     dashboards,
     health,
     logs,
+    metadata,
     metrics,
     mql,
     notifications,
     resources,
+    sse,
     system,
     tenants,
     user_auth,
@@ -151,18 +154,21 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-CSRF-Token"],
 )
 
 app.include_router(health.router)
 app.include_router(user_auth.router)
 app.include_router(auth.router)
 app.include_router(metrics.router)
+app.include_router(metadata.router)
 app.include_router(mql.router)
+app.include_router(sse.router)
 app.include_router(logs.router)
 app.include_router(alerts.router)
 app.include_router(dashboards.router)
+app.include_router(annotations.router)
 app.include_router(resources.router)
 app.include_router(aws_accounts.router)
 app.include_router(azure_accounts.router)

@@ -45,6 +45,16 @@ def get_tenant_id_required(request: Request) -> str:
     return tid
 
 
+def get_current_user_id(request: Request) -> str:
+    """Return the authenticated user's ID from request state."""
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        if not settings.auth_enabled:
+            return "system"
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return str(user_id)
+
+
 def require_scope(scope: str):
     """FastAPI dependency that checks the API key has a required scope."""
     def checker(request: Request) -> None:

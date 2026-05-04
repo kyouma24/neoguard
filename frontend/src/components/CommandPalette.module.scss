@@ -1,0 +1,214 @@
+// Command Palette — NeoGuard design tokens
+// cmdk renders its own DOM; we target the data attributes it provides.
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 20vh;
+  animation: overlayFadeIn 120ms ease-out;
+}
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.dialog {
+  width: 100%;
+  max-width: 640px;
+  border-radius: var(--border-radius-lg, 0.5rem);
+  border: var(--border-width-thin, 1px) solid var(--color-neutral-200, #e5e7eb);
+  background: var(--color-neutral-0, #ffffff);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  animation: dialogSlideIn 120ms ease-out;
+}
+
+@keyframes dialogSlideIn {
+  from { opacity: 0; transform: scale(0.98) translateY(-8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+// ── Input ────────────────────────────────────────────
+.inputWrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 0.5rem);
+  padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem);
+  border-bottom: var(--border-width-thin, 1px) solid var(--color-neutral-200, #e5e7eb);
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--color-neutral-400, #9ca3af);
+}
+
+.input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--typography-font-size-base, 0.875rem);
+  color: var(--color-neutral-900, #111827);
+  padding: var(--spacing-xs, 0.25rem) 0;
+  caret-color: var(--color-primary-500, #1310A4);
+
+  &::placeholder {
+    color: var(--color-neutral-400, #9ca3af);
+  }
+}
+
+// ── List ─────────────────────────────────────────────
+.list {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: var(--spacing-xs, 0.25rem) 0;
+  overscroll-behavior: contain;
+}
+
+// ── Group heading ────────────────────────────────────
+.groupHeading {
+  padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem) var(--spacing-xs, 0.25rem);
+  font-size: 11px;
+  font-weight: var(--typography-font-weight-semibold, 600);
+  color: var(--color-neutral-400, #9ca3af);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  user-select: none;
+}
+
+// ── Item ─────────────────────────────────────────────
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 0.5rem);
+  padding: 8px var(--spacing-md, 1rem);
+  cursor: pointer;
+  border-radius: 0;
+  font-size: var(--typography-font-size-sm, 0.8125rem);
+  color: var(--color-neutral-700, #374151);
+  transition: background 60ms ease;
+  user-select: none;
+
+  &[data-selected="true"] {
+    background: var(--color-primary-50, #ecebff);
+    color: var(--color-primary-700, #0d0a70);
+  }
+
+  &:active {
+    background: var(--color-primary-100, #d2d0fb);
+  }
+}
+
+.itemIcon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-neutral-400, #9ca3af);
+
+  [data-selected="true"] & {
+    color: var(--color-primary-500, #1310A4);
+  }
+}
+
+.itemLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemShortcut {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: var(--typography-font-family-mono, ui-monospace, monospace);
+  color: var(--color-neutral-400, #9ca3af);
+  background: var(--color-neutral-100, #f3f4f6);
+  border: var(--border-width-thin, 1px) solid var(--color-neutral-200, #e5e7eb);
+  border-radius: var(--border-radius-sm, 0.25rem);
+  padding: 1px 6px;
+  line-height: 1.5;
+}
+
+// ── Empty state ──────────────────────────────────────
+.empty {
+  padding: var(--spacing-lg, 1.5rem) var(--spacing-md, 1rem);
+  text-align: center;
+  color: var(--color-neutral-400, #9ca3af);
+  font-size: var(--typography-font-size-sm, 0.8125rem);
+}
+
+// ── Separator ────────────────────────────────────────
+.separator {
+  height: 1px;
+  background: var(--color-neutral-200, #e5e7eb);
+  margin: var(--spacing-xs, 0.25rem) 0;
+}
+
+// ── Footer hint ──────────────────────────────────────
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md, 1rem);
+  padding: var(--spacing-xs, 0.25rem) var(--spacing-md, 1rem);
+  border-top: var(--border-width-thin, 1px) solid var(--color-neutral-200, #e5e7eb);
+  font-size: 11px;
+  color: var(--color-neutral-400, #9ca3af);
+}
+
+.footerKey {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.footerKbd {
+  font-family: var(--typography-font-family-mono, ui-monospace, monospace);
+  font-size: 10px;
+  background: var(--color-neutral-100, #f3f4f6);
+  border: var(--border-width-thin, 1px) solid var(--color-neutral-200, #e5e7eb);
+  border-radius: var(--border-radius-sm, 0.25rem);
+  padding: 0 4px;
+  line-height: 1.6;
+}
+
+// ── Trigger badge in top bar ─────────────────────────
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: var(--border-width-thin, 1px) solid var(--color-neutral-200, #e5e7eb);
+  border-radius: var(--border-radius-md, 0.375rem);
+  background: var(--color-neutral-50, #f9fafb);
+  color: var(--color-neutral-400, #9ca3af);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  user-select: none;
+
+  &:hover {
+    border-color: var(--color-neutral-300, #d1d5db);
+    color: var(--color-neutral-600, #4b5563);
+    background: var(--color-neutral-100, #f3f4f6);
+  }
+}
+
+.triggerKbd {
+  font-family: var(--typography-font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  background: var(--color-neutral-0, #ffffff);
+  border: var(--border-width-thin, 1px) solid var(--color-neutral-200, #e5e7eb);
+  border-radius: var(--border-radius-sm, 0.25rem);
+  padding: 0 5px;
+  line-height: 1.5;
+}

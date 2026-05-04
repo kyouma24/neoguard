@@ -251,12 +251,12 @@ class TestMQLInputValidation:
             resp = await client.post("/api/v1/mql/query", json=body)
         assert resp.status_code == 400
 
-    async def test_invalid_interval_returns_400(self):
+    async def test_invalid_interval_returns_422(self):
         app = _make_app(scopes=["read"])
         body = {**QUERY_BODY, "interval": "99x"}
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/v1/mql/query", json=body)
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     async def test_batch_max_10(self):
         app = _make_app(scopes=["read"])

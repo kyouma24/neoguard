@@ -114,12 +114,15 @@ class TestTimeBucketing:
     def test_1m_bucket(self):
         q = MQLQuery(aggregator="avg", metric_name="cpu")
         result = _compile(q, interval="1m")
-        assert "time_bucket('1 minute'" in result.sql
+        # MQL-003: bucket interval is now parameterized as seconds
+        assert "time_bucket($1 * interval '1 second'" in result.sql
+        assert 60 in result.params
 
     def test_5m_bucket(self):
         q = MQLQuery(aggregator="avg", metric_name="cpu")
         result = _compile(q, interval="5m")
-        assert "time_bucket('5 minutes'" in result.sql
+        assert "time_bucket($1 * interval '1 second'" in result.sql
+        assert 300 in result.params
 
     def test_raw_no_bucket(self):
         q = MQLQuery(aggregator="avg", metric_name="cpu")
@@ -135,7 +138,9 @@ class TestTagFilterCompilation:
             filters=(ExactMatch(key="env", value="prod"),),
         )
         result = _compile(q)
-        assert "tags->>'env' =" in result.sql
+        # MQL-001: tag keys are now parameterized — not interpolated into SQL
+        assert "tags->>(" in result.sql
+        assert "env" in result.params
         assert "prod" in result.params
 
     def test_wildcard_match(self):
@@ -145,7 +150,9 @@ class TestTagFilterCompilation:
             filters=(WildcardMatch(key="host", pattern="web-*"),),
         )
         result = _compile(q)
-        assert "tags->>'host' LIKE" in result.sql
+        assert "tags->>(" in result.sql
+        assert "LIKE" in result.sql
+        assert "host" in result.params
         assert "web-%" in result.params
 
     def test_negation_match(self):
@@ -155,7 +162,9 @@ class TestTagFilterCompilation:
             filters=(NegationMatch(key="status", value="5xx"),),
         )
         result = _compile(q)
-        assert "tags->>'status' IS NULL OR tags->>'status' !=" in result.sql
+        assert "IS NULL OR tags->>(" in result.sql
+        assert "!=" in result.sql
+        assert "status" in result.params
         assert "5xx" in result.params
 
     def test_in_set_match(self):
@@ -165,7 +174,9 @@ class TestTagFilterCompilation:
             filters=(InSetMatch(key="env", values=("prod", "staging")),),
         )
         result = _compile(q)
-        assert "tags->>'env' IN" in result.sql
+        assert "tags->>(" in result.sql
+        assert "IN" in result.sql
+        assert "env" in result.params
         assert "prod" in result.params
         assert "staging" in result.params
 
@@ -179,8 +190,8 @@ class TestTagFilterCompilation:
             ),
         )
         result = _compile(q)
-        assert "tags->>'env' =" in result.sql
-        assert "tags->>'status'" in result.sql
+        assert "env" in result.params
+        assert "status" in result.params
 
 
 class TestRollupCompilation:
@@ -191,7 +202,9 @@ class TestRollupCompilation:
             rollup=Rollup(method="max", seconds=300),
         )
         result = _compile(q)
-        assert "time_bucket('300 seconds'" in result.sql
+        # MQL-003: bucket interval is parameterized as seconds
+        assert "time_bucket($1 * interval '1 second'" in result.sql
+        assert 300 in result.params
 
     def test_rollup_overrides_aggregation(self):
         q = MQLQuery(
@@ -247,7 +260,9 @@ class TestTagKeySanitization:
             filters=(ExactMatch(key="env", value="prod"),),
         )
         result = _compile(q)
-        assert "tags->>'env'" in result.sql
+        # MQL-001: tag key is now a parameter, not in SQL text
+        assert "tags->>(" in result.sql
+        assert "env" in result.params
 
     def test_key_with_hyphens_passes(self):
         q = MQLQuery(
@@ -255,7 +270,8 @@ class TestTagKeySanitization:
             filters=(ExactMatch(key="my-tag", value="v"),),
         )
         result = _compile(q)
-        assert "tags->>'my-tag'" in result.sql
+        assert "tags->>(" in result.sql
+        assert "my-tag" in result.params
 
     def test_key_with_underscores_passes(self):
         q = MQLQuery(
@@ -263,7 +279,8 @@ class TestTagKeySanitization:
             filters=(ExactMatch(key="my_tag", value="v"),),
         )
         result = _compile(q)
-        assert "tags->>'my_tag'" in result.sql
+        assert "tags->>(" in result.sql
+        assert "my_tag" in result.params
 
     def test_sql_injection_in_key_rejected(self):
         q = MQLQuery(
@@ -344,6 +361,54 @@ class TestTagKeySanitization:
         )
         with pytest.raises(ValueError, match="Invalid tag key"):
             _compile(q)
+
+
+class TestPercentileAggregationCompilation:
+    """MQL-002: p50, p95, p99 aggregator SQL generation."""
+
+    def test_p50_on_raw_table(self):
+        q = MQLQuery(aggregator="p50", metric_name="latency")
+        result = _compile(q, interval="raw")
+        assert "PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY value)" in result.sql
+
+    def test_p95_on_raw_table(self):
+        q = MQLQuery(aggregator="p95", metric_name="latency")
+        result = _compile(q, interval="raw")
+        assert "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY value)" in result.sql
+
+    def test_p99_on_raw_table(self):
+        q = MQLQuery(aggregator="p99", metric_name="latency")
+        result = _compile(q, interval="raw")
+        assert "PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY value)" in result.sql
+
+    def test_p95_on_aggregate_table(self):
+        q = MQLQuery(aggregator="p95", metric_name="latency")
+        result = _compile(q, interval="1m")
+        assert "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY avg_value)" in result.sql
+
+    def test_p99_on_aggregate_table(self):
+        q = MQLQuery(aggregator="p99", metric_name="latency")
+        result = _compile(q, interval="1m")
+        assert "PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY avg_value)" in result.sql
+
+    def test_p50_on_aggregate_table(self):
+        q = MQLQuery(aggregator="p50", metric_name="latency")
+        result = _compile(q, interval="1m")
+        assert "PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY avg_value)" in result.sql
+
+
+class TestStringFilterCompilation:
+    """MQL-002: STRING values compile to parameterized SQL correctly."""
+
+    def test_string_value_parameterized(self):
+        q = MQLQuery(
+            aggregator="avg",
+            metric_name="cpu",
+            filters=(ExactMatch(key="env", value="my service"),),
+        )
+        result = _compile(q)
+        assert "my service" in result.params
+        assert "env" in result.params
 
 
 class TestInvalidInterval:

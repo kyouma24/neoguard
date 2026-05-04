@@ -54,14 +54,18 @@ def _rate_limit_key(endpoint: str, ip: str) -> str:
 
 
 def extract_client_ip(request) -> str:  # noqa: ANN001 — avoid circular import of Request
-    """Extract client IP from X-Forwarded-For header or direct connection.
+    """Extract client IP from direct connection.
 
-    X-Forwarded-For may contain multiple IPs: client, proxy1, proxy2.
-    We take the first (leftmost) which is the original client IP.
+    X-Forwarded-For is NOT trusted by default — it's trivially spoofable.
+    Only the ASGI server's client.host (set by the transport layer) is
+    reliable in a non-proxied deployment. When behind a trusted reverse
+    proxy, enable trust via NEOGUARD_TRUST_PROXY_HEADERS=true.
     """
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    from neoguard.core.config import settings
+    if getattr(settings, "trust_proxy_headers", False):
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
     if request.client:
         return request.client.host
     return "unknown"

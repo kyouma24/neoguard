@@ -15,10 +15,20 @@ from neoguard.services.mql.ast_nodes import (
     LogFunc,
     Rollup,
 )
+from neoguard.services.mql.cache import (
+    CacheStatus,
+    compute_ttl,
+    flush_tenant_cache,
+    get_cached,
+    make_cache_key,
+    set_cached,
+)
 from neoguard.services.mql.tokenizer import tokenize, Token, TokenType
 from neoguard.services.mql.parser import parse
 from neoguard.services.mql.compiler import compile_query, CompiledQuery
 from neoguard.services.mql.executor import execute
+from neoguard.services.mql.planner import plan_rollup
+from neoguard.services.mql.variables import substitute_variables, VariableSubstitutionError
 
 __all__ = [
     "MQLQuery",
@@ -36,6 +46,12 @@ __all__ = [
     "AbsFunc",
     "LogFunc",
     "Rollup",
+    "CacheStatus",
+    "compute_ttl",
+    "flush_tenant_cache",
+    "get_cached",
+    "make_cache_key",
+    "set_cached",
     "tokenize",
     "Token",
     "TokenType",
@@ -43,4 +59,7 @@ __all__ = [
     "compile_query",
     "CompiledQuery",
     "execute",
+    "plan_rollup",
+    "substitute_variables",
+    "VariableSubstitutionError",
 ]

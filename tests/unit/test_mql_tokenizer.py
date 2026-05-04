@@ -126,3 +126,124 @@ class TestAggregatorPosition:
         assert tokens[0].value == "avg"
         assert tokens[2].type == TokenType.IDENTIFIER
         assert tokens[2].value == "min"
+
+
+class TestPercentileAggregators:
+    """MQL-002: p50, p95, p99 aggregator support."""
+
+    def test_p50_aggregator(self):
+        tokens = tokenize("p50:latency")
+        assert tokens[0] == Token(TokenType.AGGREGATOR, "p50", 0)
+        assert tokens[2] == Token(TokenType.IDENTIFIER, "latency", 4)
+
+    def test_p95_aggregator(self):
+        tokens = tokenize("p95:http.request.duration")
+        assert tokens[0].type == TokenType.AGGREGATOR
+        assert tokens[0].value == "p95"
+
+    def test_p99_aggregator(self):
+        tokens = tokenize("p99:api.latency")
+        assert tokens[0].type == TokenType.AGGREGATOR
+        assert tokens[0].value == "p99"
+
+    def test_p95_not_aggregator_in_tag_value(self):
+        """p95 in tag filter position should be IDENTIFIER, not AGGREGATOR."""
+        tokens = tokenize("avg:m{metric:p95}")
+        aggs = [t for t in tokens if t.type == TokenType.AGGREGATOR]
+        assert len(aggs) == 1
+        assert aggs[0].value == "avg"
+
+
+class TestStringTokens:
+    """MQL-002: STRING token support for quoted values in filters."""
+
+    def test_single_quoted_string(self):
+        tokens = tokenize("avg:m{env:'production'}")
+        string_tokens = [t for t in tokens if t.type == TokenType.STRING]
+        assert len(string_tokens) == 1
+        assert string_tokens[0].value == "production"
+
+    def test_double_quoted_string(self):
+        tokens = tokenize('avg:m{env:"production"}')
+        string_tokens = [t for t in tokens if t.type == TokenType.STRING]
+        assert len(string_tokens) == 1
+        assert string_tokens[0].value == "production"
+
+    def test_string_with_spaces(self):
+        tokens = tokenize("avg:m{name:'my service'}")
+        string_tokens = [t for t in tokens if t.type == TokenType.STRING]
+        assert len(string_tokens) == 1
+        assert string_tokens[0].value == "my service"
+
+    def test_string_with_special_chars(self):
+        tokens = tokenize("avg:m{path:'/api/v1/users'}")
+        string_tokens = [t for t in tokens if t.type == TokenType.STRING]
+        assert string_tokens[0].value == "/api/v1/users"
+
+    def test_unterminated_string_raises(self):
+        with pytest.raises(MQLTokenizeError, match="Unterminated string"):
+            tokenize("avg:m{env:'production}")
+
+    def test_empty_string(self):
+        tokens = tokenize("avg:m{env:''}")
+        string_tokens = [t for t in tokens if t.type == TokenType.STRING]
+        assert len(string_tokens) == 1
+        assert string_tokens[0].value == ""
+
+
+class TestVariableTokens:
+    """MQL-002: VARIABLE token support for $var references."""
+
+    def test_simple_variable(self):
+        tokens = tokenize("avg:m{env:$env}")
+        var_tokens = [t for t in tokens if t.type == TokenType.VARIABLE]
+        assert len(var_tokens) == 1
+        assert var_tokens[0].value == "$env"
+
+    def test_variable_with_underscore(self):
+        tokens = tokenize("avg:m{env:$my_var}")
+        var_tokens = [t for t in tokens if t.type == TokenType.VARIABLE]
+        assert var_tokens[0].value == "$my_var"
+
+    def test_variable_with_digits(self):
+        tokens = tokenize("avg:m{env:$env2}")
+        var_tokens = [t for t in tokens if t.type == TokenType.VARIABLE]
+        assert var_tokens[0].value == "$env2"
+
+    def test_bare_dollar_raises(self):
+        with pytest.raises(MQLTokenizeError, match="Unexpected character"):
+            tokenize("avg:m{env:$}")
+
+    def test_dollar_digit_raises(self):
+        with pytest.raises(MQLTokenizeError, match="Unexpected character"):
+            tokenize("avg:m{env:$1var}")
+
+
+class TestFloatTokens:
+    """MQL-002: FLOAT token support for decimal numbers."""
+
+    def test_simple_float(self):
+        tokens = tokenize("avg:m{ver:3.14}")
+        float_tokens = [t for t in tokens if t.type == TokenType.FLOAT]
+        assert len(float_tokens) == 1
+        assert float_tokens[0].value == "3.14"
+
+    def test_negative_float(self):
+        tokens = tokenize("avg:m.rollup(max,-1.5)")
+        float_tokens = [t for t in tokens if t.type == TokenType.FLOAT]
+        assert len(float_tokens) == 1
+        assert float_tokens[0].value == "-1.5"
+
+    def test_float_vs_dotted_ident(self):
+        """3.14 should be FLOAT, but 3.abc should be NUMBER DOT IDENTIFIER."""
+        tokens = tokenize("avg:m{x:3.14}")
+        float_tokens = [t for t in tokens if t.type == TokenType.FLOAT]
+        assert len(float_tokens) == 1
+
+    def test_integer_not_float(self):
+        """Plain integer should still be NUMBER, not FLOAT."""
+        tokens = tokenize("avg:m.rollup(max,300)")
+        nums = [t for t in tokens if t.type == TokenType.NUMBER]
+        assert len(nums) == 1
+        assert nums[0].value == "300"
+        assert not any(t.type == TokenType.FLOAT for t in tokens)

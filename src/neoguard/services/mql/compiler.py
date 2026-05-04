@@ -21,14 +21,22 @@ from neoguard.services.mql.ast_nodes import (
     TagFilter,
     WildcardMatch,
 )
+from neoguard.services.mql.planner import plan_rollup
 
 
+# Defense-in-depth: this regex intentionally excludes single quotes, double
+# quotes, backslashes, semicolons, parentheses, spaces, and all other
+# characters outside [a-zA-Z0-9_\-].  Even though tag keys are now fully
+# parameterized (never interpolated into SQL), the regex remains as a
+# compile-time assertion — any future relaxation MUST NOT admit characters
+# that could enable SQL injection if parameterization were ever bypassed.
 _SAFE_TAG_KEY = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_\-]*$")
 
 
 def _validate_tag_key(key: str) -> str:
     if not _SAFE_TAG_KEY.match(key) or len(key) > 128:
         raise ValueError(f"Invalid tag key: {key!r}")
+    assert "'" not in key, "tag key must never contain single quotes"
     return key
 
 
@@ -47,13 +55,23 @@ def compile_query(
     start: datetime,
     end: datetime,
     interval: str = "1m",
+    widget_width_px: int | None = None,
 ) -> CompiledQuery:
-    source = _pick_source_table(start, end, interval)
-    bucket_sql = _interval_to_bucket(interval)
+    # If the caller specifies a widget width, use the planner to pick
+    # the source table and interval automatically (spec D.6).
+    if widget_width_px is not None and interval != "raw":
+        from_ts = int(start.timestamp())
+        to_ts = int(end.timestamp())
+        source, planned_interval_sec = plan_rollup(from_ts, to_ts, widget_width_px)
+        bucket_seconds: int | None = planned_interval_sec
+    else:
+        source = _pick_source_table(start, end, interval)
+        bucket_seconds = _interval_to_bucket_seconds(interval)
+
     rollup_override = query.rollup
 
     if rollup_override:
-        bucket_sql = f"{rollup_override.seconds} seconds"
+        bucket_seconds = rollup_override.seconds
 
     agg = query.aggregator
     if rollup_override:
@@ -66,7 +84,7 @@ def compile_query(
         start=start,
         end=end,
         agg=agg,
-        bucket_sql=bucket_sql,
+        bucket_seconds=bucket_seconds,
         filters=query.filters,
         is_raw=(source == "metrics"),
     )
@@ -80,20 +98,20 @@ def compile_query(
     )
 
 
-INTERVAL_TO_BUCKET = {
+INTERVAL_TO_BUCKET_SECONDS: dict[str, int | None] = {
     "raw": None,
-    "1m": "1 minute",
-    "5m": "5 minutes",
-    "15m": "15 minutes",
-    "1h": "1 hour",
-    "6h": "6 hours",
-    "1d": "1 day",
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "1h": 3600,
+    "6h": 21600,
+    "1d": 86400,
 }
 
 
-def _interval_to_bucket(interval: str) -> str | None:
-    if interval in INTERVAL_TO_BUCKET:
-        return INTERVAL_TO_BUCKET[interval]
+def _interval_to_bucket_seconds(interval: str) -> int | None:
+    if interval in INTERVAL_TO_BUCKET_SECONDS:
+        return INTERVAL_TO_BUCKET_SECONDS[interval]
     raise ValueError(f"Invalid interval: {interval}")
 
 
@@ -116,7 +134,7 @@ class _SQLBuilder:
         start: datetime,
         end: datetime,
         agg: str,
-        bucket_sql: str | None,
+        bucket_seconds: int | None,
         filters: tuple[TagFilter, ...],
         is_raw: bool,
     ) -> None:
@@ -126,7 +144,7 @@ class _SQLBuilder:
         self._start = start
         self._end = end
         self._agg = agg
-        self._bucket_sql = bucket_sql
+        self._bucket_seconds = bucket_seconds
         self._filters = filters
         self._is_raw = is_raw
         self._params: list = []
@@ -154,12 +172,32 @@ class _SQLBuilder:
 
     def _time_column(self) -> str:
         time_field = "time" if self._is_raw else "bucket"
-        if self._bucket_sql:
-            return f"time_bucket('{self._bucket_sql}', {time_field})"
+        if self._bucket_seconds is not None:
+            # MQL-003: parameterize the bucket interval instead of f-string
+            # interpolation.  Pass seconds as an integer parameter and let
+            # PostgreSQL compute the interval expression.
+            p = self._param(self._bucket_seconds)
+            return f"time_bucket({p} * interval '1 second', {time_field})"
         return time_field
+
+    # Percentile aggregation SQL for the raw metrics table.
+    _PERCENTILE_RAW_SQL: dict[str, str] = {
+        "p50": "PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY value)",
+        "p95": "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY value)",
+        "p99": "PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY value)",
+    }
+
+    # Percentile fractions for aggregate tables (approx via avg_value).
+    _PERCENTILE_FRACTION: dict[str, str] = {
+        "p50": "0.50",
+        "p95": "0.95",
+        "p99": "0.99",
+    }
 
     def _select_aggregation(self) -> str:
         if self._is_raw:
+            if self._agg in self._PERCENTILE_RAW_SQL:
+                return self._PERCENTILE_RAW_SQL[self._agg]
             return f"{self._agg.upper()}(value)"
 
         agg = self._agg
@@ -169,6 +207,10 @@ class _SQLBuilder:
             return "SUM(sample_count)"
         if agg == "sum":
             return "SUM(avg_value * sample_count)"
+        # Percentiles on aggregate tables: approximate via avg_value
+        if agg in self._PERCENTILE_FRACTION:
+            frac = self._PERCENTILE_FRACTION[agg]
+            return f"PERCENTILE_CONT({frac}) WITHIN GROUP (ORDER BY avg_value)"
         return f"{agg.upper()}(avg_value)"
 
     def _build_where(self) -> str:
@@ -189,15 +231,22 @@ class _SQLBuilder:
         return " AND ".join(conditions)
 
     def _compile_filter(self, f: TagFilter) -> list[str]:
-        key = _validate_tag_key(f.key)
+        # MQL-001: tag keys are now fully parameterized via tags->>($N).
+        # The regex validation in _validate_tag_key remains as defense-in-depth.
+        _validate_tag_key(f.key)
+        key_param = self._param(f.key)
         if isinstance(f, ExactMatch):
-            return [f"tags->>'{key}' = {self._param(f.value)}"]
+            return [f"tags->>({key_param}) = {self._param(f.value)}"]
         if isinstance(f, WildcardMatch):
-            pattern = f.pattern.replace("*", "%")
-            return [f"tags->>'{key}' LIKE {self._param(pattern)}"]
+            escaped = f.pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = escaped.replace("*", "%")
+            return [f"tags->>({key_param}) LIKE {self._param(pattern)}"]
         if isinstance(f, NegationMatch):
-            return [f"(tags->>'{key}' IS NULL OR tags->>'{key}' != {self._param(f.value)})"]
+            # Need two references to the same key param — but each must be a
+            # separate positional parameter for asyncpg.
+            key_param2 = self._param(f.key)
+            return [f"(tags->>({key_param}) IS NULL OR tags->>({key_param2}) != {self._param(f.value)})"]
         if isinstance(f, InSetMatch):
             placeholders = ", ".join(self._param(v) for v in f.values)
-            return [f"tags->>'{key}' IN ({placeholders})"]
+            return [f"tags->>({key_param}) IN ({placeholders})"]
         return []

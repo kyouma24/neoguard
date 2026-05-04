@@ -290,3 +290,109 @@ class TestSecurityBoundaries:
     def test_double_dash_comment_rejected(self):
         with pytest.raises((MQLParseError, MQLTokenizeError)):
             parse("avg:m{env:prod}--comment")
+
+
+class TestPercentileAggregators:
+    """MQL-002: p50, p95, p99 aggregator support in parser."""
+
+    def test_p50_query(self):
+        q = parse("p50:http.request.duration")
+        assert q.aggregator == "p50"
+        assert q.metric_name == "http.request.duration"
+
+    def test_p95_with_filters(self):
+        q = parse("p95:api.latency{env:prod}")
+        assert q.aggregator == "p95"
+        assert len(q.filters) == 1
+        assert isinstance(q.filters[0], ExactMatch)
+        assert q.filters[0].value == "prod"
+
+    def test_p99_with_functions(self):
+        q = parse("p99:db.query.time.rate()")
+        assert q.aggregator == "p99"
+        assert len(q.functions) == 1
+
+    def test_p95_rollup_method(self):
+        q = parse("avg:m.rollup(p95,60)")
+        assert q.rollup is not None
+        assert q.rollup.method == "p95"
+        assert q.rollup.seconds == 60
+
+    def test_p99_rollup_method(self):
+        q = parse("avg:m.rollup(p99,300)")
+        assert q.rollup is not None
+        assert q.rollup.method == "p99"
+
+
+class TestStringInFilters:
+    """MQL-002: STRING token handling in tag filter values."""
+
+    def test_single_quoted_exact_match(self):
+        q = parse("avg:m{env:'production'}")
+        assert len(q.filters) == 1
+        f = q.filters[0]
+        assert isinstance(f, ExactMatch)
+        assert f.key == "env"
+        assert f.value == "production"
+
+    def test_double_quoted_exact_match(self):
+        q = parse('avg:m{env:"staging"}')
+        f = q.filters[0]
+        assert isinstance(f, ExactMatch)
+        assert f.value == "staging"
+
+    def test_string_with_spaces_in_filter(self):
+        q = parse("avg:m{name:'my service'}")
+        f = q.filters[0]
+        assert isinstance(f, ExactMatch)
+        assert f.value == "my service"
+
+    def test_string_in_in_set(self):
+        q = parse("avg:m{env IN ('prod','staging')}")
+        f = q.filters[0]
+        assert isinstance(f, InSetMatch)
+        assert f.values == ("prod", "staging")
+
+    def test_negated_string_value(self):
+        q = parse("avg:m{!env:'test'}")
+        f = q.filters[0]
+        assert isinstance(f, NegationMatch)
+        assert f.value == "test"
+
+
+class TestVariableInFilters:
+    """MQL-002: VARIABLE token handling in tag filter values."""
+
+    def test_variable_in_exact_filter(self):
+        q = parse("avg:m{env:$env}")
+        f = q.filters[0]
+        assert isinstance(f, ExactMatch)
+        assert f.value == "$env"
+
+    def test_variable_in_in_set(self):
+        q = parse("avg:m{env IN ($env1,$env2)}")
+        f = q.filters[0]
+        assert isinstance(f, InSetMatch)
+        assert f.values == ("$env1", "$env2")
+
+    def test_negated_variable(self):
+        q = parse("avg:m{!env:$excluded}")
+        f = q.filters[0]
+        assert isinstance(f, NegationMatch)
+        assert f.value == "$excluded"
+
+
+class TestFloatInParser:
+    """MQL-002: FLOAT token handling in numeric positions."""
+
+    def test_float_in_tag_value(self):
+        q = parse("avg:m{threshold:3.14}")
+        f = q.filters[0]
+        assert isinstance(f, ExactMatch)
+        assert f.value == "3.14"
+
+    def test_float_in_moving_average_truncated(self):
+        """Float arg to moving_average should be truncated to int."""
+        q = parse("avg:m.moving_average(5.7)")
+        assert isinstance(q.functions[0], MovingAverageFunc)
+        assert q.functions[0].window == 5

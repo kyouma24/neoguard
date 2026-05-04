@@ -18,13 +18,19 @@ from neoguard.services.mql.ast_nodes import (
 )
 from neoguard.services.mql.compiler import CompiledQuery
 
+import asyncio
 import math
+
+QUERY_TIMEOUT_SECONDS = 30.0
 
 
 async def execute(compiled: CompiledQuery) -> list[MetricQueryResult]:
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(compiled.sql, *compiled.params)
+        rows = await asyncio.wait_for(
+            conn.fetch(compiled.sql, *compiled.params),
+            timeout=QUERY_TIMEOUT_SECONDS,
+        )
 
     results = _rows_to_results(compiled.metric_name, rows)
 

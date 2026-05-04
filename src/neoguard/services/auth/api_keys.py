@@ -71,10 +71,11 @@ async def validate_api_key(raw_key: str) -> APIKeyResponse | None:
                 hash_version=1,
             )
     else:
+        prefix = raw_key[:11]
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM api_keys WHERE hash_version = $1 AND enabled = TRUE",
-                HASH_VERSION_ARGON2,
+                "SELECT * FROM api_keys WHERE key_prefix = $1 AND hash_version = $2 AND enabled = TRUE",
+                prefix, HASH_VERSION_ARGON2,
             )
         row = None
         for candidate in rows:

@@ -17,6 +17,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useTenantContext } from "../hooks/useTenantContext";
 import { TenantSwitcher } from "./TenantSwitcher";
 import { UserMenu } from "./UserMenu";
+import { CommandPalette, CommandPaletteTrigger } from "./CommandPalette";
 import styles from "./Layout.module.scss";
 
 const SIDEBAR_KEY = "neoguard_sidebar_collapsed";
@@ -145,6 +146,7 @@ export function Layout({ children }: { children: ReactNode }) {
             )}
           </div>
           <div className={styles.topbarRight}>
+            <CommandPaletteTrigger />
             <UserMenu />
           </div>
         </div>
@@ -154,6 +156,9 @@ export function Layout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* Command palette — available on every page */}
+      <CommandPalette />
     </div>
   );
 }

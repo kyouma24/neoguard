@@ -3,10 +3,15 @@ import { RefreshCw, ChevronDown } from "lucide-react";
 
 const OPTIONS: { key: string; label: string; seconds: number | null }[] = [
   { key: "off", label: "Off", seconds: null },
+  { key: "5s", label: "5s", seconds: 5 },
   { key: "10s", label: "10s", seconds: 10 },
+  { key: "15s", label: "15s", seconds: 15 },
   { key: "30s", label: "30s", seconds: 30 },
   { key: "1m", label: "1m", seconds: 60 },
   { key: "5m", label: "5m", seconds: 300 },
+  { key: "15m", label: "15m", seconds: 900 },
+  { key: "30m", label: "30m", seconds: 1800 },
+  { key: "1h", label: "1h", seconds: 3600 },
 ];
 
 interface Props {

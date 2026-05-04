@@ -15,9 +15,15 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    testTimeout: 15000,
+    hookTimeout: 10000,
+    pool: "forks",
+    maxWorkers: 1,
+    execArgv: ["--max-old-space-size=4096"],
+    fileParallelism: false,
     exclude: [
-      "node_modules/**",
-      "src/design-system/**/*.test.{ts,tsx}",
+      "**/node_modules/**",
+      "**/design-system/**",
     ],
   },
   server: {

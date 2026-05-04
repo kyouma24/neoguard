@@ -23,26 +23,35 @@ class TestE2ESpecExamples:
         assert "mydb" in c.params
         assert "prod" in c.params
         assert "AVG(avg_value)" in c.sql
-        assert "tags->>'db_instance'" in c.sql
-        assert "tags->>'env'" in c.sql
+        # MQL-001: tag keys are now parameterized
+        assert "db_instance" in c.params
+        assert "env" in c.params
+        assert "tags->>(" in c.sql
 
     def test_sum_with_wildcard_and_function(self):
         c = _e2e("sum:aws.lambda.invocations{function_name:*}.as_rate()")
         assert "SUM(avg_value * sample_count)" in c.sql
-        assert "tags->>'function_name' LIKE" in c.sql
+        assert "tags->>(" in c.sql
+        assert "LIKE" in c.sql
+        assert "function_name" in c.params
         assert "%" in c.params
         assert len(c.post_processors) == 1
 
     def test_max_with_rollup(self):
         c = _e2e("max:system.memory{host:web-*,env:prod}.rollup(max,300)")
-        assert "time_bucket('300 seconds'" in c.sql
+        # MQL-003: bucket interval is parameterized as seconds
+        assert "time_bucket($1 * interval '1 second'" in c.sql
+        assert 300 in c.params
         assert "MAX(max_value)" in c.sql
         assert "web-%" in c.params
 
     def test_negation_filter(self):
         c = _e2e("avg:http.request.duration{service:api,!status:5xx}.moving_average(5)")
-        assert "tags->>'service' =" in c.sql
-        assert "tags->>'status' IS NULL OR tags->>'status' !=" in c.sql
+        assert "tags->>(" in c.sql
+        assert "service" in c.params
+        assert "status" in c.params
+        assert "IS NULL OR tags->>(" in c.sql
+        assert "!=" in c.sql
         assert len(c.post_processors) == 1
 
 
@@ -80,7 +89,9 @@ class TestE2ESourceTableSelection:
 class TestE2EInSetFilter:
     def test_in_set(self):
         c = _e2e("avg:cpu{env IN (prod,staging,dev)}")
-        assert "tags->>'env' IN" in c.sql
+        assert "tags->>(" in c.sql
+        assert "IN" in c.sql
+        assert "env" in c.params
         assert "prod" in c.params
         assert "staging" in c.params
         assert "dev" in c.params
@@ -89,7 +100,8 @@ class TestE2EInSetFilter:
 class TestE2EParameterCount:
     def test_all_params_bound(self):
         c = _e2e("avg:cpu{a:1,b:2,c:3}", tenant_id="t1")
-        expected_count = 1 + 1 + 2 + 3  # tenant + name + start/end + 3 tags
+        # bucket_seconds + tenant + name + start/end + 3*(key+value)
+        expected_count = 1 + 1 + 1 + 2 + 6
         assert len(c.params) == expected_count
         for i in range(1, expected_count + 1):
             assert f"${i}" in c.sql
@@ -103,5 +115,7 @@ class TestE2EChainedFunctions:
     def test_function_with_rollup(self):
         c = _e2e("avg:cpu.rate().rollup(sum,60)")
         assert len(c.post_processors) == 1
-        assert "time_bucket('60 seconds'" in c.sql
+        # MQL-003: bucket interval is parameterized as seconds
+        assert "time_bucket($1 * interval '1 second'" in c.sql
+        assert 60 in c.params
         assert "SUM(avg_value * sample_count)" in c.sql

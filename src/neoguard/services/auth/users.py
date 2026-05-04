@@ -24,10 +24,14 @@ async def create_user(email: str, password: str, name: str) -> dict:
     return dict(row)
 
 
+_USER_COLS = "id, email, name, password_hash, is_super_admin, is_active, email_verified, created_at, updated_at"
+_USER_COLS_SAFE = "id, email, name, is_super_admin, is_active, email_verified, created_at, updated_at"
+
+
 async def get_user_by_email(email: str) -> dict | None:
     pool = await get_pool()
     row = await pool.fetchrow(
-        "SELECT * FROM users WHERE LOWER(email) = LOWER($1)",
+        f"SELECT {_USER_COLS} FROM users WHERE LOWER(email) = LOWER($1)",
         email,
     )
     return dict(row) if row else None
@@ -35,7 +39,9 @@ async def get_user_by_email(email: str) -> dict | None:
 
 async def get_user_by_id(user_id: UUID) -> dict | None:
     pool = await get_pool()
-    row = await pool.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+    row = await pool.fetchrow(
+        f"SELECT {_USER_COLS_SAFE} FROM users WHERE id = $1", user_id,
+    )
     return dict(row) if row else None
 
 
@@ -54,7 +60,8 @@ async def authenticate_user(email: str, password: str) -> dict | None:
             "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
             new_hash, user["id"],
         )
-    return user
+    safe = {k: v for k, v in user.items() if k != "password_hash"}
+    return safe
 
 
 async def update_password(user_id: UUID, new_password: str) -> None:

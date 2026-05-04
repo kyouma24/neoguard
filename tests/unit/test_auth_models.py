@@ -49,7 +49,7 @@ class TestTenantEnums:
 
 class TestSignupRequest:
     def test_valid_signup(self):
-        req = SignupRequest(email="test@example.com", password="12345678", name="Test", tenant_name="Acme")
+        req = SignupRequest(email="test@example.com", password="Test1234", name="Test", tenant_name="Acme")
         assert req.email == "test@example.com"
 
     def test_short_password_rejected(self):
@@ -58,11 +58,11 @@ class TestSignupRequest:
 
     def test_invalid_email_rejected(self):
         with pytest.raises(ValidationError):
-            SignupRequest(email="not-an-email", password="12345678", name="Test", tenant_name="Acme")
+            SignupRequest(email="not-an-email", password="Test1234", name="Test", tenant_name="Acme")
 
     def test_empty_name_rejected(self):
         with pytest.raises(ValidationError):
-            SignupRequest(email="test@example.com", password="12345678", name="", tenant_name="Acme")
+            SignupRequest(email="test@example.com", password="Test1234", name="", tenant_name="Acme")
 
 
 class TestLoginRequest:

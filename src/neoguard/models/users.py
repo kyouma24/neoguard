@@ -4,7 +4,20 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+import re
+
+import orjson
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+
+def _check_password_complexity(v: str) -> str:
+    if not re.search(r"[A-Z]", v):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", v):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not re.search(r"[0-9]", v):
+        raise ValueError("Password must contain at least one digit")
+    return v
 
 
 class TenantTier(StrEnum):
@@ -35,6 +48,11 @@ class SignupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     tenant_name: str = Field(..., min_length=1, max_length=256)
 
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return _check_password_complexity(v)
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -49,11 +67,23 @@ class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str = Field(..., min_length=8, max_length=128)
 
+    @field_validator("new_password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return _check_password_complexity(v)
+
 
 class ProfileUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=256)
     current_password: str | None = None
     new_password: str | None = Field(None, min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_complexity(cls, v: str | None) -> str | None:
+        if v is not None:
+            return _check_password_complexity(v)
+        return v
 
 
 class TenantCreate(BaseModel):
@@ -162,6 +192,11 @@ class AdminCreateUserRequest(BaseModel):
     tenant_id: UUID | None = None
     role: TenantRole = TenantRole.MEMBER
 
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return _check_password_complexity(v)
+
 
 class AdminCreateTenantRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
@@ -194,6 +229,13 @@ class TenantAuditEntry(BaseModel):
     ip_address: str | None = None
     created_at: datetime
 
+    @field_validator("details", mode="before")
+    @classmethod
+    def _parse_details(cls, v):
+        if isinstance(v, str):
+            return orjson.loads(v)
+        return v
+
 
 class PlatformAuditEntry(BaseModel):
     id: UUID
@@ -208,6 +250,13 @@ class PlatformAuditEntry(BaseModel):
     ip_address: str | None = None
     created_at: datetime
 
+    @field_validator("details", mode="before")
+    @classmethod
+    def _parse_details(cls, v):
+        if isinstance(v, str):
+            return orjson.loads(v)
+        return v
+
 
 class SecurityLogEntry(BaseModel):
     id: UUID
@@ -220,6 +269,13 @@ class SecurityLogEntry(BaseModel):
     user_agent: str | None = None
     details: dict = {}
     created_at: datetime
+
+    @field_validator("details", mode="before")
+    @classmethod
+    def _parse_details(cls, v):
+        if isinstance(v, str):
+            return orjson.loads(v)
+        return v
 
 
 class PlatformStatsResponse(BaseModel):

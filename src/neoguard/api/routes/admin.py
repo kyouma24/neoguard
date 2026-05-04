@@ -18,6 +18,8 @@ from neoguard.models.users import (
     AdminUserResponse,
     ImpersonateRequest,
     ImpersonateResponse,
+    MemberRoleUpdate,
+    MembershipResponse,
     PlatformAuditEntry,
     PlatformStatsResponse,
     SecurityLogEntry,
@@ -41,7 +43,16 @@ from neoguard.services.auth.sessions import (
     get_admin_session,
     store_admin_session,
 )
-from neoguard.services.auth.users import create_user, get_membership, get_user_by_email, get_user_by_id, get_user_tenants
+from neoguard.services.auth.users import (
+    create_user,
+    get_membership,
+    get_tenant_members,
+    get_user_by_email,
+    get_user_by_id,
+    get_user_tenants,
+    remove_member,
+    update_member_role,
+)
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -52,7 +63,7 @@ def _require_super_admin(request: Request) -> UUID:
         raise HTTPException(401, "Authentication required")
     if not getattr(request.state, "is_super_admin", False):
         raise HTTPException(403, "Super admin access required")
-    return user_id
+    return UUID(str(user_id))
 
 
 def _client_ip(request: Request) -> str | None:
@@ -318,7 +329,7 @@ async def admin_impersonate(
         max_age=ttl_seconds,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
     )
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
@@ -326,7 +337,7 @@ async def admin_impersonate(
         max_age=ttl_seconds,
         httponly=False,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
         path="/",
     )
 
@@ -370,7 +381,7 @@ async def admin_end_impersonation(request: Request, response: Response) -> dict:
         max_age=settings.session_ttl_seconds,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
     )
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
@@ -378,7 +389,7 @@ async def admin_end_impersonation(request: Request, response: Response) -> dict:
         max_age=settings.session_ttl_seconds,
         httponly=False,
         samesite="lax",
-        secure=False,
+        secure=settings.cookie_secure,
         path="/",
     )
 
@@ -391,3 +402,110 @@ async def admin_end_impersonation(request: Request, response: Response) -> dict:
     )
 
     return {"message": "Impersonation ended"}
+
+
+@router.get("/tenants/{tenant_id}/members", response_model=list[MembershipResponse])
+async def admin_list_tenant_members(
+    tenant_id: UUID,
+    request: Request,
+) -> list[MembershipResponse]:
+    _require_super_admin(request)
+    members = await get_tenant_members(tenant_id)
+    return [MembershipResponse(**m) for m in members]
+
+
+@router.get("/users/{user_id}/tenants")
+async def admin_list_user_tenants(
+    user_id: UUID,
+    request: Request,
+) -> list[dict]:
+    _require_super_admin(request)
+    user = await get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    tenants = await get_user_tenants(user_id)
+    return tenants
+
+
+@router.post("/users/{user_id}/tenants/{tenant_id}", status_code=201)
+async def admin_add_user_to_tenant(
+    user_id: UUID,
+    tenant_id: UUID,
+    data: MemberRoleUpdate,
+    request: Request,
+) -> dict:
+    actor_id = _require_super_admin(request)
+
+    user = await get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    existing = await get_membership(user_id, tenant_id)
+    if existing:
+        raise HTTPException(409, "User is already a member of this tenant")
+
+    from neoguard.db.timescale.connection import get_pool
+    pool = await get_pool()
+    await pool.execute(
+        "INSERT INTO tenant_memberships (user_id, tenant_id, role) VALUES ($1, $2, $3)",
+        user_id, tenant_id, data.role.value,
+    )
+
+    await write_platform_audit(
+        actor_id=actor_id,
+        action="member.added_by_admin",
+        target_type="membership",
+        target_id=f"{user_id}:{tenant_id}",
+        details={"role": data.role.value},
+        ip_address=_client_ip(request),
+    )
+
+    return {"message": "User added to tenant", "role": data.role.value}
+
+
+@router.patch("/users/{user_id}/tenants/{tenant_id}/role")
+async def admin_change_user_role(
+    user_id: UUID,
+    tenant_id: UUID,
+    data: MemberRoleUpdate,
+    request: Request,
+) -> dict:
+    actor_id = _require_super_admin(request)
+
+    success = await update_member_role(tenant_id, user_id, data.role.value)
+    if not success:
+        raise HTTPException(400, "Cannot change role — ensure at least one owner remains")
+
+    await write_platform_audit(
+        actor_id=actor_id,
+        action="member.role_changed_by_admin",
+        target_type="membership",
+        target_id=f"{user_id}:{tenant_id}",
+        details={"new_role": data.role.value},
+        ip_address=_client_ip(request),
+    )
+
+    return {"message": "Role updated", "role": data.role.value}
+
+
+@router.delete("/users/{user_id}/tenants/{tenant_id}", status_code=200)
+async def admin_remove_user_from_tenant(
+    user_id: UUID,
+    tenant_id: UUID,
+    request: Request,
+) -> dict:
+    actor_id = _require_super_admin(request)
+
+    success = await remove_member(tenant_id, user_id)
+    if not success:
+        raise HTTPException(400, "Cannot remove last owner from tenant")
+
+    await write_platform_audit(
+        actor_id=actor_id,
+        action="member.removed_by_admin",
+        target_type="membership",
+        target_id=f"{user_id}:{tenant_id}",
+        ip_address=_client_ip(request),
+    )
+
+    return {"message": "User removed from tenant"}

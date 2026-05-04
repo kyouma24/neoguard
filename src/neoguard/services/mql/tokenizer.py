@@ -17,11 +17,14 @@ class TokenType(Enum):
     BANG = auto()
     STAR = auto()
     NUMBER = auto()
+    FLOAT = auto()
+    STRING = auto()
+    VARIABLE = auto()
     IN = auto()
     EOF = auto()
 
 
-AGGREGATORS = frozenset({"avg", "sum", "min", "max", "count"})
+AGGREGATORS = frozenset({"avg", "sum", "min", "max", "count", "p50", "p95", "p99"})
 
 SINGLE_CHARS: dict[str, TokenType] = {
     ":": TokenType.COLON,
@@ -61,9 +64,35 @@ def tokenize(source: str) -> list[Token]:
             i += 1
             continue
 
+        # Variable: $ident
+        if ch == "$":
+            start = i
+            i += 1  # consume $
+            if i < length and (source[i].isalpha() or source[i] == "_"):
+                i += 1
+                while i < length and (source[i].isalnum() or source[i] == "_"):
+                    i += 1
+                tokens.append(Token(TokenType.VARIABLE, source[start:i], start))
+                continue
+            raise MQLTokenizeError("Unexpected character '$'", start)
+
         if ch in SINGLE_CHARS:
             tokens.append(Token(SINGLE_CHARS[ch], ch, i))
             i += 1
+            continue
+
+        # String literals: 'abc' or "abc"
+        if ch in ("'", '"'):
+            start = i
+            quote = ch
+            i += 1  # consume opening quote
+            while i < length and source[i] != quote:
+                i += 1
+            if i >= length:
+                raise MQLTokenizeError("Unterminated string literal", start)
+            i += 1  # consume closing quote
+            # value is content without quotes
+            tokens.append(Token(TokenType.STRING, source[start + 1 : i - 1], start))
             continue
 
         if ch.isdigit() or (ch == "-" and i + 1 < length and source[i + 1].isdigit()):
@@ -72,7 +101,14 @@ def tokenize(source: str) -> list[Token]:
                 i += 1
             while i < length and source[i].isdigit():
                 i += 1
-            tokens.append(Token(TokenType.NUMBER, source[start:i], start))
+            # Check for float: digits followed by '.' and more digits
+            if i < length and source[i] == "." and i + 1 < length and source[i + 1].isdigit():
+                i += 1  # consume '.'
+                while i < length and source[i].isdigit():
+                    i += 1
+                tokens.append(Token(TokenType.FLOAT, source[start:i], start))
+            else:
+                tokens.append(Token(TokenType.NUMBER, source[start:i], start))
             continue
 
         if ch.isalpha() or ch == "_":

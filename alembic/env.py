@@ -1,12 +1,7 @@
-"""Alembic async environment for NeoGuard.
-
-Uses asyncpg via SQLAlchemy async engine. No ORM metadata — all migrations
-are raw SQL via op.execute().
-"""
-
 from __future__ import annotations
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -20,8 +15,17 @@ if config.config_file_name is not None:
 target_metadata = None
 
 
+def _resolve_url() -> str:
+    host = os.environ.get("NEOGUARD_DB_HOST", "localhost")
+    port = os.environ.get("NEOGUARD_DB_PORT", "5433")
+    name = os.environ.get("NEOGUARD_DB_NAME", "neoguard")
+    user = os.environ.get("NEOGUARD_DB_USER", "neoguard")
+    password = os.environ.get("NEOGUARD_DB_PASSWORD", "neoguard_dev")
+    return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{name}"
+
+
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    url = _resolve_url()
     context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
@@ -34,8 +38,10 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_async_migrations() -> None:
+    section = dict(config.get_section(config.config_ini_section, {}))
+    section["sqlalchemy.url"] = _resolve_url()
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

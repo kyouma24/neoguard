@@ -24,6 +24,7 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_EXEMPT_PATHS = {
     "/auth/signup",
     "/auth/login",
+    "/auth/logout",
     "/auth/password-reset/request",
     "/auth/password-reset/confirm",
 }

@@ -249,7 +249,7 @@ class TestAdminCreateUser:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/admin/users",
-                    json={"email": "new@test.com", "password": "securepass", "name": "New User"},
+                    json={"email": "new@test.com", "password": "Secure1pass", "name": "New User"},
                 )
             assert resp.status_code == 201
             assert resp.json()["email"] == "new@test.com"
@@ -260,7 +260,7 @@ class TestAdminCreateUser:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/admin/users",
-                    json={"email": "existing@test.com", "password": "securepass", "name": "Dup"},
+                    json={"email": "existing@test.com", "password": "Secure1pass", "name": "Dup"},
                 )
             assert resp.status_code == 409
 
@@ -284,7 +284,7 @@ class TestAdminCreateUser:
                 resp = await client.post(
                     "/api/v1/admin/users",
                     json={
-                        "email": "new@test.com", "password": "securepass", "name": "New User",
+                        "email": "new@test.com", "password": "Secure1pass", "name": "New User",
                         "tenant_id": str(TENANT_ID), "role": "admin",
                     },
                 )
@@ -296,7 +296,7 @@ class TestAdminCreateUser:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/v1/admin/users",
-                json={"email": "new@test.com", "password": "securepass", "name": "New"},
+                json={"email": "new@test.com", "password": "Secure1pass", "name": "New"},
             )
         assert resp.status_code == 403
 

@@ -31,7 +31,7 @@ FUNCTION_NAMES = frozenset({
     "as_rate", "as_count", "abs", "log",
 })
 
-ROLLUP_METHODS = frozenset({"avg", "sum", "min", "max", "count"})
+ROLLUP_METHODS = frozenset({"avg", "sum", "min", "max", "count", "p50", "p95", "p99"})
 
 
 class _Parser:
@@ -145,12 +145,22 @@ class _Parser:
         return ExactMatch(key=key, value=value)
 
     def _parse_tag_value(self) -> str:
+        # Variable reference — return as-is (e.g. "$env")
+        if self._at(TokenType.VARIABLE):
+            return self._advance().value
+
+        # String literal — return content without quotes
+        if self._at(TokenType.STRING):
+            return self._advance().value
+
         parts: list[str] = []
         while True:
             tok = self._peek()
             if tok.type == TokenType.IDENTIFIER:
                 parts.append(self._advance().value)
             elif tok.type == TokenType.NUMBER:
+                parts.append(self._advance().value)
+            elif tok.type == TokenType.FLOAT:
                 parts.append(self._advance().value)
             elif tok.type == TokenType.STAR:
                 parts.append(self._advance().value)
@@ -199,14 +209,26 @@ class _Parser:
 
         return functions, rollup
 
+    def _parse_numeric(self, context: str) -> Token:
+        """Consume a NUMBER or FLOAT token in a numeric position."""
+        tok = self._peek()
+        if tok.type in (TokenType.NUMBER, TokenType.FLOAT):
+            return self._advance()
+        raise MQLParseError(
+            f"Expected NUMBER but got {tok.type.name} '{tok.value}' ({context})",
+            tok.pos,
+        )
+
     def _parse_function(self, name: str, pos: int) -> MQLFunction:
         self._expect(TokenType.LPAREN, f"opening {name}()")
 
         if name == "moving_average":
-            window_tok = self._expect(TokenType.NUMBER, "moving_average window size")
-            window = int(window_tok.value)
+            window_tok = self._parse_numeric("moving_average window size")
+            window = int(float(window_tok.value))
             if window < 1:
                 raise MQLParseError("moving_average window must be >= 1", window_tok.pos)
+            if window > 1000:
+                raise MQLParseError("moving_average window must be <= 1000", window_tok.pos)
             self._expect(TokenType.RPAREN, f"closing {name}()")
             return MovingAverageFunc(window=window)
 
@@ -237,10 +259,12 @@ class _Parser:
                 method_tok.pos,
             )
         self._expect(TokenType.COMMA, "rollup separator")
-        seconds_tok = self._expect(TokenType.NUMBER, "rollup seconds")
-        seconds = int(seconds_tok.value)
+        seconds_tok = self._parse_numeric("rollup seconds")
+        seconds = int(float(seconds_tok.value))
         if seconds < 1:
             raise MQLParseError("Rollup seconds must be >= 1", seconds_tok.pos)
+        if seconds > 86400:
+            raise MQLParseError("Rollup seconds must be <= 86400", seconds_tok.pos)
         self._expect(TokenType.RPAREN, "closing rollup()")
         return Rollup(method=method_tok.value, seconds=seconds)
 
