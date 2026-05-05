@@ -195,7 +195,7 @@ const styles: Record<string, React.CSSProperties> = {
   inviteBtn: {
     display: "flex", alignItems: "center", gap: "var(--spacing-xs)",
     padding: "var(--spacing-xs) var(--spacing-md)", borderRadius: "var(--border-radius-md)",
-    border: "none", background: "var(--color-primary-500)", color: "#fff",
+    border: "none", background: "var(--color-primary-500)", color: "var(--text-on-accent)",
     fontSize: "var(--typography-font-size-sm)", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
   },
   memberList: { display: "flex", flexDirection: "column" },

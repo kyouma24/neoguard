@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { subHours, format } from "date-fns";
+import { subHours, format, formatDistanceToNow } from "date-fns";
 import {
   Server,
   HardDrive,
@@ -21,11 +21,35 @@ import {
   Layers,
   Gauge,
   AppWindow,
+  Plus,
+  MoreVertical,
+  Power,
+  PowerOff,
+  Trash2,
+  AlertTriangle,
+  Radar,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  XCircle,
+  Bell,
+  GitCompareArrows,
+  LayoutGrid,
+  List,
+  Workflow,
+  Pencil,
+  X,
+  Check,
+  MapPin,
 } from "lucide-react";
 import { TimeSeriesChart } from "../components/TimeSeriesChart";
+import { AwsIcon, AzureIcon } from "../components/icons/CloudProviderIcons";
+import { CloudAccountWizard } from "../components/onboarding/CloudAccountWizard";
+import { useAuth } from "../contexts/AuthContext";
 import { useApi } from "../hooks/useApi";
 import { useInterval } from "../hooks/useInterval";
 import { api } from "../services/api";
+import { formatError } from "../services/api";
 import {
   Button,
   Card,
@@ -40,6 +64,8 @@ import type {
   AlertEvent,
   Resource,
   ResourceSummary,
+  ResourceIssues,
+  ResourceChange,
   MetricQueryResult,
   AWSAccount,
   AzureSubscription,
@@ -71,6 +97,7 @@ interface UnifiedAccount {
   enabled: boolean;
   lastSyncAt: string | null;
   providerColor: string;
+  collectConfig?: { enabled_services?: string[] };
 }
 
 // ---------------------------------------------------------------------------
@@ -540,6 +567,250 @@ const SERVICE_TABS_BY_PROVIDER: Record<string, ServiceTab[]> = {
   azure: AZURE_SERVICE_TABS,
 };
 
+// ---------------------------------------------------------------------------
+// Region & Service reference data for the Edit modal
+// ---------------------------------------------------------------------------
+
+const AWS_ALL_REGIONS: { code: string; name: string }[] = [
+  { code: "us-east-1", name: "US East (N. Virginia)" },
+  { code: "us-east-2", name: "US East (Ohio)" },
+  { code: "us-west-1", name: "US West (N. California)" },
+  { code: "us-west-2", name: "US West (Oregon)" },
+  { code: "ap-south-1", name: "Asia Pacific (Mumbai)" },
+  { code: "ap-south-2", name: "Asia Pacific (Hyderabad)" },
+  { code: "ap-southeast-1", name: "Asia Pacific (Singapore)" },
+  { code: "ap-southeast-2", name: "Asia Pacific (Sydney)" },
+  { code: "ap-northeast-1", name: "Asia Pacific (Tokyo)" },
+  { code: "ap-northeast-2", name: "Asia Pacific (Seoul)" },
+  { code: "ap-northeast-3", name: "Asia Pacific (Osaka)" },
+  { code: "eu-west-1", name: "Europe (Ireland)" },
+  { code: "eu-west-2", name: "Europe (London)" },
+  { code: "eu-west-3", name: "Europe (Paris)" },
+  { code: "eu-central-1", name: "Europe (Frankfurt)" },
+  { code: "eu-central-2", name: "Europe (Zurich)" },
+  { code: "eu-north-1", name: "Europe (Stockholm)" },
+  { code: "eu-south-1", name: "Europe (Milan)" },
+  { code: "ca-central-1", name: "Canada (Central)" },
+  { code: "sa-east-1", name: "South America (São Paulo)" },
+  { code: "me-south-1", name: "Middle East (Bahrain)" },
+  { code: "af-south-1", name: "Africa (Cape Town)" },
+];
+
+const AZURE_ALL_REGIONS: { code: string; name: string }[] = [
+  { code: "eastus", name: "East US (Virginia)" },
+  { code: "eastus2", name: "East US 2 (Virginia)" },
+  { code: "westus2", name: "West US 2 (Washington)" },
+  { code: "westus3", name: "West US 3 (Arizona)" },
+  { code: "centralus", name: "Central US (Iowa)" },
+  { code: "centralindia", name: "Central India (Pune)" },
+  { code: "southindia", name: "South India (Chennai)" },
+  { code: "westindia", name: "West India (Mumbai)" },
+  { code: "southeastasia", name: "Southeast Asia (Singapore)" },
+  { code: "eastasia", name: "East Asia (Hong Kong)" },
+  { code: "japaneast", name: "Japan East (Tokyo)" },
+  { code: "australiaeast", name: "Australia East (Sydney)" },
+  { code: "westeurope", name: "West Europe (Netherlands)" },
+  { code: "northeurope", name: "North Europe (Ireland)" },
+  { code: "uksouth", name: "UK South (London)" },
+  { code: "canadacentral", name: "Canada Central (Toronto)" },
+  { code: "brazilsouth", name: "Brazil South (São Paulo)" },
+  { code: "koreacentral", name: "Korea Central (Seoul)" },
+  { code: "uaenorth", name: "UAE North (Dubai)" },
+  { code: "southafricanorth", name: "South Africa North (Johannesburg)" },
+];
+
+const REGIONS_BY_PROVIDER: Record<string, { code: string; name: string }[]> = {
+  aws: AWS_ALL_REGIONS,
+  azure: AZURE_ALL_REGIONS,
+};
+
+// ---------------------------------------------------------------------------
+// Edit Account Modal
+// ---------------------------------------------------------------------------
+
+function EditAccountModal({
+  account,
+  serviceTabs,
+  onSave,
+  onClose,
+}: {
+  account: UnifiedAccount;
+  serviceTabs: ServiceTab[];
+  onSave: (regions: string[], services: string[]) => Promise<void>;
+  onClose: () => void;
+}) {
+  const allRegions = REGIONS_BY_PROVIDER[account.provider] ?? [];
+  const [selectedRegions, setSelectedRegions] = useState<Set<string>>(
+    () => new Set(account.regions)
+  );
+  const [selectedServices, setSelectedServices] = useState<Set<string>>(() => {
+    if (account.collectConfig?.enabled_services?.length)
+      return new Set(account.collectConfig.enabled_services);
+    return new Set(serviceTabs.map((t) => t.id));
+  });
+  const [activeTab, setActiveTab] = useState<"regions" | "services">("regions");
+  const [saving, setSaving] = useState(false);
+  const [regionSearch, setRegionSearch] = useState("");
+
+  const filteredRegions = useMemo(() => {
+    if (!regionSearch.trim()) return allRegions;
+    const q = regionSearch.toLowerCase();
+    return allRegions.filter(
+      (r) => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)
+    );
+  }, [allRegions, regionSearch]);
+
+  const toggleRegion = (code: string) => {
+    setSelectedRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const toggleService = (id: string) => {
+    setSelectedServices((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    if (selectedRegions.size === 0) return;
+    setSaving(true);
+    try {
+      await onSave(Array.from(selectedRegions), Array.from(selectedServices));
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectAllRegions = () => setSelectedRegions(new Set(allRegions.map((r) => r.code)));
+  const clearAllRegions = () => setSelectedRegions(new Set());
+  const selectAllServices = () => setSelectedServices(new Set(serviceTabs.map((t) => t.id)));
+  const clearAllServices = () => setSelectedServices(new Set());
+
+  return (
+    <div className="acct-confirm-overlay" onClick={onClose}>
+      <div className="acct-edit-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="acct-edit-header">
+          <div>
+            <h3 className="acct-edit-title">Edit Account</h3>
+            <p className="acct-edit-subtitle">{account.name} · {account.provider.toUpperCase()}</p>
+          </div>
+          <button className="acct-edit-close" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="acct-edit-tabs">
+          <button
+            className={`acct-edit-tab ${activeTab === "regions" ? "active" : ""}`}
+            onClick={() => setActiveTab("regions")}
+          >
+            <MapPin size={14} />
+            Regions ({selectedRegions.size})
+          </button>
+          <button
+            className={`acct-edit-tab ${activeTab === "services" ? "active" : ""}`}
+            onClick={() => setActiveTab("services")}
+          >
+            <Layers size={14} />
+            Services ({selectedServices.size}/{serviceTabs.length})
+          </button>
+        </div>
+
+        <div className="acct-edit-body">
+          {activeTab === "regions" && (
+            <>
+              <div className="acct-edit-toolbar">
+                <input
+                  className="acct-edit-search"
+                  placeholder="Search regions..."
+                  value={regionSearch}
+                  onChange={(e) => setRegionSearch(e.target.value)}
+                />
+                <div className="acct-edit-bulk">
+                  <button className="acct-edit-bulk-btn" onClick={selectAllRegions}>All</button>
+                  <button className="acct-edit-bulk-btn" onClick={clearAllRegions}>None</button>
+                </div>
+              </div>
+              <div className="acct-edit-grid">
+                {filteredRegions.map((r) => (
+                  <label key={r.code} className={`acct-edit-check-item ${selectedRegions.has(r.code) ? "checked" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedRegions.has(r.code)}
+                      onChange={() => toggleRegion(r.code)}
+                    />
+                    <div>
+                      <div className="acct-edit-check-code">{r.code}</div>
+                      <div className="acct-edit-check-name">{r.name}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {selectedRegions.size === 0 && (
+                <div className="acct-edit-warning">
+                  <AlertTriangle size={14} /> Select at least one region
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === "services" && (
+            <>
+              <div className="acct-edit-toolbar">
+                <div style={{ fontSize: 13, color: "var(--color-neutral-500)" }}>
+                  Choose which services to monitor
+                </div>
+                <div className="acct-edit-bulk">
+                  <button className="acct-edit-bulk-btn" onClick={selectAllServices}>All</button>
+                  <button className="acct-edit-bulk-btn" onClick={clearAllServices}>None</button>
+                </div>
+              </div>
+              <div className="acct-edit-grid">
+                {serviceTabs.map((svc) => {
+                  const Icon = svc.icon;
+                  return (
+                    <label key={svc.id} className={`acct-edit-check-item service ${selectedServices.has(svc.id) ? "checked" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedServices.has(svc.id)}
+                        onChange={() => toggleService(svc.id)}
+                      />
+                      <Icon size={16} />
+                      <span className="acct-edit-check-code">{svc.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="acct-edit-footer">
+          <button className="wizard-btn secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            className="wizard-btn primary"
+            onClick={handleSave}
+            disabled={saving || selectedRegions.size === 0}
+          >
+            {saving ? "Saving..." : "Save Changes"}
+            {!saving && <Check size={14} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const TIME_RANGES = [
   { label: "15m", hours: 0.25 },
   { label: "1h", hours: 1 },
@@ -578,6 +849,8 @@ function InfraStatusBadge({ status }: { status: string }) {
 
 export function InfrastructurePage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardKey, setWizardKey] = useState(0);
   const provider = searchParams.get("provider") ?? "";
   const accountId = searchParams.get("account") ?? "";
   const accountName = searchParams.get("name") ?? "";
@@ -595,10 +868,20 @@ export function InfrastructurePage() {
     setSearchParams({}, { replace: true });
   }, [setSearchParams]);
 
+  const handleWizardSuccess = useCallback(() => {
+    setShowWizard(false);
+    setWizardKey((k) => k + 1);
+    navigateHome();
+  }, [navigateHome]);
+
   return (
     <div>
       {!isResourcesView && (
-        <AccountsGridView onSelectAccount={navigateToAccount} />
+        <AccountsGridView
+          key={wizardKey}
+          onSelectAccount={navigateToAccount}
+          onAddAccount={() => setShowWizard(true)}
+        />
       )}
       {isResourcesView && (
         <AccountResourcesView
@@ -609,6 +892,12 @@ export function InfrastructurePage() {
           onNavigateToProviders={navigateHome}
         />
       )}
+      {showWizard && (
+        <CloudAccountWizard
+          onClose={() => setShowWizard(false)}
+          onSuccess={handleWizardSuccess}
+        />
+      )}
     </div>
   );
 }
@@ -617,26 +906,232 @@ export function InfrastructurePage() {
 // View 1: All Cloud Accounts (unified cards)
 // ---------------------------------------------------------------------------
 
+type InfraViewMode = "accounts" | "environments" | "topology";
+
+const GROUP_BY_OPTIONS = [
+  { value: "env", label: "Environment" },
+  { value: "project", label: "Project" },
+  { value: "owner", label: "Owner" },
+  { value: "team", label: "Team" },
+  { value: "app", label: "Application" },
+  { value: "service", label: "Service" },
+  { value: "managed-by", label: "Managed By" },
+];
+
+// ---------------------------------------------------------------------------
+// What's Wrong Panel — triage board
+// ---------------------------------------------------------------------------
+
+function WhatsWrongPanel({ onNavigate }: { onNavigate: (id: string, type: string) => void }) {
+  const { data: issues } = useApi<ResourceIssues>(
+    () => api.resources.issues(),
+    [],
+  );
+  const [expanded, setExpanded] = useState(true);
+
+  if (!issues || issues.counts.total_issues === 0) return null;
+
+  const { stopped_resources, stale_resources, firing_alerts, counts } = issues;
+
+  return (
+    <div className="infra-whats-wrong" style={{ marginBottom: 20 }}>
+      <button
+        className="infra-whats-wrong-header"
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          padding: "12px 16px",
+          background: "var(--color-danger-50, #fef2f2)",
+          border: "1px solid var(--color-danger-200, #fecaca)",
+          borderRadius: expanded ? "10px 10px 0 0" : 10,
+          cursor: "pointer",
+          transition: "border-radius 0.15s",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <AlertTriangle size={18} color="var(--color-danger-500, #ef4444)" />
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--color-danger-700, #b91c1c)" }}>
+            What's Wrong
+          </span>
+          <span style={{
+            fontSize: 12, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
+            background: "var(--color-danger-500)", color: "var(--text-on-accent)",
+          }}>
+            {counts.total_issues}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {counts.firing_alerts > 0 && (
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--color-danger-600)" }}>
+              <Bell size={13} /> {counts.firing_alerts} alert{counts.firing_alerts !== 1 ? "s" : ""}
+            </span>
+          )}
+          {counts.stopped > 0 && (
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--color-warning-600, #d97706)" }}>
+              <XCircle size={13} /> {counts.stopped} stopped
+            </span>
+          )}
+          {counts.stale > 0 && (
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
+              <Clock size={13} /> {counts.stale} stale
+            </span>
+          )}
+          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div style={{
+          border: "1px solid var(--color-danger-200, #fecaca)",
+          borderTop: "none",
+          borderRadius: "0 0 10px 10px",
+          padding: 16,
+          background: "var(--color-neutral-50, #fafafa)",
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 12,
+        }}>
+          {/* Firing Alerts */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--color-danger-500)", marginBottom: 8 }}>
+              Firing Alerts
+            </div>
+            {firing_alerts.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--color-neutral-400)", padding: "8px 0" }}>None</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {firing_alerts.slice(0, 5).map((a) => (
+                  <div
+                    key={a.event_id}
+                    style={{
+                      padding: "8px 10px", borderRadius: 6,
+                      background: "var(--color-neutral-0)", border: "1px solid var(--color-neutral-200)",
+                      fontSize: 12, cursor: "pointer",
+                    }}
+                    onClick={() => onNavigate(a.event_id, "alert")}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                      <DSStatusBadge label={a.severity} tone="danger" />
+                      <span style={{ fontWeight: 600, color: "var(--color-neutral-900)" }}>{a.rule_name}</span>
+                    </div>
+                    <div style={{ color: "var(--color-neutral-400)", fontSize: 11 }}>
+                      {a.fired_at ? formatDistanceToNow(new Date(a.fired_at), { addSuffix: true }) : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Stopped Resources */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--color-warning-500, #f59e0b)", marginBottom: 8 }}>
+              Stopped / Terminated
+            </div>
+            {stopped_resources.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--color-neutral-400)", padding: "8px 0" }}>None</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {stopped_resources.slice(0, 5).map((r) => (
+                  <div
+                    key={r.id}
+                    style={{
+                      padding: "8px 10px", borderRadius: 6,
+                      background: "var(--color-neutral-0)", border: "1px solid var(--color-neutral-200)",
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <InfraStatusBadge status={r.status} />
+                      <span style={{ fontWeight: 500 }}>{r.name}</span>
+                    </div>
+                    <div style={{ color: "var(--color-neutral-400)", fontSize: 11, marginTop: 2 }}>
+                      {r.resource_type.toUpperCase()} · {r.provider.toUpperCase()} · {r.region}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Stale Resources */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--color-neutral-500)", marginBottom: 8 }}>
+              Stale (no heartbeat)
+            </div>
+            {stale_resources.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--color-neutral-400)", padding: "8px 0" }}>None</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {stale_resources.slice(0, 5).map((r) => (
+                  <div
+                    key={r.id}
+                    style={{
+                      padding: "8px 10px", borderRadius: 6,
+                      background: "var(--color-neutral-0)", border: "1px solid var(--color-neutral-200)",
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Clock size={13} color="var(--color-neutral-400)" />
+                      <span style={{ fontWeight: 500 }}>{r.name}</span>
+                    </div>
+                    <div style={{ color: "var(--color-neutral-400)", fontSize: 11, marginTop: 2 }}>
+                      Last seen {Math.round(r.minutes_stale)}m ago · {r.resource_type.toUpperCase()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// TODO: EnvironmentsView — backend ready at GET /api/v1/resources/grouping
+// TODO: TopologyMapView — backend ready at GET /api/v1/resources/topology
+
+// ---------------------------------------------------------------------------
+// View 1: All Cloud Accounts (unified cards)
+// ---------------------------------------------------------------------------
+
 function AccountsGridView({
   onSelectAccount,
+  onAddAccount,
 }: {
   onSelectAccount: (provider: CloudProvider, accountId: string, accountName: string) => void;
+  onAddAccount: () => void;
 }) {
+  const { user, role } = useAuth();
+  const canManageAccounts =
+    user?.is_super_admin || role === "admin" || role === "owner";
+
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  const [viewMode, setViewMode] = useState<InfraViewMode>("accounts");
+  const [groupBy, setGroupBy] = useState("env");
+
   const { data: summary } = useApi<ResourceSummary>(
     () => api.resources.summary(),
-    []
+    [refreshKey]
   );
   const { data: awsAccounts, loading: awsLoading } = useApi<AWSAccount[]>(
     () => api.aws.listAccounts().catch(() => []),
-    []
+    [refreshKey]
   );
   const { data: azureSubs, loading: azureLoading } = useApi<AzureSubscription[]>(
     () => api.azure.listSubscriptions().catch(() => []),
-    []
+    [refreshKey]
   );
   const { data: resources } = useApi<Resource[]>(
     () => api.resources.list({ limit: 1000 }),
-    []
+    [refreshKey]
   );
 
   const accountsLoading = awsLoading || azureLoading;
@@ -652,6 +1147,85 @@ function AccountsGridView({
   }, [resources]);
 
   const [accountSearch, setAccountSearch] = useState("");
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<UnifiedAccount | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [scanningId, setScanningId] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+  const [editingAccount, setEditingAccount] = useState<UnifiedAccount | null>(null);
+
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const close = () => setMenuOpenId(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [menuOpenId]);
+
+  const handleToggleEnabled = async (acct: UnifiedAccount) => {
+    setActionLoading(true);
+    try {
+      if (acct.provider === "aws") {
+        await api.aws.updateAccount(acct.id, { enabled: !acct.enabled });
+      } else {
+        await api.azure.updateSubscription(acct.id, { enabled: !acct.enabled });
+      }
+      refresh();
+    } catch (e) {
+      setScanResult({ id: acct.id, ok: false, msg: formatError(e) });
+      setTimeout(() => setScanResult(null), 5000);
+    } finally {
+      setActionLoading(false);
+      setMenuOpenId(null);
+    }
+  };
+
+  const handleScanNow = async (acct: UnifiedAccount) => {
+    setScanningId(acct.id);
+    setScanResult(null);
+    setMenuOpenId(null);
+    try {
+      const data = acct.provider === "aws"
+        ? { aws_account_id: acct.id }
+        : { azure_subscription_id: acct.id };
+      await api.collection.triggerDiscovery(data);
+      setScanResult({ id: acct.id, ok: true, msg: "Discovery complete" });
+      refresh();
+    } catch (e) {
+      setScanResult({ id: acct.id, ok: false, msg: formatError(e) });
+    } finally {
+      setScanningId(null);
+      setTimeout(() => setScanResult(null), 5000);
+    }
+  };
+
+  const handleDeleteAccount = async (acct: UnifiedAccount) => {
+    setActionLoading(true);
+    try {
+      if (acct.provider === "aws") {
+        await api.aws.deleteAccount(acct.id);
+      } else {
+        await api.azure.deleteSubscription(acct.id);
+      }
+      refresh();
+    } catch (e) {
+      setScanResult({ id: acct.id, ok: false, msg: formatError(e) });
+      setTimeout(() => setScanResult(null), 5000);
+    } finally {
+      setActionLoading(false);
+      setConfirmDelete(null);
+      setMenuOpenId(null);
+    }
+  };
+
+  const handleEditSave = async (acct: UnifiedAccount, regions: string[], services: string[]) => {
+    const collectConfig = { enabled_services: services };
+    if (acct.provider === "aws") {
+      await api.aws.updateAccount(acct.id, { regions, collect_config: collectConfig });
+    } else {
+      await api.azure.updateSubscription(acct.id, { regions, collect_config: collectConfig });
+    }
+    refresh();
+  };
 
   const allAccounts: UnifiedAccount[] = useMemo(() => {
     const accounts: UnifiedAccount[] = [];
@@ -666,6 +1240,7 @@ function AccountsGridView({
           enabled: a.enabled,
           lastSyncAt: a.last_sync_at,
           providerColor: "#ff9900",
+          collectConfig: a.collect_config as UnifiedAccount["collectConfig"],
         });
       }
     }
@@ -680,6 +1255,7 @@ function AccountsGridView({
           enabled: s.enabled,
           lastSyncAt: s.last_sync_at,
           providerColor: "#0089d6",
+          collectConfig: s.collect_config as UnifiedAccount["collectConfig"],
         });
       }
     }
@@ -696,29 +1272,148 @@ function AccountsGridView({
     );
   }, [allAccounts, accountSearch]);
 
+  const navigate = useNavigate();
+  const handleIssueNavigate = useCallback((_id: string, type: string) => {
+    if (type === "alert") navigate("/alerts");
+  }, [navigate]);
+
   return (
     <div>
       <PageHeader
         title="Infrastructure"
+        context={`${summary?.total ?? 0} resources · ${allAccounts.length} account${allAccounts.length !== 1 ? "s" : ""}`}
         actions={
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ position: "relative" }} className={canManageAccounts ? "" : "add-account-disabled-wrap"}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={canManageAccounts ? onAddAccount : undefined}
+              disabled={!canManageAccounts}
+              style={!canManageAccounts ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+            >
+              <Plus size={14} />
+              Add Cloud Account
+            </Button>
+            {!canManageAccounts && (
+              <span className="add-account-tooltip">
+                Reach out to your Admin or NeoGuard team to onboard a cloud account
+              </span>
+            )}
+          </div>
+        }
+      />
+
+      {/* Toolbar: view toggle + contextual controls */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 20, flexWrap: "wrap", gap: 12,
+      }}>
+        <div style={{ display: "flex", border: "1px solid var(--color-neutral-200)", borderRadius: 8, overflow: "hidden" }}>
+          {([
+            { mode: "accounts" as InfraViewMode, icon: List, label: "Accounts" },
+            { mode: "environments" as InfraViewMode, icon: LayoutGrid, label: "Environments" },
+            { mode: "topology" as InfraViewMode, icon: Workflow, label: "Topology" },
+          ]).map(({ mode, icon: Icon, label }) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              style={{
+                padding: "7px 14px",
+                display: "flex", alignItems: "center", gap: 5,
+                fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
+                background: viewMode === mode ? "var(--accent)" : "var(--bg-tertiary)",
+                color: viewMode === mode ? "var(--text-on-accent)" : "var(--text-secondary)",
+                transition: "all 0.15s",
+              }}
+            >
+              <Icon size={15} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {viewMode === "environments" && (
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value)}
+              style={{
+                fontSize: 13, padding: "7px 10px", borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "var(--bg-tertiary)", color: "var(--text-primary)",
+              }}
+            >
+              {GROUP_BY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          )}
+
+          {viewMode === "accounts" && (
             <SearchInput
               placeholder="Search accounts..."
               value={accountSearch}
               onChange={setAccountSearch}
             />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Cloud size={16} color="var(--color-neutral-400)" />
-              <span style={{ fontSize: 13, color: "var(--color-neutral-500)" }}>
-                {summary?.total ?? 0} resources across{" "}
-                {allAccounts.length} account{allAccounts.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-          </div>
-        }
-      />
+          )}
+        </div>
+      </div>
 
-      {accountsLoading && allAccounts.length === 0 && (
+      {/* What's Wrong Panel — always visible above content */}
+      <WhatsWrongPanel onNavigate={handleIssueNavigate} />
+
+      {/* Environments view — TODO */}
+      {viewMode === "environments" && (
+        <div className="card" style={{ padding: 40, textAlign: "center" }}>
+          <LayoutGrid size={48} color="var(--text-muted)" style={{ margin: "0 auto 16px", display: "block" }} />
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)", margin: "0 0 8px" }}>
+            Environments
+          </h3>
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", margin: "0 0 16px", maxWidth: 420, marginInline: "auto" }}>
+            Tag-based grouping of resources by environment, team, project, and more. Click into a group to see which accounts and resources belong to it.
+          </p>
+          <span style={{
+            display: "inline-block",
+            padding: "4px 12px",
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 700,
+            background: "var(--warning)",
+            color: "var(--text-on-accent)",
+            letterSpacing: "0.5px",
+          }}>
+            TO-DO
+          </span>
+        </div>
+      )}
+
+      {/* Topology view — TODO */}
+      {viewMode === "topology" && (
+        <div className="card" style={{ padding: 40, textAlign: "center" }}>
+          <Workflow size={48} color="var(--text-muted)" style={{ margin: "0 auto 16px", display: "block" }} />
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)", margin: "0 0 8px" }}>
+            Resource Topology
+          </h3>
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", margin: "0 0 16px", maxWidth: 420, marginInline: "auto" }}>
+            Visual dependency graph showing how your cloud resources are connected — VPCs, subnets, instances, volumes, load balancers, and more.
+          </p>
+          <span style={{
+            display: "inline-block",
+            padding: "4px 12px",
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 700,
+            background: "var(--warning)",
+            color: "var(--text-on-accent)",
+            letterSpacing: "0.5px",
+          }}>
+            TO-DO
+          </span>
+        </div>
+      )}
+
+      {/* Accounts grid view */}
+      {viewMode === "accounts" && accountsLoading && allAccounts.length === 0 && (
         <Card variant="bordered" className="card">
           <div style={{ textAlign: "center", padding: 40 }}>
             <div className="spinner" style={{ width: 32, height: 32, margin: "0 auto 16px" }} />
@@ -727,17 +1422,29 @@ function AccountsGridView({
         </Card>
       )}
 
-      {!accountsLoading && allAccounts.length === 0 && (
+      {viewMode === "accounts" && !accountsLoading && allAccounts.length === 0 && (
         <Card variant="bordered" className="card">
           <EmptyState
             icon={<Cloud size={48} color="var(--color-neutral-400)" />}
             title="No cloud accounts connected"
-            description="Add an AWS account or Azure subscription via the API to start monitoring."
+            description={
+              canManageAccounts
+                ? "Connect your AWS or Azure account to start monitoring your cloud infrastructure."
+                : "Your organization hasn't connected any cloud accounts yet. Reach out to your Admin or NeoGuard team to get started."
+            }
           />
+          {canManageAccounts && (
+            <div style={{ textAlign: "center", paddingBottom: 32 }}>
+              <Button variant="primary" onClick={onAddAccount}>
+                <Plus size={16} />
+                Add your Cloud Account
+              </Button>
+            </div>
+          )}
         </Card>
       )}
 
-      {filteredAccounts.length === 0 && allAccounts.length > 0 && (
+      {viewMode === "accounts" && filteredAccounts.length === 0 && allAccounts.length > 0 && (
         <Card variant="bordered" className="card">
           <EmptyState
             icon={<Cloud size={36} color="var(--color-neutral-400)" />}
@@ -747,7 +1454,7 @@ function AccountsGridView({
         </Card>
       )}
 
-      <div
+      {viewMode === "accounts" && <div
         style={{
           display: "grid",
           gridTemplateColumns: filteredAccounts.length === 1 ? "1fr" : filteredAccounts.length === 2 ? "repeat(2, 1fr)" : "repeat(3, 1fr)",
@@ -793,7 +1500,7 @@ function AccountsGridView({
                     justifyContent: "center",
                   }}
                 >
-                  <Cloud size={24} color={acct.providerColor} />
+                  {acct.provider === "aws" ? <AwsIcon size={28} /> : acct.provider === "azure" ? <AzureIcon size={28} /> : <Cloud size={24} color={acct.providerColor} />}
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>{acct.name}</div>
@@ -802,20 +1509,78 @@ function AccountsGridView({
                   </div>
                 </div>
               </div>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                  padding: "4px 10px",
-                  borderRadius: 6,
-                  background: `${acct.providerColor}20`,
-                  color: acct.providerColor,
-                }}
-              >
-                {acct.provider}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    background: `${acct.providerColor}20`,
+                    color: acct.providerColor,
+                  }}
+                >
+                  {acct.provider}
+                </span>
+                {canManageAccounts && (
+                  <div style={{ position: "relative" }}>
+                    <button
+                      className="acct-menu-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpenId(menuOpenId === acct.id ? null : acct.id);
+                      }}
+                      aria-label={`Manage ${acct.name}`}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {menuOpenId === acct.id && (
+                      <div className="acct-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          className="acct-menu-item"
+                          onClick={() => {
+                            setEditingAccount(acct);
+                            setMenuOpenId(null);
+                          }}
+                        >
+                          <Pencil size={14} />
+                          <span>Edit Configuration</span>
+                        </button>
+                        <button
+                          className="acct-menu-item"
+                          disabled={!!scanningId}
+                          onClick={() => handleScanNow(acct)}
+                        >
+                          <Radar size={14} />
+                          <span>{scanningId === acct.id ? "Scanning..." : "Scan Now"}</span>
+                        </button>
+                        <button
+                          className="acct-menu-item"
+                          disabled={actionLoading}
+                          onClick={() => handleToggleEnabled(acct)}
+                        >
+                          {acct.enabled ? <PowerOff size={14} /> : <Power size={14} />}
+                          <span>{acct.enabled ? "Disable Monitoring" : "Enable Monitoring"}</span>
+                        </button>
+                        <div className="acct-menu-divider" />
+                        <button
+                          className="acct-menu-item danger"
+                          disabled={actionLoading}
+                          onClick={() => {
+                            setConfirmDelete(acct);
+                            setMenuOpenId(null);
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          <span>Remove Account</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
@@ -850,9 +1615,74 @@ function AccountsGridView({
                 </div>
               </div>
             </div>
+
+            {/* Scan status indicator */}
+            {scanningId === acct.id && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6, marginTop: 10,
+                padding: "6px 10px", borderRadius: 6,
+                background: "var(--color-primary-50, #eff6ff)",
+                fontSize: 12, color: "var(--color-primary-600)",
+              }}>
+                <div className="spinner" style={{ width: 12, height: 12 }} />
+                Discovering resources...
+              </div>
+            )}
+            {scanResult?.id === acct.id && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6, marginTop: 10,
+                padding: "6px 10px", borderRadius: 6,
+                background: scanResult.ok ? "var(--color-success-50, #f0fdf4)" : "var(--color-danger-50, #fef2f2)",
+                fontSize: 12,
+                color: scanResult.ok ? "var(--color-success-600, #16a34a)" : "var(--color-danger-600, #dc2626)",
+              }}>
+                {scanResult.ok ? "✓" : "✗"} {scanResult.msg}
+              </div>
+            )}
           </div>
         ))}
-      </div>
+      </div>}
+
+      {confirmDelete && (
+        <div className="acct-confirm-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="acct-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="acct-confirm-icon">
+              <AlertTriangle size={28} />
+            </div>
+            <h3 className="acct-confirm-title">Remove Cloud Account</h3>
+            <p className="acct-confirm-desc">
+              Are you sure you want to remove <strong>{confirmDelete.name}</strong>?
+              This will stop all monitoring and delete associated configuration.
+              Collected metrics and resources data will be retained.
+            </p>
+            <div className="acct-confirm-actions">
+              <button
+                className="wizard-btn secondary"
+                onClick={() => setConfirmDelete(null)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="acct-confirm-delete-btn"
+                onClick={() => handleDeleteAccount(confirmDelete)}
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Removing..." : "Remove Account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingAccount && (
+        <EditAccountModal
+          account={editingAccount}
+          serviceTabs={SERVICE_TABS_BY_PROVIDER[editingAccount.provider] ?? []}
+          onSave={(regions, services) => handleEditSave(editingAccount, regions, services)}
+          onClose={() => setEditingAccount(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1023,7 +1853,7 @@ function AccountResourcesView({
               letterSpacing: "0.5px",
               padding: "3px 8px",
               borderRadius: 4,
-              background: provider === "aws" ? "#ff990020" : "#0089d620",
+              background: provider === "aws" ? "rgba(255, 153, 0, 0.12)" : "rgba(0, 137, 214, 0.12)",
               color: provider === "aws" ? "#ff9900" : "#0089d6",
               marginLeft: 4,
             }}
@@ -1078,7 +1908,7 @@ function AccountResourcesView({
                           : "var(--color-neutral-200)",
                       color:
                         activeTab === t.id
-                          ? "#fff"
+                          ? "var(--text-on-accent)"
                           : "var(--color-neutral-700)",
                       padding: "1px 7px",
                       borderRadius: 10,
@@ -1375,7 +2205,111 @@ function ResourceDrillDown({
         </Card>
       )}
 
+      <ResourceChangeTimeline resourceId={resource.id} />
+
       <ResourceAlerts />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Resource Change Timeline
+// ---------------------------------------------------------------------------
+
+function ResourceChangeTimeline({ resourceId }: { resourceId: string }) {
+  const { data: changes } = useApi<ResourceChange[]>(
+    () => api.resources.resourceChanges(resourceId, 20),
+    [resourceId],
+  );
+
+  if (!changes || changes.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-neutral-500)", marginBottom: 12 }}>
+        Change History
+        <span style={{
+          marginLeft: 8, fontSize: 12, fontWeight: 500,
+          padding: "2px 8px", borderRadius: 10,
+          background: "var(--color-neutral-200)", color: "var(--color-neutral-600)",
+        }}>
+          {changes.length}
+        </span>
+      </h2>
+      <Card variant="bordered" className="card" padding="sm">
+        <div style={{ position: "relative", paddingLeft: 24 }}>
+          {/* Timeline line */}
+          <div style={{
+            position: "absolute", left: 11, top: 8, bottom: 8, width: 2,
+            background: "var(--color-neutral-200)",
+          }} />
+
+          {changes.map((change, idx) => (
+            <div
+              key={change.id}
+              style={{
+                position: "relative",
+                padding: "10px 16px",
+                marginBottom: idx < changes.length - 1 ? 4 : 0,
+              }}
+            >
+              {/* Timeline dot */}
+              <div style={{
+                position: "absolute", left: -19, top: 14,
+                width: 10, height: 10, borderRadius: "50%",
+                background: change.change_type === "status_changed"
+                  ? "var(--color-warning-500, #f59e0b)"
+                  : "var(--color-primary-500)",
+                border: "2px solid var(--bg-secondary)",
+              }} />
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <GitCompareArrows size={13} color="var(--color-neutral-400)" />
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, textTransform: "uppercase",
+                      letterSpacing: "0.3px",
+                      color: change.change_type === "status_changed"
+                        ? "var(--color-warning-600, #d97706)"
+                        : "var(--color-primary-600)",
+                    }}>
+                      {change.change_type.replace("_", " ")}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {change.field_changes.map((fc, i) => (
+                      <div key={i} style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontWeight: 500, color: "var(--color-neutral-700)", minWidth: 120 }}>
+                          {fc.field}
+                        </span>
+                        <span style={{
+                          padding: "1px 6px", borderRadius: 4, fontSize: 11,
+                          background: "var(--color-danger-50, #fef2f2)", color: "var(--color-danger-600)",
+                          textDecoration: "line-through", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>
+                          {fc.old === null || fc.old === undefined ? "∅" : String(fc.old)}
+                        </span>
+                        <span style={{ color: "var(--color-neutral-400)" }}>→</span>
+                        <span style={{
+                          padding: "1px 6px", borderRadius: 4, fontSize: 11,
+                          background: "var(--color-success-50, #f0fdf4)", color: "var(--color-success-600)",
+                          maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>
+                          {fc.new === null || fc.new === undefined ? "∅" : String(fc.new)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <span style={{ fontSize: 11, color: "var(--color-neutral-400)", whiteSpace: "nowrap", marginLeft: 12 }}>
+                  {change.detected_at ? formatDistanceToNow(new Date(change.detected_at), { addSuffix: true }) : ""}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }

@@ -1,20 +1,22 @@
-:root {
+:root,
+[data-theme="dark"] {
   /* NeoGuard Dark Theme — overrides design-tokens.css */
+  color-scheme: dark;
 
   /* Neutral palette — dark background scale */
-  --color-neutral-0: #0f1117;
-  --color-neutral-50: #1a1d27;
-  --color-neutral-100: #242836;
-  --color-neutral-200: #2d3348;
-  --color-neutral-300: #3a4158;
+  --color-neutral-0: #0a0c14;
+  --color-neutral-50: #12151f;
+  --color-neutral-100: #1a1e2e;
+  --color-neutral-200: #252a3a;
+  --color-neutral-300: #353b50;
   --color-neutral-400: #5a6178;
   --color-neutral-500: #8b92a8;
   --color-neutral-600: #a0a7bc;
   --color-neutral-700: #b8bdd0;
   --color-neutral-800: #d0d4e2;
-  --color-neutral-900: #e4e7ef;
+  --color-neutral-900: #e8eaf2;
 
-  /* Primary — keep indigo accent */
+  /* Primary — electric indigo accent */
   --color-primary-50: rgba(99, 91, 255, 0.08);
   --color-primary-100: rgba(99, 91, 255, 0.15);
   --color-primary-200: rgba(99, 91, 255, 0.25);
@@ -22,22 +24,47 @@
   --color-primary-600: #7c75ff;
   --color-primary-700: #9590ff;
 
-  /* Shadows — darker for dark mode */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+  /* Status colors — vibrant for dark backgrounds */
+  --color-success-50: rgba(34, 197, 94, 0.1);
+  --color-success-500: #22c55e;
+  --color-success-600: #4ade80;
+  --color-danger-50: rgba(239, 68, 68, 0.1);
+  --color-danger-500: #ef4444;
+  --color-danger-600: #f87171;
+  --color-danger-700: #dc2626;
+  --color-warning-50: rgba(234, 179, 8, 0.1);
+  --color-warning-500: #eab308;
+  --color-warning-600: #facc15;
+  --color-info-50: rgba(59, 130, 246, 0.1);
+  --color-info-500: #3b82f6;
+  --color-info-600: #60a5fa;
 
-  /* Semantic aliases for backward compat with existing code */
+  /* Shadows — deeper for dark mode with subtle glow */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 20px rgba(99, 91, 255, 0.15);
+
+  /* Glass effect */
+  --glass-bg: rgba(18, 21, 31, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: blur(12px);
+
+  /* Semantic aliases */
   --bg-primary: var(--color-neutral-0);
   --bg-secondary: var(--color-neutral-50);
   --bg-tertiary: var(--color-neutral-100);
+  --bg-elevated: var(--color-neutral-100);
   --border: var(--color-neutral-200);
+  --border-subtle: rgba(255, 255, 255, 0.04);
   --text-primary: var(--color-neutral-900);
   --text-secondary: var(--color-neutral-500);
   --text-muted: var(--color-neutral-400);
+  --text-on-accent: #ffffff;
   --accent: var(--color-primary-500);
   --accent-hover: var(--color-primary-600);
+  --accent-glow: rgba(99, 91, 255, 0.3);
   --success: var(--color-success-500);
   --warning: var(--color-warning-500);
   --error: var(--color-danger-500);
@@ -46,6 +73,78 @@
   --radius: var(--border-radius-lg);
   --radius-sm: var(--border-radius-sm);
   --shadow: var(--shadow-sm);
+
+  /* Overlay */
+  --overlay-bg: rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f8f9fc;
+  --color-neutral-100: #f1f3f8;
+  --color-neutral-200: #e2e5ee;
+  --color-neutral-300: #cdd1de;
+  --color-neutral-400: #9199b0;
+  --color-neutral-500: #636c83;
+  --color-neutral-600: #4a5268;
+  --color-neutral-700: #353c50;
+  --color-neutral-800: #1e2435;
+  --color-neutral-900: #0f1219;
+
+  --color-primary-50: #eef0ff;
+  --color-primary-100: #dfe3ff;
+  --color-primary-200: #c5cbfe;
+  --color-primary-500: #5046e5;
+  --color-primary-600: #4338ca;
+  --color-primary-700: #3730a3;
+
+  --color-success-50: #f0fdf4;
+  --color-success-500: #16a34a;
+  --color-success-600: #15803d;
+  --color-danger-50: #fef2f2;
+  --color-danger-500: #dc2626;
+  --color-danger-600: #b91c1c;
+  --color-danger-700: #991b1b;
+  --color-warning-50: #fffbeb;
+  --color-warning-500: #d97706;
+  --color-warning-600: #b45309;
+  --color-info-50: #eff6ff;
+  --color-info-500: #2563eb;
+  --color-info-600: #1d4ed8;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 20px rgba(80, 70, 229, 0.1);
+
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-blur: blur(12px);
+
+  --bg-primary: #f5f6fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef0f5;
+  --bg-elevated: #ffffff;
+  --border: #dfe2eb;
+  --border-subtle: rgba(0, 0, 0, 0.04);
+  --text-primary: #0f1219;
+  --text-secondary: #4a5268;
+  --text-muted: #9199b0;
+  --text-on-accent: #ffffff;
+  --accent: #5046e5;
+  --accent-hover: #4338ca;
+  --accent-glow: rgba(80, 70, 229, 0.15);
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+  --danger: #dc2626;
+  --info: #2563eb;
+  --shadow: var(--shadow-sm);
+
+  --overlay-bg: rgba(0, 0, 0, 0.4);
 }
 
 body {

@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  NeoGuard Monitoring Role — Creates a read-only IAM role that NeoGuard
+  assumes to discover resources and collect CloudWatch metrics from your
+  AWS account. No write permissions are granted.
+
+Parameters:
+  ExternalId:
+    Type: String
+    Description: >
+      The external ID provided by NeoGuard during onboarding. This prevents
+      the confused-deputy attack and must match exactly.
+    MinLength: 5
+    MaxLength: 256
+
+  NeoGuardAccountId:
+    Type: String
+    Default: "271547278517"
+    Description: The AWS account ID of the NeoGuard platform.
+
+Resources:
+  NeoGuardMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NeoGuardMonitoringRole
+      Description: Read-only role for NeoGuard cloud monitoring platform
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${NeoGuardAccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      Policies:
+        - PolicyName: NeoGuardReadOnlyMonitoring
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # CloudWatch metrics collection
+              - Sid: CloudWatchRead
+                Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                  - cloudwatch:DescribeAlarms
+                Resource: "*"
+
+              # EC2 discovery and metadata
+              - Sid: EC2Read
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeRegions
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeAddresses
+                Resource: "*"
+
+              # RDS discovery
+              - Sid: RDSRead
+                Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
+                  - rds:ListTagsForResource
+                Resource: "*"
+
+              # Lambda discovery
+              - Sid: LambdaRead
+                Effect: Allow
+                Action:
+                  - lambda:ListFunctions
+                  - lambda:GetFunction
+                  - lambda:ListTags
+                Resource: "*"
+
+              # DynamoDB discovery
+              - Sid: DynamoDBRead
+                Effect: Allow
+                Action:
+                  - dynamodb:ListTables
+                  - dynamodb:DescribeTable
+                  - dynamodb:ListTagsOfResource
+                Resource: "*"
+
+              # S3 bucket listing (no object access)
+              - Sid: S3List
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                  - s3:GetBucketTagging
+                Resource: "*"
+
+              # ELB discovery
+              - Sid: ELBRead
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - elasticloadbalancing:DescribeTags
+                Resource: "*"
+
+              # Route53
+              - Sid: Route53Read
+                Effect: Allow
+                Action:
+                  - route53:ListHostedZones
+                  - route53:ListResourceRecordSets
+                Resource: "*"
+
+              # Resource tagging for discovery
+              - Sid: TagRead
+                Effect: Allow
+                Action:
+                  - tag:GetResources
+                  - tag:GetTagKeys
+                  - tag:GetTagValues
+                Resource: "*"
+
+              # STS for identity verification
+              - Sid: STSRead
+                Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: "*"
+
+      Tags:
+        - Key: ManagedBy
+          Value: NeoGuard
+        - Key: Purpose
+          Value: CloudMonitoring
+
+Outputs:
+  RoleArn:
+    Description: ARN of the NeoGuard monitoring role — paste this into the NeoGuard console
+    Value: !GetAtt NeoGuardMonitoringRole.Arn
+    Export:
+      Name: NeoGuardMonitoringRoleArn
+
+  ExternalId:
+    Description: External ID used for this role
+    Value: !Ref ExternalId

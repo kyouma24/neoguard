@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import { QueryProvider } from "./providers/QueryProvider";
 import { Layout } from "./components/Layout";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -32,8 +33,8 @@ function ServerErrorScreen({ message, onRetry }: { message: string; onRetry: () 
           fontWeight: 600,
           border: "none",
           borderRadius: 6,
-          background: "var(--color-primary-500, #3b82f6)",
-          color: "#fff",
+          background: "var(--color-primary-500)",
+          color: "var(--text-on-accent)",
           cursor: "pointer",
         }}
       >
@@ -121,10 +122,12 @@ function AppRoutes() {
 
 export function App() {
   return (
-    <QueryProvider>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </QueryProvider>
+    <ThemeProvider>
+      <QueryProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </QueryProvider>
+    </ThemeProvider>
   );
 }

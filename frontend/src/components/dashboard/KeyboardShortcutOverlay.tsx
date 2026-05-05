@@ -20,7 +20,7 @@ export function KeyboardShortcutOverlay({ onClose }: Props) {
   return (
     <>
       <div
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 500 }}
+        style={{ position: "fixed", inset: 0, background: "var(--overlay-bg)", zIndex: 500 }}
         onClick={onClose}
       />
       <div

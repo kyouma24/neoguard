@@ -69,7 +69,7 @@ export function LogStreamWidget({ data, height = 300, displayOptions, content }:
       style={{
         height,
         overflow: "auto",
-        background: "#0d1117",
+        background: "var(--bg-primary)",
         borderRadius: "var(--radius-sm, 4px)",
         padding: "8px 12px",
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
@@ -88,7 +88,7 @@ export function LogStreamWidget({ data, height = 300, displayOptions, content }:
           }}
         >
           {showTimestamp && (
-            <span style={{ color: "#6e7681", flexShrink: 0 }}>{line.ts}</span>
+            <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>{line.ts}</span>
           )}
           {showSeverity && (
             <span style={{

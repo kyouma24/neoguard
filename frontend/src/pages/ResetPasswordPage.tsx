@@ -207,7 +207,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "var(--border-radius-md)",
     border: "none",
     background: "var(--color-primary-500)",
-    color: "#fff",
+    color: "var(--text-on-accent)",
     fontSize: "var(--typography-font-size-sm)",
     fontWeight: 600,
     cursor: "pointer",

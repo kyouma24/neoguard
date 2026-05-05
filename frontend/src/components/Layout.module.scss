@@ -7,12 +7,13 @@
 .sidebar {
   width: 220px;
   background: var(--color-neutral-50);
-  border-right: var(--border-width-thin) solid var(--color-neutral-200);
+  border-right: var(--border-width-thin) solid var(--border-subtle);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  transition: width 0.2s ease;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+  backdrop-filter: var(--glass-blur);
 }
 
 .sidebarCollapsed {
@@ -25,8 +26,8 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: var(--border-width-thin) solid var(--color-neutral-200);
-  min-height: 48px;
+  border-bottom: var(--border-width-thin) solid var(--border-subtle);
+  min-height: 52px;
   gap: var(--spacing-sm);
 }
 
@@ -49,6 +50,7 @@
   font-size: var(--typography-font-size-lg);
   font-weight: var(--typography-font-weight-bold);
   color: var(--color-neutral-900);
+  letter-spacing: -0.02em;
 }
 
 .collapseBtn {
@@ -57,7 +59,7 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border: var(--border-width-thin) solid var(--color-neutral-200);
+  border: none;
   border-radius: var(--border-radius-md);
   background: transparent;
   color: var(--color-neutral-400);
@@ -66,9 +68,8 @@
   transition: all 0.15s;
 
   &:hover {
-    color: var(--color-neutral-700);
-    background: var(--color-neutral-100);
-    border-color: var(--color-neutral-300);
+    color: var(--color-primary-500);
+    background: var(--color-primary-50);
   }
 }
 
@@ -78,35 +79,36 @@
   flex-direction: column;
   gap: 2px;
   flex: 1;
-  padding: var(--spacing-sm) 0;
+  padding: var(--spacing-sm) var(--spacing-xs);
   overflow-y: auto;
 }
 
 .navLink {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-lg);
+  gap: 10px;
+  padding: 8px 12px;
   color: var(--color-neutral-500);
-  font-size: var(--typography-font-size-sm);
-  font-weight: var(--typography-font-weight-regular);
-  transition: all var(--transition-fast-duration) var(--transition-fast-easing);
-  border-left: 3px solid transparent;
+  font-size: 13px;
+  font-weight: var(--typography-font-weight-medium);
+  transition: all 0.15s ease;
+  border-radius: var(--border-radius-md);
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
+  margin: 0 4px;
 
   &:hover {
-    color: var(--color-neutral-700);
+    color: var(--color-neutral-800);
     background: var(--color-primary-50);
   }
 }
 
 .navLinkCollapsed {
-  padding: var(--spacing-sm) 0;
+  padding: 8px 0;
   justify-content: center;
-  border-left: none;
+  margin: 0 4px;
 
   &:hover {
     background: var(--color-primary-50);
@@ -116,12 +118,12 @@
 .navLinkActive {
   color: var(--color-primary-500);
   background: var(--color-primary-50);
-  border-left-color: var(--color-primary-500);
   font-weight: var(--typography-font-weight-semibold);
+  box-shadow: inset 3px 0 0 var(--color-primary-500);
 }
 
 .navLinkCollapsed.navLinkActive {
-  border-left-color: transparent;
+  box-shadow: none;
   background: var(--color-primary-50);
 }
 
@@ -136,12 +138,12 @@
   &.navLinkActive {
     color: var(--color-danger-600, #dc2626);
     background: var(--color-danger-50, #fef2f2);
-    border-left-color: var(--color-danger-600, #dc2626);
+    box-shadow: inset 3px 0 0 var(--color-danger-600, #dc2626);
   }
 }
 
 .navLinkCollapsed.navLinkAdmin.navLinkActive {
-  border-left-color: transparent;
+  box-shadow: none;
 }
 
 .navLabel {
@@ -152,7 +154,7 @@
 // ── Tenant section (sidebar bottom) ──────────────────────────────────────
 .tenantSection {
   padding: var(--spacing-sm) var(--spacing-md);
-  border-top: var(--border-width-thin) solid var(--color-neutral-200);
+  border-top: var(--border-width-thin) solid var(--border-subtle);
 }
 
 .tenantSectionHidden {
@@ -174,9 +176,10 @@
   justify-content: flex-end;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-lg);
-  border-bottom: var(--border-width-thin) solid var(--color-neutral-200);
-  background: var(--color-neutral-0, #fff);
-  min-height: 48px;
+  border-bottom: var(--border-width-thin) solid var(--border-subtle);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  min-height: 52px;
   flex-shrink: 0;
 }
 
@@ -200,6 +203,27 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+}
+
+.themeToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: var(--border-width-thin) solid var(--border-subtle);
+  border-radius: var(--border-radius-lg);
+  background: transparent;
+  color: var(--color-neutral-500);
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    color: var(--color-primary-500);
+    background: var(--color-primary-50);
+    border-color: var(--color-primary-200);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
 }
 
 // ── Main content area ────────────────────────────────────────────────────

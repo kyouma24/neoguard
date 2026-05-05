@@ -331,6 +331,86 @@ export interface ResourceSummary {
   by_status: Record<string, number>;
 }
 
+export interface ResourceIssueItem {
+  id: string;
+  name: string;
+  resource_type: string;
+  provider: string;
+  account_id: string;
+  region: string;
+}
+
+export interface ResourceIssues {
+  stopped_resources: Array<ResourceIssueItem & { status: string; updated_at: string }>;
+  stale_resources: Array<ResourceIssueItem & { last_seen_at: string; minutes_stale: number }>;
+  firing_alerts: Array<{
+    event_id: string;
+    rule_name: string;
+    severity: string;
+    fired_at: string;
+    status: string;
+  }>;
+  counts: {
+    stopped: number;
+    stale: number;
+    firing_alerts: number;
+    total_issues: number;
+  };
+}
+
+export interface ResourceChange {
+  id: string;
+  resource_id: string;
+  resource_name: string;
+  resource_type: string;
+  provider: string;
+  change_type: string;
+  field_changes: Array<{ field: string; old: unknown; new: unknown }>;
+  previous_status: string | null;
+  new_status: string | null;
+  detected_at: string;
+}
+
+export interface ResourceGroup {
+  name: string;
+  total: number;
+  by_provider: Record<string, number>;
+  by_status: Record<string, number>;
+}
+
+export interface TopologyNode {
+  id: string;
+  name: string;
+  resource_type: string;
+  provider: string;
+  region: string;
+  status: string;
+  external_id: string;
+}
+
+export interface TopologyEdge {
+  source: string;
+  target: string;
+  relation: string;
+}
+
+export interface ResourceTopology {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+}
+
+export interface TriggerDiscoveryRequest {
+  aws_account_id?: string;
+  azure_subscription_id?: string;
+  region?: string;
+}
+
+export interface TriggerDiscoveryResponse {
+  status: string;
+  provider: string;
+  results: Record<string, Record<string, unknown>>;
+}
+
 export interface AWSAccount {
   id: string;
   tenant_id: string;
@@ -491,6 +571,7 @@ export interface AWSAccountCreate {
   role_arn: string;
   external_id: string;
   regions?: string[];
+  collect_config?: Record<string, unknown>;
 }
 
 export interface AzureSubscriptionCreate {
@@ -500,6 +581,69 @@ export interface AzureSubscriptionCreate {
   client_id: string;
   client_secret: string;
   regions?: string[];
+  collect_config?: Record<string, unknown>;
+}
+
+// --- Onboarding types ---
+
+export interface GenerateExternalIdResponse {
+  external_id: string;
+  cft_template_url: string;
+  arm_template_url: string;
+  cft_console_url: string;
+  arm_portal_url: string;
+  neoguard_account_id: string;
+}
+
+export interface VerifyAWSRequest {
+  role_arn: string;
+  external_id: string;
+  region?: string;
+}
+
+export interface VerifyAWSResponse {
+  success: boolean;
+  account_id: string | null;
+  role_arn: string;
+  services: Record<string, { ok: boolean; label: string; error?: string | null }>;
+  error: string | null;
+}
+
+export interface DiscoverPreviewRequest {
+  role_arn: string;
+  external_id: string;
+  regions: string[];
+}
+
+export interface DiscoverPreviewResponse {
+  success: boolean;
+  regions: Record<string, { services: Record<string, number>; total: number }>;
+  totals: { resources: number; regions_with_resources: number };
+  error: string | null;
+}
+
+export interface VerifyAzureRequest {
+  azure_tenant_id: string;
+  client_id: string;
+  client_secret: string;
+  subscription_id: string;
+}
+
+export interface VerifyAzureResponse {
+  success: boolean;
+  subscription_id: string;
+  services: Record<string, { ok: boolean; label: string; count?: number; error?: string | null }>;
+  error: string | null;
+}
+
+export interface AvailableRegionsResponse {
+  aws: string[];
+  azure: string[];
+}
+
+export interface AvailableServicesResponse {
+  aws: Array<{ id: string; label: string }>;
+  azure: Array<{ id: string; label: string }>;
 }
 
 // --- Auth types ---

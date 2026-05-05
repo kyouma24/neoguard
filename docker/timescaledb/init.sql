@@ -202,6 +202,26 @@ CREATE INDEX IF NOT EXISTS idx_resources_tags
     ON resources USING GIN (tags);
 
 -- =====================================================================
+-- Resource change tracking (drift detection)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS resource_changes (
+    id              TEXT PRIMARY KEY,
+    tenant_id       TEXT NOT NULL,
+    resource_id     TEXT NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+    change_type     TEXT NOT NULL DEFAULT 'metadata_changed',
+    field_changes   JSONB NOT NULL DEFAULT '[]',
+    previous_status TEXT,
+    new_status      TEXT,
+    detected_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_resource_changes_resource
+    ON resource_changes (tenant_id, resource_id, detected_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_resource_changes_tenant_time
+    ON resource_changes (tenant_id, detected_at DESC);
+
+-- =====================================================================
 -- AWS account configuration
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS aws_accounts (

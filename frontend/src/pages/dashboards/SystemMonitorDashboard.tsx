@@ -135,7 +135,7 @@ export function SystemMonitorDashboard() {
                       <span style={{
                         display: "inline-block", width: 52, textAlign: "center", fontSize: 11, fontWeight: 700,
                         padding: "2px 6px", borderRadius: 4, marginRight: 8,
-                        background: methodColor(ep.method), color: "#fff",
+                        background: methodColor(ep.method), color: "var(--text-on-accent)",
                       }}>
                         {ep.method}
                       </span>

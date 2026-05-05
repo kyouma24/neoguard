@@ -8,8 +8,11 @@ from neoguard.core.regions import AWS_DEFAULT_REGIONS
 class AWSAccountCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     account_id: str = Field(..., pattern=r"^\d{12}$")
-    role_arn: str = ""
-    external_id: str = ""
+    role_arn: str = Field(
+        default="",
+        pattern=r"^$|^arn:aws:iam::\d{12}:role/[\w+=,.@\-/]+$",
+    )
+    external_id: str = Field(default="", max_length=256)
     regions: list[str] = Field(default_factory=lambda: list(AWS_DEFAULT_REGIONS))
     collect_config: dict = Field(default_factory=dict)
 

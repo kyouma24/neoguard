@@ -27,6 +27,7 @@ from neoguard.api.routes import (
     metrics,
     mql,
     notifications,
+    onboarding,
     resources,
     sse,
     system,
@@ -176,4 +177,5 @@ app.include_router(notifications.router)
 app.include_router(collection.router)
 app.include_router(system.router)
 app.include_router(tenants.router)
+app.include_router(onboarding.router)
 app.include_router(admin.router)

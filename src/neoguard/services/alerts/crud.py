@@ -61,13 +61,14 @@ async def list_alert_rules(
         if tenant_id:
             rows = await conn.fetch(
                 "SELECT * FROM alert_rules WHERE tenant_id = $1"
-                f" ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}",
-                tenant_id,
+                " ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                tenant_id, limit, offset,
             )
         else:
             rows = await conn.fetch(
                 "SELECT * FROM alert_rules"
-                f" ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}",
+                " ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                limit, offset,
             )
     return [_row_to_rule(r) for r in rows]
 
@@ -196,14 +197,18 @@ async def preview_alert_rule(
     now = datetime.now(UTC)
     lookback_start = now - timedelta(hours=preview.lookback_hours)
 
-    # Build tags filter conditions
+    import re
+    _SAFE_TAG_KEY = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_\-]*$")
+
     tag_conditions = ""
     tag_params: list = [tenant_id, preview.metric_name, lookback_start]
     idx = 4
     for key, val in preview.tags_filter.items():
-        tag_conditions += f" AND tags->>'{key}' = ${idx}"
-        tag_params.append(val)
-        idx += 1
+        if not _SAFE_TAG_KEY.match(key) or len(key) > 128:
+            continue
+        tag_conditions += f" AND tags->>({f'${idx}'}) = ${idx + 1}"
+        tag_params.extend([key, val])
+        idx += 2
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(

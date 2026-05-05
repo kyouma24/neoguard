@@ -127,11 +127,17 @@ async def set_dashboard_permission(
 
 
 async def remove_dashboard_permission(
-    dashboard_id: str, user_id: UUID,
+    dashboard_id: str, user_id: UUID, tenant_id: str | None = None,
 ) -> bool:
     pool = await get_pool()
-    result = await pool.execute(
-        "DELETE FROM dashboard_permissions WHERE dashboard_id = $1 AND user_id = $2",
-        dashboard_id, user_id,
-    )
+    if tenant_id:
+        result = await pool.execute(
+            "DELETE FROM dashboard_permissions WHERE dashboard_id = $1 AND user_id = $2 AND tenant_id = $3",
+            dashboard_id, user_id, tenant_id,
+        )
+    else:
+        result = await pool.execute(
+            "DELETE FROM dashboard_permissions WHERE dashboard_id = $1 AND user_id = $2",
+            dashboard_id, user_id,
+        )
     return result == "DELETE 1"

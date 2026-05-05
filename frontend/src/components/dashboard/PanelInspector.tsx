@@ -60,7 +60,7 @@ export function PanelInspector({ panel, data, from, to, interval, onClose }: Pro
         position: "fixed",
         inset: 0,
         zIndex: 1100,
-        background: "rgba(0, 0, 0, 0.6)",
+        background: "var(--overlay-bg)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

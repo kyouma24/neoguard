@@ -43,7 +43,7 @@ export function VersionHistoryDrawer({ dashboardId, onRestore, onClose }: Props)
   return (
     <>
       <div
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200 }}
+        style={{ position: "fixed", inset: 0, background: "var(--overlay-bg)", zIndex: 200 }}
         onClick={onClose}
       />
       <div

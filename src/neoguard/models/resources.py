@@ -15,6 +15,7 @@ class ResourceStatus(StrEnum):
     ACTIVE = "active"
     STOPPED = "stopped"
     TERMINATED = "terminated"
+    REMOVED = "removed"
     UNKNOWN = "unknown"
 
 

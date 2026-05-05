@@ -1,3 +1,4 @@
+import asyncpg
 import orjson
 from ulid import ULID
 
@@ -5,23 +6,43 @@ from neoguard.db.timescale.connection import get_pool
 from neoguard.models.aws import AWSAccount, AWSAccountCreate, AWSAccountUpdate
 
 
+class DuplicateAccountError(Exception):
+    def __init__(self, account_id: str, tenant_id: str):
+        self.account_id = account_id
+        self.tenant_id = tenant_id
+        super().__init__(
+            f"AWS account {account_id} is already connected to this tenant."
+        )
+
+
 async def create_aws_account(tenant_id: str, data: AWSAccountCreate) -> AWSAccount:
-    acct_id = str(ULID())
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            INSERT INTO aws_accounts
-                (id, tenant_id, name, account_id, role_arn, external_id,
-                 regions, collect_config)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
-            """,
-            acct_id, tenant_id, data.name, data.account_id,
-            data.role_arn, data.external_id,
-            orjson.dumps(data.regions).decode(),
-            orjson.dumps(data.collect_config).decode(),
+        existing = await conn.fetchval(
+            "SELECT id FROM aws_accounts WHERE tenant_id = $1 AND account_id = $2",
+            tenant_id, data.account_id,
         )
+        if existing:
+            raise DuplicateAccountError(data.account_id, tenant_id)
+
+    acct_id = str(ULID())
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO aws_accounts
+                    (id, tenant_id, name, account_id, role_arn, external_id,
+                     regions, collect_config)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING *
+                """,
+                acct_id, tenant_id, data.name, data.account_id,
+                data.role_arn, data.external_id,
+                orjson.dumps(data.regions).decode(),
+                orjson.dumps(data.collect_config).decode(),
+            )
+    except asyncpg.UniqueViolationError:
+        raise DuplicateAccountError(data.account_id, tenant_id)
     return _row_to_account(row)
 
 
@@ -64,7 +85,7 @@ async def list_aws_accounts(
 
 
 async def update_aws_account(
-    tenant_id: str, acct_id: str, data: AWSAccountUpdate,
+    tenant_id: str | None, acct_id: str, data: AWSAccountUpdate,
 ) -> AWSAccount | None:
     updates = data.model_dump(exclude_none=True)
     if not updates:
@@ -72,7 +93,14 @@ async def update_aws_account(
 
     set_parts = []
     params = []
-    idx = 3
+    if tenant_id:
+        where = "WHERE id = $1 AND tenant_id = $2"
+        base_params = [acct_id, tenant_id]
+        idx = 3
+    else:
+        where = "WHERE id = $1"
+        base_params = [acct_id]
+        idx = 2
     for field, value in updates.items():
         if field in ("regions", "collect_config"):
             value = orjson.dumps(value).decode()
@@ -84,20 +112,22 @@ async def update_aws_account(
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            f"UPDATE aws_accounts SET {', '.join(set_parts)}"
-            " WHERE id = $1 AND tenant_id = $2 RETURNING *",
-            acct_id, tenant_id, *params,
+            f"UPDATE aws_accounts SET {', '.join(set_parts)} {where} RETURNING *",
+            *base_params, *params,
         )
     return _row_to_account(row) if row else None
 
 
-async def delete_aws_account(tenant_id: str, acct_id: str) -> bool:
+async def delete_aws_account(tenant_id: str | None, acct_id: str) -> bool:
     pool = await get_pool()
+    if tenant_id:
+        query = "DELETE FROM aws_accounts WHERE id = $1 AND tenant_id = $2"
+        args = (acct_id, tenant_id)
+    else:
+        query = "DELETE FROM aws_accounts WHERE id = $1"
+        args = (acct_id,)
     async with pool.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM aws_accounts WHERE id = $1 AND tenant_id = $2",
-            acct_id, tenant_id,
-        )
+        result = await conn.execute(query, *args)
     return result == "DELETE 1"
 
 

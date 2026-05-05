@@ -283,7 +283,7 @@ export function ShareMenu({ dashboardId }: ShareMenuProps) {
         <>
           <div
             data-testid="embed-modal-backdrop"
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300 }}
+            style={{ position: "fixed", inset: 0, background: "var(--overlay-bg)", zIndex: 300 }}
             onClick={() => setShowEmbed(false)}
           />
           <div

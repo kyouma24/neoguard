@@ -270,8 +270,8 @@ export function DashboardComments({ dashboardId, authorName }: DashboardComments
                           width: 24,
                           height: 24,
                           borderRadius: "50%",
-                          background: "var(--color-primary-500, #635bff)",
-                          color: "#fff",
+                          background: "var(--color-primary-500)",
+                          color: "var(--text-on-accent)",
                           fontSize: 11,
                           fontWeight: 700,
                         }}

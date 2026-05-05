@@ -332,6 +332,7 @@ async def restore_version(
         data=dash.model_dump(mode="json"),
         user_id=user_id,
         change_summary=f"Auto-saved before restore to v{version_number}",
+        tenant_id=tenant_id,
     )
 
     restore_data = ver.data
@@ -401,7 +402,7 @@ async def delete_permission(
     if not dash:
         raise HTTPException(status_code=404, detail="Dashboard not found")
     await _require_dashboard_permission(request, dashboard_id, DashboardPermissionLevel.ADMIN)
-    removed = await remove_dashboard_permission(dashboard_id, target_user_id)
+    removed = await remove_dashboard_permission(dashboard_id, target_user_id, tenant_id=tenant_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Permission not found")
     return {"message": "Permission removed"}

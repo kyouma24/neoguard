@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Pencil,
   Plus,
   Power,
   Trash2,
@@ -120,19 +121,20 @@ export function CloudAccountsTab() {
   const { canCreate, canEdit, canDelete } = usePermissions();
   const [showWizard, setShowWizard] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "aws" | "azure"; id: string; name: string } | null>(null);
+  const [editAccount, setEditAccount] = useState<{ type: "aws" | "azure"; id: string; name: string; regionCodes: string[]; collectConfig: Record<string, unknown> } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { data: awsAccounts, refetch: refetchAWS } = useApi<AWSAccount[]>(() => api.aws.listAccounts(), []);
   const { data: azureSubs, refetch: refetchAzure } = useApi<AzureSubscription[]>(() => api.azure.listSubscriptions(), []);
 
-  const allAccounts: { type: "aws" | "azure"; id: string; name: string; provider: string; detail: string; regions: number; enabled: boolean; lastSync: string | null }[] = [
+  const allAccounts: { type: "aws" | "azure"; id: string; name: string; provider: string; detail: string; regions: number; regionCodes: string[]; enabled: boolean; lastSync: string | null; collectConfig: Record<string, unknown> }[] = [
     ...(awsAccounts ?? []).map((a) => ({
       type: "aws" as const, id: a.id, name: a.name, provider: "AWS",
-      detail: `Account ${a.account_id}`, regions: a.regions.length, enabled: a.enabled, lastSync: a.last_sync_at,
+      detail: `Account ${a.account_id}`, regions: a.regions.length, regionCodes: a.regions, enabled: a.enabled, lastSync: a.last_sync_at, collectConfig: a.collect_config,
     })),
     ...(azureSubs ?? []).map((s) => ({
       type: "azure" as const, id: s.id, name: s.name, provider: "Azure",
-      detail: `Subscription ${s.subscription_id.slice(0, 13)}...`, regions: s.regions.length, enabled: s.enabled, lastSync: s.last_sync_at,
+      detail: `Subscription ${s.subscription_id.slice(0, 13)}...`, regions: s.regions.length, regionCodes: s.regions, enabled: s.enabled, lastSync: s.last_sync_at, collectConfig: s.collect_config,
     })),
   ];
 
@@ -214,6 +216,11 @@ export function CloudAccountsTab() {
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   {canEdit && (
+                    <Button variant="ghost" size="sm" onClick={() => setEditAccount({ type: acct.type, id: acct.id, name: acct.name, regionCodes: acct.regionCodes, collectConfig: acct.collectConfig })} title="Edit configuration">
+                      <Pencil size={14} />
+                    </Button>
+                  )}
+                  {canEdit && (
                     <Button variant="ghost" size="sm" onClick={() => handleToggle(acct.type, acct.id, acct.enabled)} title={acct.enabled ? "Disable" : "Enable"}>
                       <Power size={14} color={acct.enabled ? "var(--color-success-500)" : "var(--color-neutral-400)"} />
                     </Button>
@@ -259,6 +266,117 @@ export function CloudAccountsTab() {
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      {editAccount && (
+        <EditAccountOverlay
+          account={editAccount}
+          onSave={async (regions, services) => {
+            const collectConfig = { enabled_services: services };
+            if (editAccount.type === "aws") {
+              await api.aws.updateAccount(editAccount.id, { regions, collect_config: collectConfig });
+              refetchAWS();
+            } else {
+              await api.azure.updateSubscription(editAccount.id, { regions, collect_config: collectConfig });
+              refetchAzure();
+            }
+            setEditAccount(null);
+          }}
+          onClose={() => setEditAccount(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EDIT ACCOUNT OVERLAY (regions + services)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function EditAccountOverlay({
+  account,
+  onSave,
+  onClose,
+}: {
+  account: { type: "aws" | "azure"; id: string; name: string; regionCodes: string[]; collectConfig: Record<string, unknown> };
+  onSave: (regions: string[], services: string[]) => Promise<void>;
+  onClose: () => void;
+}) {
+  const regions = account.type === "aws" ? AWS_REGIONS : AZURE_REGIONS;
+  const resources = account.type === "aws" ? AWS_RESOURCE_TYPES : AZURE_RESOURCE_TYPES;
+
+  const [selectedRegions, setSelectedRegions] = useState<string[]>(account.regionCodes);
+  const [selectedServices, setSelectedServices] = useState<string[]>(() => {
+    const cfg = account.collectConfig as { enabled_services?: string[] } | undefined;
+    if (cfg?.enabled_services?.length) return cfg.enabled_services;
+    return resources.map((r) => r.key);
+  });
+  const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<"regions" | "services">("regions");
+
+  const handleSave = async () => {
+    if (selectedRegions.length === 0) return;
+    setSaving(true);
+    try {
+      await onSave(selectedRegions, selectedServices);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="wizard-overlay" onClick={onClose}>
+      <div className="acct-edit-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="acct-edit-header">
+          <div>
+            <h3 className="acct-edit-title">Edit {account.name}</h3>
+            <p className="acct-edit-subtitle">{account.type.toUpperCase()} · Regions & Services</p>
+          </div>
+          <button className="acct-edit-close" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="acct-edit-tabs">
+          <button className={`acct-edit-tab ${tab === "regions" ? "active" : ""}`} onClick={() => setTab("regions")}>
+            Regions ({selectedRegions.length})
+          </button>
+          <button className={`acct-edit-tab ${tab === "services" ? "active" : ""}`} onClick={() => setTab("services")}>
+            Services ({selectedServices.length}/{resources.length})
+          </button>
+        </div>
+
+        <div className="acct-edit-body">
+          {tab === "regions" && (
+            <RegionSelector
+              title=""
+              description="Select which regions to monitor"
+              regions={regions}
+              selected={selectedRegions}
+              onToggle={(code) => setSelectedRegions((prev) => prev.includes(code) ? prev.filter((r) => r !== code) : [...prev, code])}
+              onSelectAll={() => setSelectedRegions(regions.map((r) => r.code))}
+              onClearAll={() => setSelectedRegions([])}
+            />
+          )}
+          {tab === "services" && (
+            <ResourceSelector
+              title=""
+              description="Select which services to monitor"
+              resources={resources}
+              selected={selectedServices}
+              onToggle={(key) => setSelectedServices((prev) => prev.includes(key) ? prev.filter((r) => r !== key) : [...prev, key])}
+              onSelectAll={() => setSelectedServices(resources.map((r) => r.key))}
+              onClearAll={() => setSelectedServices([])}
+            />
+          )}
+        </div>
+
+        <div className="acct-edit-footer">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave} disabled={saving || selectedRegions.length === 0}>
+            {saving ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -356,7 +474,7 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+      style={{ position: "fixed", inset: 0, background: "var(--overlay-bg)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div style={{
@@ -585,7 +703,7 @@ function OnboardingWizard({ onClose, onComplete }: { onClose: () => void; onComp
                 rel="noopener noreferrer"
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  padding: "12px 20px", background: "#3b82f6", color: "#fff", borderRadius: 8,
+                  padding: "12px 20px", background: "var(--color-info-500)", color: "var(--text-on-accent)", borderRadius: 8,
                   fontWeight: 600, fontSize: 14, textDecoration: "none", marginTop: 20, marginBottom: 20,
                 }}
               >

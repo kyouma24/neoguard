@@ -380,7 +380,7 @@ export function DashboardEditor({ dashboard, onBack, onSettings }: Props) {
                 padding: "3px 8px",
                 borderRadius: 10,
                 background: "var(--color-primary-500)",
-                color: "#fff",
+                color: "var(--text-on-accent)",
                 fontSize: 12,
                 fontWeight: 500,
               }}
@@ -389,7 +389,7 @@ export function DashboardEditor({ dashboard, onBack, onSettings }: Props) {
               {tag}
               <button
                 onClick={() => setTags(tags.filter((t) => t !== tag))}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", padding: 0, display: "flex", alignItems: "center" }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-on-accent)", padding: 0, display: "flex", alignItems: "center" }}
               >
                 <X size={10} />
               </button>

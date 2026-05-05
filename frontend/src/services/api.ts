@@ -45,6 +45,21 @@ import type {
   SystemStats,
   TenantAuditEntry,
   TenantWithRole,
+  GenerateExternalIdResponse,
+  VerifyAWSRequest,
+  VerifyAWSResponse,
+  DiscoverPreviewRequest,
+  DiscoverPreviewResponse,
+  VerifyAzureRequest,
+  VerifyAzureResponse,
+  AvailableRegionsResponse,
+  AvailableServicesResponse,
+  ResourceIssues,
+  ResourceChange,
+  ResourceGroup,
+  ResourceTopology,
+  TriggerDiscoveryRequest,
+  TriggerDiscoveryResponse,
 } from "../types";
 
 const BASE = "/api/v1";
@@ -314,6 +329,26 @@ export const api = {
     },
     get: (id: string) => request<Resource>(`${BASE}/resources/${id}`),
     summary: () => request<ResourceSummary>(`${BASE}/resources/summary`),
+    issues: () => request<ResourceIssues>(`${BASE}/resources/issues`),
+    changes: (params?: { resource_id?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.resource_id) qs.set("resource_id", params.resource_id);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return request<ResourceChange[]>(`${BASE}/resources/changes${query ? `?${query}` : ""}`);
+    },
+    resourceChanges: (resourceId: string, limit?: number) => {
+      const qs = limit ? `?limit=${limit}` : "";
+      return request<ResourceChange[]>(`${BASE}/resources/${resourceId}/changes${qs}`);
+    },
+    grouping: (groupBy?: string) => {
+      const qs = groupBy ? `?group_by=${groupBy}` : "";
+      return request<ResourceGroup[]>(`${BASE}/resources/grouping${qs}`);
+    },
+    topology: (accountId?: string) => {
+      const qs = accountId ? `?account_id=${accountId}` : "";
+      return request<ResourceTopology>(`${BASE}/resources/topology${qs}`);
+    },
   },
 
   aws: {
@@ -645,5 +680,37 @@ export const api = {
         `${BASE}/admin/users/${userId}/tenants/${tenantId}`,
         { method: "DELETE" },
       ),
+  },
+
+  collection: {
+    triggerDiscovery: (data: TriggerDiscoveryRequest) =>
+      request<TriggerDiscoveryResponse>(`${BASE}/collection/discover`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
+
+  onboarding: {
+    generateExternalId: () =>
+      request<GenerateExternalIdResponse>(`${BASE}/onboarding/generate-external-id`, {
+        method: "POST",
+      }),
+    verifyAws: (data: VerifyAWSRequest) =>
+      request<VerifyAWSResponse>(`${BASE}/onboarding/verify-aws`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    discoverPreview: (data: DiscoverPreviewRequest) =>
+      request<DiscoverPreviewResponse>(`${BASE}/onboarding/discover-preview`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    verifyAzure: (data: VerifyAzureRequest) =>
+      request<VerifyAzureResponse>(`${BASE}/onboarding/verify-azure`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    regions: () => request<AvailableRegionsResponse>(`${BASE}/onboarding/regions`),
+    services: () => request<AvailableServicesResponse>(`${BASE}/onboarding/services`),
   },
 };

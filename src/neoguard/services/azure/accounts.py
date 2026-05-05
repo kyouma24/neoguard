@@ -1,3 +1,4 @@
+import asyncpg
 import orjson
 from ulid import ULID
 
@@ -10,25 +11,45 @@ from neoguard.models.azure import (
 from neoguard.services.azure.credentials import cache_client_secret
 
 
+class DuplicateSubscriptionError(Exception):
+    def __init__(self, subscription_id: str, tenant_id: str):
+        self.subscription_id = subscription_id
+        self.tenant_id = tenant_id
+        super().__init__(
+            f"Azure subscription {subscription_id} is already connected to this tenant."
+        )
+
+
 async def create_azure_subscription(
     tenant_id: str, data: AzureSubscriptionCreate,
 ) -> AzureSubscription:
-    sub_id = str(ULID())
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            INSERT INTO azure_subscriptions
-                (id, tenant_id, name, subscription_id, azure_tenant_id,
-                 client_id, client_secret, regions, collect_config)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            """,
-            sub_id, tenant_id, data.name, data.subscription_id,
-            data.tenant_id, data.client_id, data.client_secret,
-            orjson.dumps(data.regions).decode(),
-            orjson.dumps(data.collect_config).decode(),
+        existing = await conn.fetchval(
+            "SELECT id FROM azure_subscriptions WHERE tenant_id = $1 AND subscription_id = $2",
+            tenant_id, data.subscription_id,
         )
+        if existing:
+            raise DuplicateSubscriptionError(data.subscription_id, tenant_id)
+
+    sub_id = str(ULID())
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO azure_subscriptions
+                    (id, tenant_id, name, subscription_id, azure_tenant_id,
+                     client_id, client_secret, regions, collect_config)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING *
+                """,
+                sub_id, tenant_id, data.name, data.subscription_id,
+                data.tenant_id, data.client_id, data.client_secret,
+                orjson.dumps(data.regions).decode(),
+                orjson.dumps(data.collect_config).decode(),
+            )
+    except asyncpg.UniqueViolationError:
+        raise DuplicateSubscriptionError(data.subscription_id, tenant_id)
     sub = _row_to_subscription(row)
     cache_client_secret(sub.subscription_id, data.client_secret)
     return sub
@@ -84,7 +105,7 @@ async def list_azure_subscriptions(
 
 
 async def update_azure_subscription(
-    tenant_id: str, sub_id: str, data: AzureSubscriptionUpdate,
+    tenant_id: str | None, sub_id: str, data: AzureSubscriptionUpdate,
 ) -> AzureSubscription | None:
     updates = data.model_dump(exclude_none=True)
     if not updates:
@@ -92,7 +113,14 @@ async def update_azure_subscription(
 
     set_parts = []
     params = []
-    idx = 3
+    if tenant_id:
+        where = "WHERE id = $1 AND tenant_id = $2"
+        base_params = [sub_id, tenant_id]
+        idx = 3
+    else:
+        where = "WHERE id = $1"
+        base_params = [sub_id]
+        idx = 2
     for field, value in updates.items():
         if field in ("regions", "collect_config"):
             value = orjson.dumps(value).decode()
@@ -104,9 +132,8 @@ async def update_azure_subscription(
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            f"UPDATE azure_subscriptions SET {', '.join(set_parts)}"
-            " WHERE id = $1 AND tenant_id = $2 RETURNING *",
-            sub_id, tenant_id, *params,
+            f"UPDATE azure_subscriptions SET {', '.join(set_parts)} {where} RETURNING *",
+            *base_params, *params,
         )
     if not row:
         return None
@@ -115,13 +142,16 @@ async def update_azure_subscription(
     return sub
 
 
-async def delete_azure_subscription(tenant_id: str, sub_id: str) -> bool:
+async def delete_azure_subscription(tenant_id: str | None, sub_id: str) -> bool:
     pool = await get_pool()
+    if tenant_id:
+        query = "DELETE FROM azure_subscriptions WHERE id = $1 AND tenant_id = $2"
+        args = (sub_id, tenant_id)
+    else:
+        query = "DELETE FROM azure_subscriptions WHERE id = $1"
+        args = (sub_id,)
     async with pool.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM azure_subscriptions WHERE id = $1 AND tenant_id = $2",
-            sub_id, tenant_id,
-        )
+        result = await conn.execute(query, *args)
     return result == "DELETE 1"
 
 

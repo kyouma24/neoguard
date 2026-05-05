@@ -6,7 +6,11 @@ from neoguard.services.resources.crud import (
     create_resource,
     delete_resource,
     get_resource,
+    get_resource_grouping,
+    get_resource_issues,
     get_resource_summary,
+    get_resource_topology,
+    list_resource_changes,
     list_resources,
     update_resource,
 )
@@ -40,6 +44,56 @@ async def summary(
     tenant_id: str | None = Depends(get_tenant_id),
 ) -> dict:
     return await get_resource_summary(tenant_id)
+
+
+@router.get("/issues")
+async def issues(
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> dict:
+    """Aggregate resources and alerts that need attention.
+
+    Returns stopped/terminated resources, stale resources (not seen in
+    >15 minutes), and currently-firing alert events with summary counts.
+    """
+    return await get_resource_issues(tenant_id)
+
+
+@router.get("/grouping")
+async def grouping(
+    group_by: str = "env",
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> list[dict]:
+    return await get_resource_grouping(tenant_id, group_by=group_by)
+
+
+@router.get("/topology")
+async def topology(
+    account_id: str | None = None,
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> dict:
+    return await get_resource_topology(tenant_id, account_id=account_id)
+
+
+@router.get("/changes")
+async def list_changes(
+    resource_id: str | None = None,
+    limit: int = 50,
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> list[dict]:
+    return await list_resource_changes(
+        tenant_id, resource_id=resource_id, limit=min(limit, 200),
+    )
+
+
+@router.get("/{resource_id}/changes")
+async def resource_changes(
+    resource_id: str,
+    limit: int = 50,
+    tenant_id: str | None = Depends(get_tenant_id),
+) -> list[dict]:
+    return await list_resource_changes(
+        tenant_id, resource_id=resource_id, limit=min(limit, 200),
+    )
 
 
 @router.post(

@@ -27,7 +27,7 @@ function PanelSelectionOverlay({ panels, selectedIds, onSelect, onCancel }: Pane
         position: "fixed",
         inset: 0,
         zIndex: 900,
-        background: "rgba(0, 0, 0, 0.5)",
+        background: "var(--overlay-bg)",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -96,7 +96,7 @@ function PanelSelectionOverlay({ panels, selectedIds, onSelect, onCancel }: Pane
                   gap: 10,
                   padding: "10px 14px",
                   background: isSelected ? "var(--color-primary-500)" : "var(--bg-secondary)",
-                  color: isSelected ? "#fff" : "var(--text-primary)",
+                  color: isSelected ? "var(--text-on-accent)" : "var(--text-primary)",
                   border: isSelected ? "2px solid var(--color-primary-400)" : "1px solid var(--border)",
                   borderRadius: "var(--radius-sm, 4px)",
                   cursor: "pointer",
@@ -109,7 +109,7 @@ function PanelSelectionOverlay({ panels, selectedIds, onSelect, onCancel }: Pane
                 {isSelected && (
                   <span
                     style={{
-                      background: "#fff",
+                      background: "var(--color-neutral-0)",
                       color: "var(--color-primary-500)",
                       borderRadius: "50%",
                       width: 20,
@@ -206,8 +206,8 @@ function CorrelationResultOverlay({
   const interpretation = useMemo(() => {
     if (!correlation) return null;
     const absR = Math.abs(correlation.r);
-    if (absR > 0.7) return { label: "Strong correlation", color: "#22c55e" };
-    if (absR > 0.4) return { label: "Moderate correlation", color: "#f59e0b" };
+    if (absR > 0.7) return { label: "Strong correlation", color: "var(--color-success-500)" };
+    if (absR > 0.4) return { label: "Moderate correlation", color: "var(--color-warning-500)" };
     return { label: "Weak correlation", color: "var(--text-muted)" };
   }, [correlation]);
 

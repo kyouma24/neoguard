@@ -387,7 +387,7 @@ export function DashboardList() {
                           padding: "2px 8px",
                           borderRadius: 10,
                           background: "var(--color-primary-500)",
-                          color: "#fff",
+                          color: "var(--text-on-accent)",
                           fontSize: 11,
                           fontWeight: 500,
                           cursor: "pointer",

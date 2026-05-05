@@ -17,8 +17,7 @@ async def ingest_logs(
     batch: LogBatch,
     tenant_id: str = Depends(get_tenant_id_required),
 ) -> dict:
-    tid = batch.tenant_id or tenant_id
-    count = await log_writer.write(tid, batch.logs)
+    count = await log_writer.write(tenant_id, batch.logs)
     return {"accepted": count}
 
 
@@ -27,7 +26,7 @@ async def query(
     q: LogQuery,
     tenant_id: str | None = Depends(get_tenant_id),
 ) -> LogQueryResult:
-    q.tenant_id = q.tenant_id or tenant_id
+    q.tenant_id = tenant_id
     return await query_logs(q)
 
 

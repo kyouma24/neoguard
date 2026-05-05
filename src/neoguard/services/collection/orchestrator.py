@@ -18,7 +18,7 @@ from neoguard.services.collection.jobs import complete_job, create_job
 from neoguard.services.dashboards_starter import maybe_create_starter_dashboard
 from neoguard.services.discovery.aws_discovery import discover_all as aws_discover_all
 from neoguard.services.discovery.azure_discovery import discover_all as azure_discover_all
-from neoguard.services.resources.crud import list_resources
+from neoguard.services.resources.crud import list_resources, reconcile_stale_resources
 
 NAMESPACE_FOR_TYPE: dict[str, str] = {
     "ec2": "AWS/EC2",
@@ -223,9 +223,12 @@ class CollectionOrchestrator:
         await self._run_azure_discovery()
 
     async def _run_aws_discovery(self) -> None:
+        from datetime import datetime, timezone
+
         accounts = await list_aws_accounts(None, enabled_only=True)
         for acct in accounts:
             tid = acct.tenant_id
+            cycle_start = datetime.now(timezone.utc)
             job = await create_job(tid, "discovery", acct.id)
             try:
                 regions = await _resolve_regions(acct)
@@ -234,6 +237,9 @@ class CollectionOrchestrator:
                     results = await aws_discover_all(acct, region, tid)
                     all_results[region] = results
 
+                removed = await reconcile_stale_resources(
+                    tid, acct.account_id, "aws", cycle_start,
+                )
                 await aws_mark_synced(tid, acct.id)
                 await complete_job(job["id"], tid, result=all_results)
                 await maybe_create_starter_dashboard(tid, "aws")
@@ -241,6 +247,7 @@ class CollectionOrchestrator:
                     "AWS discovery complete",
                     account=acct.account_id,
                     regions=len(regions),
+                    removed=removed,
                 )
             except Exception as e:
                 await complete_job(job["id"], tid, error=str(e))
@@ -251,9 +258,12 @@ class CollectionOrchestrator:
                 )
 
     async def _run_azure_discovery(self) -> None:
+        from datetime import datetime, timezone
+
         subs = await list_azure_subscriptions(None, enabled_only=True)
         for sub in subs:
             tid = sub.tenant_id
+            cycle_start = datetime.now(timezone.utc)
             job = await create_job(tid, "discovery", sub.id)
             try:
                 all_results: dict[str, dict] = {}
@@ -261,6 +271,9 @@ class CollectionOrchestrator:
                     results = await azure_discover_all(sub, region, tid)
                     all_results[region] = results
 
+                removed = await reconcile_stale_resources(
+                    tid, sub.subscription_id, "azure", cycle_start,
+                )
                 await azure_mark_synced(tid, sub.id)
                 await complete_job(job["id"], tid, result=all_results)
                 await maybe_create_starter_dashboard(tid, "azure")
@@ -268,6 +281,7 @@ class CollectionOrchestrator:
                     "Azure discovery complete",
                     subscription=sub.subscription_id,
                     regions=len(sub.regions),
+                    removed=removed,
                 )
             except Exception as e:
                 await complete_job(job["id"], tid, error=str(e))
@@ -285,6 +299,13 @@ class CollectionOrchestrator:
         accounts = await list_aws_accounts(None, enabled_only=True)
         for acct in accounts:
             tid = acct.tenant_id
+            if not tid:
+                await log.awarn(
+                    "Skipping AWS account with no tenant_id",
+                    account_id=acct.account_id,
+                    name=acct.name,
+                )
+                continue
             regions = await _resolve_regions(acct)
             for region in regions:
                 resources = await list_resources(
@@ -330,6 +351,13 @@ class CollectionOrchestrator:
         subs = await list_azure_subscriptions(None, enabled_only=True)
         for sub in subs:
             tid = sub.tenant_id
+            if not tid:
+                await log.awarn(
+                    "Skipping Azure subscription with no tenant_id",
+                    subscription_id=sub.subscription_id,
+                    name=sub.name,
+                )
+                continue
             resources = await list_resources(
                 tid, provider="azure", account_id=sub.subscription_id,
             )

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "NeoGuard Monitoring — Assigns the built-in Reader role to a service principal so NeoGuard can discover resources and collect Azure Monitor metrics. No write permissions are granted. This is a subscription-level deployment."
+  },
+  "parameters": {
+    "servicePrincipalObjectId": {
+      "type": "string",
+      "metadata": {
+        "description": "The Object ID of your App Registration's Enterprise Application. Find it in Azure AD → Enterprise applications → search your app → Object ID."
+      }
+    },
+    "roleDefinitionId": {
+      "type": "string",
+      "defaultValue": "acdd72a7-3385-48ef-bd42-f606fba81ae7",
+      "metadata": {
+        "description": "Role definition ID for Reader role. The default is the built-in Azure Reader role — do not change this."
+      }
+    }
+  },
+  "variables": {
+    "roleAssignmentName": "[guid(subscription().subscriptionId, parameters('servicePrincipalObjectId'), parameters('roleDefinitionId'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[variables('roleAssignmentName')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', parameters('roleDefinitionId'))]",
+        "principalId": "[parameters('servicePrincipalObjectId')]",
+        "principalType": "ServicePrincipal",
+        "description": "NeoGuard monitoring platform — read-only access for resource discovery and metric collection"
+      }
+    }
+  ],
+  "outputs": {
+    "roleAssignmentId": {
+      "type": "string",
+      "value": "[variables('roleAssignmentName')]"
+    },
+    "assignedRole": {
+      "type": "string",
+      "value": "Reader"
+    }
+  }
+}

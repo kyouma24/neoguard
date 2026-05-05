@@ -2,18 +2,20 @@ import { useState, useCallback } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   Activity,
-  AlertTriangle,
-  BarChart3,
+  Bell,
+  ChevronLeftCircle,
   FileText,
+  Gauge,
   LayoutDashboard,
-  Menu,
-  Server,
+  Moon,
+  Radar,
   Settings,
-  Shield,
   ShieldCheck,
+  Sun,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useTheme } from "../contexts/ThemeContext";
 import { useTenantContext } from "../hooks/useTenantContext";
 import { TenantSwitcher } from "./TenantSwitcher";
 import { UserMenu } from "./UserMenu";
@@ -24,10 +26,10 @@ const SIDEBAR_KEY = "neoguard_sidebar_collapsed";
 
 const navItems = [
   { to: "/", icon: Activity, label: "Overview" },
-  { to: "/infrastructure", icon: Server, label: "Infrastructure" },
-  { to: "/metrics", icon: BarChart3, label: "Metrics" },
+  { to: "/infrastructure", icon: Radar, label: "Infrastructure" },
+  { to: "/metrics", icon: Gauge, label: "Metrics" },
   { to: "/logs", icon: FileText, label: "Logs" },
-  { to: "/alerts", icon: AlertTriangle, label: "Alerts" },
+  { to: "/alerts", icon: Bell, label: "Alerts" },
   { to: "/dashboards", icon: LayoutDashboard, label: "Dashboards" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
@@ -42,6 +44,7 @@ function readCollapsed(): boolean {
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, isImpersonating, endImpersonation } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const tenantContext = useTenantContext();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -60,19 +63,30 @@ export function Layout({ children }: { children: ReactNode }) {
       <nav className={`${styles.sidebar} ${collapsed ? styles.sidebarCollapsed : ""}`}>
         {/* Header: logo + toggle */}
         <div className={`${styles.sidebarHeader} ${collapsed ? styles.sidebarHeaderCollapsed : ""}`}>
-          {!collapsed && (
-            <div className={styles.logoGroup}>
-              <Shield size={22} color="var(--color-primary-500)" />
-              <span className={styles.logoText}>NeoGuard</span>
-            </div>
+          {!collapsed ? (
+            <>
+              <div className={styles.logoGroup}>
+                <img src="/neoguard-logo.png" alt="NeoGuard" width={28} height={28} style={{ borderRadius: 6 }} />
+                <span className={styles.logoText}>NeoGuard</span>
+              </div>
+              <button
+                className={styles.collapseBtn}
+                onClick={toggleCollapsed}
+                title="Collapse sidebar"
+              >
+                <ChevronLeftCircle size={16} />
+              </button>
+            </>
+          ) : (
+            <button
+              className={styles.collapseBtn}
+              onClick={toggleCollapsed}
+              title="Expand sidebar"
+              style={{ width: 32, height: 32 }}
+            >
+              <img src="/neoguard-logo.png" alt="NeoGuard" width={24} height={24} style={{ borderRadius: 4 }} />
+            </button>
           )}
-          <button
-            className={styles.collapseBtn}
-            onClick={toggleCollapsed}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <Menu size={16} />
-          </button>
         </div>
 
         {/* Nav links */}
@@ -147,6 +161,13 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
           <div className={styles.topbarRight}>
             <CommandPaletteTrigger />
+            <button
+              onClick={toggleTheme}
+              className={styles.themeToggle}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             <UserMenu />
           </div>
         </div>

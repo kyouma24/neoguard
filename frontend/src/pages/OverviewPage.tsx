@@ -373,22 +373,22 @@ export function OverviewPage() {
         </Card>
       </div>
 
-      {/* Coming Soon Features */}
+      {/* Deferred Features (require cloud deployment) */}
       <div style={{ marginTop: 32, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <ComingSoonCard
           icon={<Lock size={20} />}
           title="SSO & MFA"
-          message="Google, GitHub, Azure AD single sign-on and TOTP multi-factor auth. Waiting on boss approval for cloud deployment."
+          message="Google, GitHub, Azure AD single sign-on and TOTP multi-factor auth. Requires cloud deployment with public callback URLs."
         />
         <ComingSoonCard
           icon={<TrendingUp size={20} />}
-          title="Real-Time Dashboards"
-          message="WebSocket-powered live updates. Currently polling every 10s — good enough for the demo, right?"
+          title="Real-Time WebSockets"
+          message="WebSocket-powered live push updates for dashboards. Currently polling — requires cloud deployment for persistent connections."
         />
         <ComingSoonCard
           icon={<FileText size={20} />}
-          title="MQL Query Language"
-          message="Datadog-style metric query language with autocomplete. Phase 2 — after boss says yes."
+          title="E2E Testing & Load Testing"
+          message="Playwright end-to-end tests and Locust load testing. Planned for cloud deployment phase."
         />
       </div>
     </div>

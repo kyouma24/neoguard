@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.aws import AWSAccount, AWSAccountCreate, AWSAccountUpdate
 from neoguard.services.aws.accounts import (
+    DuplicateAccountError,
     create_aws_account,
     delete_aws_account,
     get_aws_account,
@@ -35,7 +36,10 @@ async def create(
     data: AWSAccountCreate,
     tenant_id: str = Depends(get_tenant_id_required),
 ) -> AWSAccount:
-    return await create_aws_account(tenant_id, data)
+    try:
+        return await create_aws_account(tenant_id, data)
+    except DuplicateAccountError as e:
+        raise HTTPException(409, str(e))
 
 
 @router.get("/{acct_id}", response_model=AWSAccount)
@@ -57,7 +61,7 @@ async def get_one(
 async def update(
     acct_id: str,
     data: AWSAccountUpdate,
-    tenant_id: str = Depends(get_tenant_id_required),
+    tenant_id: str | None = Depends(get_tenant_id),
 ) -> AWSAccount:
     acct = await update_aws_account(tenant_id, acct_id, data)
     if not acct:
@@ -72,7 +76,7 @@ async def update(
 )
 async def delete(
     acct_id: str,
-    tenant_id: str = Depends(get_tenant_id_required),
+    tenant_id: str | None = Depends(get_tenant_id),
 ) -> None:
     deleted = await delete_aws_account(tenant_id, acct_id)
     if not deleted:

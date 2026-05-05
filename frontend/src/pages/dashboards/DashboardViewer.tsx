@@ -400,7 +400,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
               onClick={() => setCompareEnabled((v) => !v)}
               title="Compare with previous period"
               aria-label="Compare with previous period"
-              style={compareEnabled ? { background: "var(--color-primary-500)", color: "#fff", borderRadius: "var(--radius-sm)" } : undefined}
+              style={compareEnabled ? { background: "var(--color-primary-500)", color: "var(--text-on-accent)", borderRadius: "var(--radius-sm)" } : undefined}
             >
               <Layers size={14} />
             </Button>
@@ -410,7 +410,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
               onClick={() => setAnnotationsEnabled((v) => !v)}
               title="Toggle annotations (Ctrl+Click chart to add)"
               aria-label="Toggle annotations"
-              style={annotationsEnabled ? { background: "var(--color-primary-500)", color: "#fff", borderRadius: "var(--radius-sm)" } : undefined}
+              style={annotationsEnabled ? { background: "var(--color-primary-500)", color: "var(--text-on-accent)", borderRadius: "var(--radius-sm)" } : undefined}
             >
               <MessageSquarePlus size={14} />
             </Button>

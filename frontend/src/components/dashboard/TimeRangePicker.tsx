@@ -208,7 +208,7 @@ export function TimeRangePicker({ value, onChange, customFrom, customTo, onCusto
                   <button
                     onClick={handleApplyCustom}
                     aria-label="Apply custom time range"
-                    style={{ padding: "6px 14px", fontSize: 12, background: "var(--primary)", border: "none", borderRadius: "var(--radius-sm)", color: "#fff", cursor: "pointer", fontWeight: 600 }}
+                    style={{ padding: "6px 14px", fontSize: 12, background: "var(--accent)", border: "none", borderRadius: "var(--radius-sm)", color: "var(--text-on-accent)", cursor: "pointer", fontWeight: 600 }}
                   >
                     Apply
                   </button>

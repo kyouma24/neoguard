@@ -54,7 +54,7 @@ export function AnnotationModal({ timestamp, dashboardId, onClose, onCreated }: 
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.5)",
+        background: "var(--overlay-bg)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

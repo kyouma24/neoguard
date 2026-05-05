@@ -10,11 +10,20 @@ async def save_version(
     data: dict,
     user_id: str,
     change_summary: str = "",
+    *,
+    tenant_id: str | None = None,
 ) -> DashboardVersion:
     version_id = str(ULID())
     data_json = orjson.dumps(data).decode()
     pool = await get_pool()
     async with pool.acquire() as conn:
+        if tenant_id:
+            exists = await conn.fetchval(
+                "SELECT 1 FROM dashboards WHERE id = $1 AND tenant_id = $2",
+                dashboard_id, tenant_id,
+            )
+            if not exists:
+                raise ValueError("Dashboard not found in this tenant")
         row = await conn.fetchrow(
             """
             INSERT INTO dashboard_versions (id, dashboard_id, version_number, data, change_summary, created_by)

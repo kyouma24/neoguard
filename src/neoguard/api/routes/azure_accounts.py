@@ -7,6 +7,7 @@ from neoguard.models.azure import (
     AzureSubscriptionUpdate,
 )
 from neoguard.services.azure.accounts import (
+    DuplicateSubscriptionError,
     create_azure_subscription,
     delete_azure_subscription,
     get_azure_subscription,
@@ -39,7 +40,10 @@ async def create(
     data: AzureSubscriptionCreate,
     tenant_id: str = Depends(get_tenant_id_required),
 ) -> AzureSubscription:
-    return await create_azure_subscription(tenant_id, data)
+    try:
+        return await create_azure_subscription(tenant_id, data)
+    except DuplicateSubscriptionError as e:
+        raise HTTPException(409, str(e))
 
 
 @router.get("/{sub_id}", response_model=AzureSubscription)
@@ -61,7 +65,7 @@ async def get_one(
 async def update(
     sub_id: str,
     data: AzureSubscriptionUpdate,
-    tenant_id: str = Depends(get_tenant_id_required),
+    tenant_id: str | None = Depends(get_tenant_id),
 ) -> AzureSubscription:
     sub = await update_azure_subscription(tenant_id, sub_id, data)
     if not sub:
@@ -76,7 +80,7 @@ async def update(
 )
 async def delete(
     sub_id: str,
-    tenant_id: str = Depends(get_tenant_id_required),
+    tenant_id: str | None = Depends(get_tenant_id),
 ) -> None:
     deleted = await delete_azure_subscription(tenant_id, sub_id)
     if not deleted:

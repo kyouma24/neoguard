@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import re
 import time as _time
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +17,8 @@ from neoguard.services.notifications.dispatcher import (
     dispatch_firing,
     dispatch_resolved,
 )
+
+_SAFE_TAG_KEY = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_\-]*$")
 
 CONDITION_OPS = {
     AlertCondition.GT: lambda v, t: v > t,
@@ -281,9 +284,11 @@ class AlertEngine:
             tag_conditions = ""
             params: list = [rule["tenant_id"], rule["metric_name"], now - lookback, now]
             for k, v in rule_tags.items():
+                if not _SAFE_TAG_KEY.match(k) or len(k) > 128:
+                    continue
                 idx = len(params) + 1
-                tag_conditions += f" AND tags->>'{k}' = ${idx}"
-                params.append(v)
+                tag_conditions += f" AND tags->>({f'${idx}'}) = ${idx + 1}"
+                params.extend([k, v])
 
             current_value, cnt = await self._query_metric_value(conn, rule, tag_conditions, params)
 

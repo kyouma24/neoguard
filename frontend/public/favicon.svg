@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#635bff"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#635bff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#635bff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer glow -->
+  <ellipse cx="256" cy="280" rx="180" ry="200" fill="url(#glowGrad)" opacity="0.3"/>
+  <!-- Shield body -->
+  <path d="M256 48l-160 72v120c0 106.7 68.3 206.3 160 240 91.7-33.7 160-133.3 160-240V120L256 48z" fill="url(#shieldGrad)"/>
+  <!-- Inner shield highlight -->
+  <path d="M256 80l-136 61.2v102c0 90.7 58.1 175.4 136 204 77.9-28.6 136-113.3 136-204v-102L256 80z" fill="rgba(255,255,255,0.08)"/>
+  <!-- Check/pulse mark -->
+  <path d="M200 260l40 40 72-80" stroke="#fff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
