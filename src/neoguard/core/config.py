@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     telemetry_enabled: bool = True
     telemetry_interval_sec: int = 15
 
+    high_cardinality_tag_denylist: list[str] = [
+        "request_id",
+        "trace_id",
+        "span_id",
+        "correlation_id",
+        "message_id",
+        "session_id",
+        "user_id",
+    ]
+    tag_values_default_lookback_hours: int = 24
+    tag_values_default_limit: int = 100
+    tag_values_hard_limit: int = 1000
+    metric_names_hard_limit: int = 1000
+
     @model_validator(mode="after")
     def _require_secrets_in_production(self) -> "Settings":
         if self.debug:

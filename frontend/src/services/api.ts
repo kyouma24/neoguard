@@ -116,7 +116,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       const parsed = JSON.parse(body);
       const raw = parsed?.error?.message ?? parsed?.detail ?? body;
       const msg = typeof raw === "string" ? raw : JSON.stringify(raw);
-      throw new Error(msg);
+      const err = new Error(msg) as Error & { body?: unknown; status?: number };
+      err.body = parsed;
+      err.status = res.status;
+      throw err;
     } catch (e) {
       if (e instanceof Error && !e.message.startsWith("API ")) throw e;
       throw new Error(`API ${res.status}: ${body}`);
@@ -149,7 +152,13 @@ export const api = {
         body: JSON.stringify({ queries }),
       });
     },
-    names: () => request<string[]>(`${BASE}/metrics/names`),
+    names: (opts?: { tenantId?: string; prefix?: string }) => {
+      const params = new URLSearchParams();
+      if (opts?.tenantId) params.set("tenant_id", opts.tenantId);
+      if (opts?.prefix) params.set("prefix", opts.prefix);
+      const qs = params.toString();
+      return request<string[]>(`${BASE}/metrics/names${qs ? `?${qs}` : ""}`);
+    },
     tagValues: (tag: string, opts?: { metric?: string; metric_prefix?: string; filters?: Record<string, string>; tenantId?: string }) => {
       const params = new URLSearchParams({ tag });
       if (opts?.metric) params.set("metric", opts.metric);

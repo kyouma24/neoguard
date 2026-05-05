@@ -2316,9 +2316,11 @@ function ResourceChangeTimeline({ resourceId }: { resourceId: string }) {
 
 function ResourceAlerts() {
   const navigate = useNavigate();
+  const { user, tenant } = useAuth();
+  const queryTenantId = user?.is_super_admin ? tenant?.id : undefined;
   const { data: events } = useApi<AlertEvent[]>(
-    () => api.alerts.listEvents({ status: "firing", limit: 5 }),
-    [],
+    () => api.alerts.listEvents({ status: "firing", limit: 5 }, { tenantId: queryTenantId }),
+    [queryTenantId],
   );
 
   const firingEvents = events ?? [];
@@ -2510,6 +2512,8 @@ function MetricPanel({
   timeRange: number;
   refreshKey: number;
 }) {
+  const { user, tenant } = useAuth();
+  const queryTenantId = user?.is_super_admin ? tenant?.id : undefined;
   const now = useMemo(() => new Date(), [refreshKey, timeRange]);
   const start = subHours(now, timeRange);
 
@@ -2533,8 +2537,8 @@ function MetricPanel({
         end: now.toISOString(),
         interval,
         aggregation: "avg",
-      }),
-    [metricName, resourceId, timeRange, refreshKey]
+      }, { tenantId: queryTenantId }),
+    [metricName, resourceId, timeRange, refreshKey, queryTenantId]
   );
 
   const latestValue = useMemo(() => {

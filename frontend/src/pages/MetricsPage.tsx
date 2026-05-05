@@ -7,6 +7,7 @@ import { BarChartWidget } from "../components/charts/BarChart";
 import { useApi } from "../hooks/useApi";
 import { useInterval } from "../hooks/useInterval";
 import { useURLState } from "../hooks/useURLState";
+import { useAuth } from "../contexts/AuthContext";
 import { api, formatError } from "../services/api";
 import {
   Button,
@@ -55,6 +56,8 @@ const TIME_RANGES = [
 ];
 
 export function MetricsPage() {
+  const { user, tenant } = useAuth();
+  const queryTenantId = user?.is_super_admin ? tenant?.id : undefined;
   const [metricsStr, setMetricsStr] = useURLState("metrics", "");
   const [interval, setInterval] = useURLState("interval", "1m");
   const [aggregation, setAggregation] = useURLState("aggregation", "avg");
@@ -108,7 +111,7 @@ export function MetricsPage() {
     [selectedMetrics, setSelectedMetrics],
   );
 
-  const { data: names } = useApi(() => api.metrics.names(), []);
+  const { data: names } = useApi(() => api.metrics.names({ tenantId: queryTenantId }), [queryTenantId]);
 
   const now = new Date();
   const start = subHours(now, timeRange);
@@ -125,7 +128,7 @@ export function MetricsPage() {
           end: now.toISOString(),
           interval,
           aggregation,
-        });
+        }, { tenantId: queryTenantId });
       }
       return api.metrics.queryBatch(
         activeMetrics.map((name) => ({
@@ -135,9 +138,10 @@ export function MetricsPage() {
           interval,
           aggregation,
         })),
+        { tenantId: queryTenantId },
       ).then((batches) => batches.flat());
     },
-    [metricsStr, interval, aggregation, timeRange],
+    [metricsStr, interval, aggregation, timeRange, queryTenantId],
   );
 
   useInterval(refetch, 15_000);

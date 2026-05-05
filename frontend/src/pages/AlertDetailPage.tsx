@@ -4,6 +4,7 @@ import { subHours, format } from "date-fns";
 import { ArrowLeft, Clock, Activity } from "lucide-react";
 import { useApi } from "../hooks/useApi";
 import { useInterval } from "../hooks/useInterval";
+import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import { TimeSeriesChart } from "../components/TimeSeriesChart";
 import {
@@ -43,6 +44,8 @@ function conditionLabel(c: string): string {
 export function AlertDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user, tenant } = useAuth();
+  const queryTenantId = user?.is_super_admin ? tenant?.id : undefined;
   const [timeRange, setTimeRange] = useState(6);
 
   const { data: rule, loading: ruleLoading } = useApi<AlertRule>(
@@ -51,8 +54,8 @@ export function AlertDetailPage() {
   );
 
   const { data: events } = useApi<AlertEvent[]>(
-    () => (id ? api.alerts.listEvents({ rule_id: id, limit: 50 }) : Promise.resolve([])),
-    [id],
+    () => (id ? api.alerts.listEvents({ rule_id: id, limit: 50 }, { tenantId: queryTenantId }) : Promise.resolve([])),
+    [id, queryTenantId],
   );
 
   const now = new Date();
@@ -68,9 +71,9 @@ export function AlertDetailPage() {
             end: now.toISOString(),
             interval: timeRange <= 1 ? "1m" : timeRange <= 6 ? "5m" : "15m",
             aggregation: rule.aggregation,
-          })
+          }, { tenantId: queryTenantId })
         : Promise.resolve([]),
-    [rule?.id, timeRange],
+    [rule?.id, timeRange, queryTenantId],
   );
 
   useInterval(refetch, 30_000);

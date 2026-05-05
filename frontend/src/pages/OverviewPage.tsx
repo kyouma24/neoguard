@@ -114,10 +114,11 @@ const eventColumns: DataTableColumn<AlertEvent>[] = [
 ];
 
 export function OverviewPage() {
-  const { user } = useAuth();
+  const { user, tenant } = useAuth();
   const [timeRange, setTimeRange] = useState(60);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const isAdmin = user?.is_super_admin || false;
+  const queryTenantId = user?.is_super_admin ? tenant?.id : undefined;
 
   const { data: health, refetch: refetchHealth } = useApi<HealthStatus>(
     () => api.health(),
@@ -130,8 +131,8 @@ export function OverviewPage() {
     [],
   );
   const { data: alertEvents, refetch: refetchEvents } = useApi<AlertEvent[]>(
-    () => api.alerts.listEvents({ limit: 20 }),
-    [],
+    () => api.alerts.listEvents({ limit: 20 }, { tenantId: queryTenantId }),
+    [queryTenantId],
   );
 
   const now = new Date();
@@ -145,9 +146,9 @@ export function OverviewPage() {
           end: now.toISOString(),
           interval: timeRange <= 60 ? "1m" : "5m",
           aggregation: "avg",
-        })
+        }, { tenantId: queryTenantId })
       : Promise.resolve([]),
-    [timeRange, isAdmin],
+    [timeRange, isAdmin, queryTenantId],
   );
 
   const { data: memMetrics, error: memError } = useApi<MetricQueryResult[]>(
@@ -158,9 +159,9 @@ export function OverviewPage() {
           end: now.toISOString(),
           interval: timeRange <= 60 ? "1m" : "5m",
           aggregation: "avg",
-        })
+        }, { tenantId: queryTenantId })
       : Promise.resolve([]),
-    [timeRange, isAdmin],
+    [timeRange, isAdmin, queryTenantId],
   );
 
   const refetchAll = () => {

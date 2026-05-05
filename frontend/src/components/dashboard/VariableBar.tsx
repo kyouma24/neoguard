@@ -48,6 +48,7 @@ function useVariableOptions(
 ) {
   const [options, setOptions] = useState<string[]>(variable.values);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Build cascading filter chain: collect all ancestor variable values as tag filters
   const buildFilters = useCallback((): Record<string, string> => {
@@ -75,6 +76,7 @@ function useVariableOptions(
     if (variable.type !== "query") return;
     const source = variable.source ?? "metrics";
     setLoading(true);
+    setError(null);
     try {
       let vals: string[];
       if (source === "resources") {
@@ -96,7 +98,14 @@ function useVariableOptions(
         });
       }
       setOptions(vals);
-    } catch {
+    } catch (err: unknown) {
+      const e = err as Error & { body?: { error?: { code?: string; tag?: string } } };
+      if (e.body?.error?.code === "high_cardinality_tag") {
+        setError(
+          `Tag "${e.body.error.tag}" cannot be used for variables (too many unique values). ` +
+          `Try a more specific tag like 'service' or 'endpoint'.`,
+        );
+      }
       setOptions([]);
     } finally {
       setLoading(false);
@@ -116,7 +125,7 @@ function useVariableOptions(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depValue]);
 
-  return { options, loading };
+  return { options, loading, error };
 }
 
 function VariableDropdown({
@@ -134,8 +143,17 @@ function VariableDropdown({
   onChange: (val: string) => void;
   queryTenantId?: string;
 }) {
-  const { options, loading } = useVariableOptions(variable, allValues, allVariables, queryTenantId);
+  const { options, loading, error } = useVariableOptions(variable, allValues, allVariables, queryTenantId);
   const label = variable.label || `$${variable.name}`;
+
+  if (error) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: 11, color: "var(--color-danger, #ef4444)", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={error}>{error}</span>
+      </div>
+    );
+  }
 
   if (variable.type === "textbox") {
     return (

@@ -18,9 +18,10 @@ interface Props {
   isNew: boolean;
   onSave: (panel: PanelDefinition) => void;
   onClose: () => void;
+  queryTenantId?: string;
 }
 
-export function PanelEditorDrawer({ panel, isNew, onSave, onClose }: Props) {
+export function PanelEditorDrawer({ panel, isNew, onSave, onClose, queryTenantId }: Props) {
   const [title, setTitle] = useState(panel.title);
   const [panelType, setPanelType] = useState<PanelType>(panel.panel_type);
   const [queryMode, setQueryMode] = useState<QueryMode>(panel.mql_query ? "mql" : "simple");
@@ -34,7 +35,7 @@ export function PanelEditorDrawer({ panel, isNew, onSave, onClose }: Props) {
   const [displayOptions, setDisplayOptions] = useState<PanelDisplayOptions>(panel.display_options ?? {});
   const [activeTab, setActiveTab] = useState<EditorTab>("query");
 
-  const { data: metricNames } = useApi<string[]>(() => api.metrics.names(), []);
+  const { data: metricNames } = useApi<string[]>(() => api.metrics.names({ tenantId: queryTenantId }), [queryTenantId]);
   const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);

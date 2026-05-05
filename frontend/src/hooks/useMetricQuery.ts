@@ -12,6 +12,7 @@ interface UseMetricQueryOptions {
   interval: string;
   variables?: Record<string, string>;
   enabled?: boolean;
+  queryTenantId?: string;
 }
 
 export function useMetricQuery(options: UseMetricQueryOptions) {
@@ -25,10 +26,12 @@ export function useMetricQuery(options: UseMetricQueryOptions) {
     interval,
     variables,
     enabled = true,
+    queryTenantId,
   } = options;
 
   const hasMql = !!mqlQuery?.trim();
   const hasLegacy = !!metricName;
+  const tenantOpts = queryTenantId ? { tenantId: queryTenantId } : undefined;
 
   return useQuery<MetricQueryResult[]>({
     queryKey: [
@@ -38,6 +41,7 @@ export function useMetricQuery(options: UseMetricQueryOptions) {
       to.getTime(),
       interval,
       variables,
+      queryTenantId,
     ],
     queryFn: async () => {
       if (hasMql) {
@@ -49,7 +53,7 @@ export function useMetricQuery(options: UseMetricQueryOptions) {
           ...(variables && Object.keys(variables).length > 0
             ? { variables }
             : {}),
-        });
+        }, tenantOpts);
       }
       return api.metrics.query({
         name: metricName!,
@@ -58,7 +62,7 @@ export function useMetricQuery(options: UseMetricQueryOptions) {
         end: to.toISOString(),
         interval,
         aggregation: aggregation ?? "avg",
-      });
+      }, tenantOpts);
     },
     enabled: enabled && (hasMql || hasLegacy),
     staleTime: 15_000,

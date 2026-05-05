@@ -37,12 +37,14 @@ async function fetchPanelAvg(
   to: Date,
   interval: string,
   variables?: Record<string, string>,
+  queryTenantId?: string,
 ): Promise<number | null> {
   const hasMql = !!panel.mql_query?.trim();
   const hasLegacy = !!panel.metric_name;
   if (!hasMql && !hasLegacy) return null;
   if (panel.panel_type === "text") return null;
 
+  const tenantOpts = queryTenantId ? { tenantId: queryTenantId } : undefined;
   try {
     const results = hasMql
       ? await api.mql.query({
@@ -51,7 +53,7 @@ async function fetchPanelAvg(
           end: to.toISOString(),
           interval,
           ...(variables && Object.keys(variables).length > 0 ? { variables } : {}),
-        })
+        }, tenantOpts)
       : await api.metrics.query({
           name: panel.metric_name!,
           tags: panel.tags ?? {},
@@ -59,7 +61,7 @@ async function fetchPanelAvg(
           end: to.toISOString(),
           interval,
           aggregation: panel.aggregation ?? "avg",
-        });
+        }, tenantOpts);
     return computeAverage(results);
   } catch {
     return null;
@@ -74,6 +76,7 @@ interface UseChangeIntelligenceOptions {
   comparePeriodMs: number | undefined;
   refreshKey: number;
   variables?: Record<string, string>;
+  queryTenantId?: string;
 }
 
 /**
@@ -89,6 +92,7 @@ export function useChangeIntelligence({
   comparePeriodMs,
   refreshKey,
   variables,
+  queryTenantId,
 }: UseChangeIntelligenceOptions): PanelAverage[] {
   const [panelAverages, setPanelAverages] = useState<PanelAverage[]>([]);
 
@@ -118,8 +122,8 @@ export function useChangeIntelligence({
       // Fetch all panels in parallel (current + previous for each)
       const promises = queryablePanels.map(async (panel) => {
         const [currentAvg, previousAvg] = await Promise.all([
-          fetchPanelAvg(panel, currentFrom, currentTo, interval, variables),
-          fetchPanelAvg(panel, compFrom, compTo, interval, variables),
+          fetchPanelAvg(panel, currentFrom, currentTo, interval, variables, queryTenantId),
+          fetchPanelAvg(panel, compFrom, compTo, interval, variables, queryTenantId),
         ]);
         return {
           id: panel.id,
@@ -140,7 +144,7 @@ export function useChangeIntelligence({
 
     fetchAll();
     return () => { cancelled = true; };
-  }, [queryablePanels, fromMs, toMs, interval, comparePeriodMs, refreshKey, variables]);
+  }, [queryablePanels, fromMs, toMs, interval, comparePeriodMs, refreshKey, variables, queryTenantId]);
 
   return panelAverages;
 }

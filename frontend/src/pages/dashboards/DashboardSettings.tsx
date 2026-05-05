@@ -32,6 +32,8 @@ interface Props {
 }
 
 export function DashboardSettings({ dashboard, onBack, onSaved }: Props) {
+  const { user } = useAuth();
+  const queryTenantId = user?.is_super_admin ? dashboard.tenant_id : undefined;
   const [tab, setTab] = useState("general");
   const [myPerm, setMyPerm] = useState<DashboardMyPermission | null>(null);
 
@@ -44,7 +46,7 @@ export function DashboardSettings({ dashboard, onBack, onSaved }: Props) {
   const tabItems = [
     { id: "general", label: "General", content: <GeneralTab dashboard={dashboard} onSaved={onSaved} canEdit={myPerm?.can_edit ?? false} /> },
     { id: "permissions", label: "Permissions", content: <PermissionsTab dashboard={dashboard} canAdmin={canAdmin} /> },
-    { id: "variables", label: "Variables", content: <VariablesTab dashboard={dashboard} onSaved={onSaved} canEdit={myPerm?.can_edit ?? false} /> },
+    { id: "variables", label: "Variables", content: <VariablesTab dashboard={dashboard} onSaved={onSaved} canEdit={myPerm?.can_edit ?? false} queryTenantId={queryTenantId} /> },
     { id: "links", label: "Links", content: <LinksTab dashboard={dashboard} onSaved={onSaved} canEdit={myPerm?.can_edit ?? false} /> },
     { id: "versions", label: "Versions", content: <VersionsTab dashboard={dashboard} /> },
   ];
@@ -370,11 +372,14 @@ function PermissionsTab({ dashboard, canAdmin }: { dashboard: Dashboard; canAdmi
 
 // ---- Variables Tab ----
 
-function VariablesTab({ dashboard, onSaved, canEdit }: { dashboard: Dashboard; onSaved?: (d: Dashboard) => void; canEdit: boolean }) {
+function VariablesTab({ dashboard, onSaved, canEdit, queryTenantId }: { dashboard: Dashboard; onSaved?: (d: Dashboard) => void; canEdit: boolean; queryTenantId?: string }) {
   const [variables, setVariables] = useState<DashboardVariable[]>(dashboard.variables ?? []);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewValues, setPreviewValues] = useState<Record<number, string[]>>({});
+  const [previewLoading, setPreviewLoading] = useState<Record<number, boolean>>({});
+  const [previewError, setPreviewError] = useState<Record<number, string>>({});
 
   const handleSave = async () => {
     setSaving(true);
@@ -391,11 +396,56 @@ function VariablesTab({ dashboard, onSaved, canEdit }: { dashboard: Dashboard; o
     }
   };
 
+  const previewTagValues = async (idx: number) => {
+    const v = variables[idx];
+    const source = v.source ?? "metrics";
+    if (source === "metrics" && !v.tag_key?.trim()) return;
+    setPreviewLoading((p) => ({ ...p, [idx]: true }));
+    setPreviewError((p) => ({ ...p, [idx]: "" }));
+    try {
+      let values: string[];
+      if (source === "resources") {
+        const filters: Record<string, string> = {};
+        if (v.depends_on) {
+          const parent = variables.find((x) => x.name === v.depends_on);
+          if (parent?.resource_field && parent.default_value && parent.default_value !== "*") {
+            filters[parent.resource_field] = parent.default_value;
+          }
+        }
+        values = await api.metrics.resourceValues(v.resource_field ?? "external_id", {
+          resource_type: v.resource_type,
+          provider: "aws",
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
+        });
+      } else {
+        const filters: Record<string, string> = {};
+        if (v.depends_on) {
+          const parent = variables.find((x) => x.name === v.depends_on);
+          if (parent?.tag_key && parent.default_value && parent.default_value !== "*") {
+            filters[parent.tag_key] = parent.default_value;
+          }
+        }
+        values = await api.metrics.tagValues(v.tag_key!.trim(), {
+          metric: v.metric_filter,
+          metric_prefix: v.metric_prefix,
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
+          tenantId: queryTenantId,
+        });
+      }
+      setPreviewValues((p) => ({ ...p, [idx]: values }));
+    } catch (e) {
+      setPreviewError((p) => ({ ...p, [idx]: e instanceof Error ? e.message : "Failed to fetch" }));
+      setPreviewValues((p) => ({ ...p, [idx]: [] }));
+    } finally {
+      setPreviewLoading((p) => ({ ...p, [idx]: false }));
+    }
+  };
+
   const addVariable = () => {
     setVariables([...variables, {
       name: `var${variables.length + 1}`,
       label: "",
-      type: "custom",
+      type: "query",
       values: [],
       default_value: "",
       multi: false,
@@ -472,13 +522,110 @@ function VariablesTab({ dashboard, onSaved, canEdit }: { dashboard: Dashboard; o
           </div>
           {v.type === "query" && (
             <div style={{ marginTop: 8 }}>
-              <input
-                value={v.tag_key ?? ""}
-                onChange={(e) => updateVariable(i, "tag_key", e.target.value)}
-                placeholder="Tag key (e.g., env)"
-                disabled={!canEdit}
-                style={{ ...inputStyle, width: "100%" }}
-              />
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                <select
+                  value={v.source ?? "metrics"}
+                  onChange={(e) => updateVariable(i, "source", e.target.value)}
+                  disabled={!canEdit}
+                  style={{ ...inputStyle, width: 140 }}
+                  title="Source: where to load values from"
+                >
+                  <option value="metrics">From Metrics</option>
+                  <option value="resources">From Resources</option>
+                </select>
+                {(v.source ?? "metrics") === "metrics" && (
+                  <input
+                    value={v.tag_key ?? ""}
+                    onChange={(e) => updateVariable(i, "tag_key", e.target.value)}
+                    placeholder="Tag key (e.g., region, account_id)"
+                    disabled={!canEdit}
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                )}
+                {v.source === "resources" && (
+                  <>
+                    <select
+                      value={v.resource_field ?? "external_id"}
+                      onChange={(e) => updateVariable(i, "resource_field", e.target.value)}
+                      disabled={!canEdit}
+                      style={{ ...inputStyle, width: 140 }}
+                    >
+                      <option value="external_id">Instance ID</option>
+                      <option value="name">Name</option>
+                      <option value="region">Region</option>
+                      <option value="account_id">Account ID</option>
+                      <option value="resource_type">Resource Type</option>
+                    </select>
+                    <input
+                      value={v.resource_type ?? ""}
+                      onChange={(e) => updateVariable(i, "resource_type", e.target.value || undefined)}
+                      placeholder="Resource type (e.g., ec2, rds)"
+                      disabled={!canEdit}
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
+                  </>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => previewTagValues(i)}
+                  disabled={((v.source ?? "metrics") === "metrics" && !v.tag_key?.trim()) || previewLoading[i]}
+                >
+                  {previewLoading[i] ? <><Loader2 size={12} className="spin" /> Loading...</> : "Preview"}
+                </Button>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {(v.source ?? "metrics") === "metrics" && (
+                  <input
+                    value={v.metric_prefix ?? ""}
+                    onChange={(e) => updateVariable(i, "metric_prefix", e.target.value || undefined)}
+                    placeholder="Metric prefix filter (e.g., aws.ec2.)"
+                    disabled={!canEdit}
+                    style={{ ...inputStyle, flex: 1 }}
+                    title="Only show tag values from metrics matching this prefix"
+                  />
+                )}
+                <select
+                  value={v.depends_on ?? ""}
+                  onChange={(e) => updateVariable(i, "depends_on", e.target.value || undefined)}
+                  disabled={!canEdit}
+                  style={{ ...inputStyle, flex: 1 }}
+                >
+                  <option value="">No dependency (independent)</option>
+                  {variables.filter((_, j) => j !== i).map((other) => (
+                    <option key={other.name} value={other.name}>Depends on: ${other.name}</option>
+                  ))}
+                </select>
+              </div>
+              {previewError[i] && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "var(--color-danger-500)" }}>
+                  {previewError[i]}
+                </div>
+              )}
+              {previewValues[i] && previewValues[i].length > 0 && (
+                <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    Preview ({previewValues[i].length} values):
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {previewValues[i].slice(0, 50).map((val) => (
+                      <span key={val} style={{ padding: "2px 6px", fontSize: 11, background: "var(--color-primary-50)", color: "var(--color-primary-700)", borderRadius: 3, border: "1px solid var(--color-primary-200)" }}>
+                        {val}
+                      </span>
+                    ))}
+                    {previewValues[i].length > 50 && (
+                      <span style={{ padding: "2px 6px", fontSize: 11, color: "var(--text-muted)" }}>
+                        +{previewValues[i].length - 50} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {previewValues[i] && previewValues[i].length === 0 && !previewError[i] && !previewLoading[i] && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "var(--color-warning-600)" }}>
+                  No values found for tag key "{v.tag_key}". Make sure metrics have been ingested with this tag.
+                </div>
+              )}
             </div>
           )}
           {v.type === "custom" && (

@@ -4,6 +4,7 @@ import type { PanelDefinition, MetricQueryResult } from "../../types";
 import { WidgetRenderer } from "./WidgetRenderer";
 import { WidgetErrorBoundary } from "./WidgetErrorBoundary";
 import { correlateTimeSeries, correlationStrength } from "../../utils/correlation";
+import { useAuth } from "../../contexts/AuthContext";
 import { api } from "../../services/api";
 import { Button } from "../../design-system";
 
@@ -160,11 +161,14 @@ function CorrelationResultOverlay({
   variables,
   onClose,
 }: CorrelationResultOverlayProps) {
+  const { user, tenant } = useAuth();
+  const queryTenantId = user?.is_super_admin ? tenant?.id : undefined;
   const [dataA, setDataA] = useState<MetricQueryResult[] | null>(null);
   const [dataB, setDataB] = useState<MetricQueryResult[] | null>(null);
 
   const fetchData = useCallback(
     (panel: PanelDefinition, setter: (d: MetricQueryResult[]) => void) => {
+      const tenantOpts = queryTenantId ? { tenantId: queryTenantId } : undefined;
       const hasMql = !!panel.mql_query?.trim();
       const promise = hasMql
         ? api.mql.query({
@@ -173,7 +177,7 @@ function CorrelationResultOverlay({
             end: to.toISOString(),
             interval,
             ...(Object.keys(variables).length > 0 ? { variables } : {}),
-          })
+          }, tenantOpts)
         : panel.metric_name
           ? api.metrics.query({
               name: panel.metric_name,
@@ -182,12 +186,12 @@ function CorrelationResultOverlay({
               end: to.toISOString(),
               interval,
               aggregation: panel.aggregation ?? "avg",
-            })
+            }, tenantOpts)
           : Promise.resolve([]);
 
       promise.then(setter).catch(() => setter([]));
     },
-    [from, to, interval, variables],
+    [from, to, interval, variables, queryTenantId],
   );
 
   useEffect(() => {

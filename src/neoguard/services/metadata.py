@@ -8,40 +8,35 @@ from neoguard.db.timescale.connection import get_pool
 
 
 async def get_metric_names(
-    tenant_id: str | None,
+    tenant_id: str,
     query: str = "",
     limit: int = 50,
 ) -> list[str]:
     """Search for distinct metric names matching *query* (case-insensitive).
 
-    Scoped to *tenant_id* when provided (regular user). Super admins pass
-    ``None`` to see all tenants.
+    Always scoped to tenant_id (enforced by get_query_tenant_id at route level).
     """
     pool = await get_pool()
 
-    conditions: list[str] = []
-    params: list[object] = []
-    idx = 1
-
-    if tenant_id:
-        conditions.append(f"tenant_id = ${idx}")
-        params.append(tenant_id)
-        idx += 1
+    conditions: list[str] = ["tenant_id = $1"]
+    params: list[object] = [tenant_id]
+    idx = 2
 
     if query:
         conditions.append(f"name ILIKE ${idx}")
         params.append(f"%{query}%")
         idx += 1
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    where = " AND ".join(conditions)
+    capped_limit = min(limit, 1000)
     sql = f"""
         SELECT DISTINCT name
         FROM metrics
-        {where}
+        WHERE {where}
         ORDER BY name
         LIMIT ${idx}
     """
-    params.append(min(limit, 200))
+    params.append(capped_limit)
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *params)
@@ -50,80 +45,56 @@ async def get_metric_names(
 
 
 async def get_tag_keys(
-    tenant_id: str | None,
+    tenant_id: str,
     metric_name: str,
 ) -> list[str]:
     """Return distinct tag keys for a given metric name, scoped to tenant."""
     pool = await get_pool()
 
-    conditions: list[str] = []
-    params: list[object] = []
-    idx = 1
-
-    if tenant_id:
-        conditions.append(f"tenant_id = ${idx}")
-        params.append(tenant_id)
-        idx += 1
-
-    conditions.append(f"name = ${idx}")
-    params.append(metric_name)
-    idx += 1
-
-    where = " AND ".join(conditions)
-    sql = f"""
+    sql = """
         SELECT DISTINCT jsonb_object_keys(tags) AS tag_key
         FROM metrics
-        WHERE {where}
+        WHERE tenant_id = $1 AND name = $2
         ORDER BY tag_key
+        LIMIT 1000
     """
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch(sql, *params)
+        rows = await conn.fetch(sql, tenant_id, metric_name)
 
     return [row["tag_key"] for row in rows]
 
 
 async def get_tag_values(
-    tenant_id: str | None,
+    tenant_id: str,
     metric_name: str,
     key: str,
     query: str = "",
     limit: int = 100,
 ) -> list[str]:
-    """Return distinct values for *key* tag on *metric_name*, optionally filtered."""
+    """Return distinct values for *key* tag on *metric_name*, optionally filtered.
+
+    Uses GROUP BY + ORDER BY freq DESC for top-K ordering.
+    """
     pool = await get_pool()
 
-    conditions: list[str] = []
-    params: list[object] = []
-    idx = 1
-
-    if tenant_id:
-        conditions.append(f"tenant_id = ${idx}")
-        params.append(tenant_id)
-        idx += 1
-
-    conditions.append(f"name = ${idx}")
-    params.append(metric_name)
-    idx += 1
-
-    # Extract tag value — parameterize the key name via ->> $N
-    conditions.append(f"tags->>${ idx} IS NOT NULL")
-    params.append(key)
-    tag_key_idx = idx
-    idx += 1
+    conditions: list[str] = ["tenant_id = $1", "name = $2", "tags->>$3 IS NOT NULL"]
+    params: list[object] = [tenant_id, metric_name, key]
+    idx = 4
 
     if query:
-        conditions.append(f"tags->>${tag_key_idx} ILIKE ${idx}")
+        conditions.append(f"tags->>$3 ILIKE ${idx}")
         params.append(f"%{query}%")
         idx += 1
 
     where = " AND ".join(conditions)
-    capped_limit = min(limit, 10000)
+    capped_limit = min(limit, 1000)
     sql = f"""
-        SELECT DISTINCT tags->>${tag_key_idx} AS tag_value
+        SELECT tags->>$3 AS tag_value, COUNT(*) AS freq
         FROM metrics
         WHERE {where}
-        ORDER BY tag_value
+        GROUP BY tag_value
+        ORDER BY freq DESC
         LIMIT ${idx}
     """
     params.append(capped_limit)

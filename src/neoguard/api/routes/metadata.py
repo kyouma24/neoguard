@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from neoguard.api.deps import get_tenant_id, require_scope
+from neoguard.api.deps import get_query_tenant_id, require_scope
+from neoguard.core.config import settings
 from neoguard.services.metadata import (
     MQLFunctionInfo,
     get_functions,
@@ -30,7 +31,7 @@ class MQLFunctionResponse(BaseModel):
 )
 async def list_metric_names(
     request: Request,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
     q: str = Query(default="", max_length=200, description="Search substring (case-insensitive)"),
     limit: int = Query(default=50, ge=1, le=200, description="Max results"),
 ) -> list[str]:
@@ -45,7 +46,7 @@ async def list_metric_names(
 async def list_tag_keys(
     name: str,
     request: Request,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> list[str]:
     """Return distinct tag keys for the given metric."""
     return await get_tag_keys(tenant_id=tenant_id, metric_name=name)
@@ -58,18 +59,32 @@ async def list_tag_keys(
 async def list_tag_values(
     name: str,
     request: Request,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
     key: str = Query(..., min_length=1, max_length=128, description="Tag key to look up values for"),
     q: str = Query(default="", max_length=200, description="Filter substring"),
-    limit: int = Query(default=100, ge=1, le=10000, description="Max results"),
+    limit: int = Query(default=100, ge=1, le=1000, description="Max results"),
 ) -> list[str]:
     """Return distinct values for a tag key on the given metric."""
+    if key in settings.high_cardinality_tag_denylist:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "high_cardinality_tag",
+                    "message": (
+                        f"Tag '{key}' has too high cardinality for value enumeration. "
+                        f"Consider using a more specific tag."
+                    ),
+                    "tag": key,
+                }
+            },
+        )
     return await get_tag_values(
         tenant_id=tenant_id,
         metric_name=name,
         key=key,
         query=q,
-        limit=limit,
+        limit=min(limit, settings.tag_values_hard_limit),
     )
 
 

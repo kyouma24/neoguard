@@ -42,12 +42,13 @@ class TestGetMetricNames:
         params = conn.fetch.call_args[0][1:]
         assert TENANT_A in params
 
-    async def test_super_admin_no_tenant_filter(self):
+    async def test_tenant_always_required(self):
+        """CRITICAL-3: metadata service always requires tenant_id (non-nullable)."""
         pool, conn = _mock_pool([])
         with patch("neoguard.services.metadata.get_pool", AsyncMock(return_value=pool)):
-            await get_metric_names(tenant_id=None, query="")
+            await get_metric_names(tenant_id=TENANT_A, query="")
         sql = conn.fetch.call_args[0][0]
-        assert "tenant_id" not in sql
+        assert "tenant_id = $1" in sql
 
     async def test_query_uses_ilike(self):
         pool, conn = _mock_pool([])
@@ -58,13 +59,13 @@ class TestGetMetricNames:
         params = conn.fetch.call_args[0][1:]
         assert "%cpu%" in params
 
-    async def test_limit_capped_at_200(self):
+    async def test_limit_capped_at_1000(self):
+        """CRITICAL-3: metric names hard limit is 1000."""
         pool, conn = _mock_pool([])
         with patch("neoguard.services.metadata.get_pool", AsyncMock(return_value=pool)):
-            await get_metric_names(tenant_id=TENANT_A, query="", limit=500)
-        # Last param is the limit, should be capped to 200
+            await get_metric_names(tenant_id=TENANT_A, query="", limit=5000)
         params = conn.fetch.call_args[0][1:]
-        assert params[-1] == 200
+        assert params[-1] == 1000
 
     async def test_empty_result(self):
         pool, conn = _mock_pool([])
@@ -120,7 +121,8 @@ class TestGetTagValues:
         params = conn.fetch.call_args[0][1:]
         assert "%pro%" in params
 
-    async def test_limit_capped_at_10000(self):
+    async def test_limit_capped_at_1000(self):
+        """CRITICAL-3: tag values hard limit is 1000."""
         pool, conn = _mock_pool([])
         with patch("neoguard.services.metadata.get_pool", AsyncMock(return_value=pool)):
             await get_tag_values(
@@ -130,7 +132,7 @@ class TestGetTagValues:
                 limit=50000,
             )
         params = conn.fetch.call_args[0][1:]
-        assert params[-1] == 10000
+        assert params[-1] == 1000
 
 
 class TestGetFunctions:

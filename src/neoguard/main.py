@@ -96,6 +96,11 @@ def _error_envelope(
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     correlation_id = getattr(request.state, "request_id", None)
+    # If detail is already a structured error envelope, pass through with correlation_id
+    if isinstance(exc.detail, dict) and "error" in exc.detail:
+        content = exc.detail
+        content["error"].setdefault("correlation_id", correlation_id)
+        return JSONResponse(status_code=exc.status_code, content=content)
     code = _status_to_code(exc.status_code)
     message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
     return JSONResponse(

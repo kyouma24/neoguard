@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
 import type { Dashboard, DashboardLink, PanelDefinition, PanelGroup, PanelType } from "../../types";
 import { useEditModeStore } from "../../stores/editModeStore";
 import { useUndoRedo } from "../../hooks/useUndoRedo";
@@ -75,6 +76,8 @@ interface Props {
 }
 
 export function DashboardEditor({ dashboard, onBack, onSettings }: Props) {
+  const { user } = useAuth();
+  const queryTenantId = user?.is_super_admin ? dashboard.tenant_id : undefined;
   const [name, setName] = useState(dashboard.name);
   const [description, setDescription] = useState(dashboard.description);
   const [tags, setTags] = useState<string[]>(dashboard.tags ?? []);
@@ -166,7 +169,10 @@ export function DashboardEditor({ dashboard, onBack, onSettings }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.dashboards.update(dashboard.id, { name, description, panels, groups, tags, links });
+      // Filter out incomplete links — only send links with both label and valid url
+      const validLinks = links.filter((l) => l.label.trim() && l.url.trim());
+      await api.dashboards.update(dashboard.id, { name, description, panels, groups, tags, links: validLinks });
+      setLinks(validLinks);
       markClean();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -428,42 +434,69 @@ export function DashboardEditor({ dashboard, onBack, onSettings }: Props) {
       {links.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>Dashboard Links</label>
-          {links.map((link, i) => (
-            <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
-              <ExternalLink size={12} color="var(--color-primary-500)" style={{ flexShrink: 0 }} />
-              <input
-                value={link.label}
-                onChange={(e) => {
-                  const updated = [...links];
-                  updated[i] = { ...link, label: e.target.value };
-                  setLinks(updated);
-                }}
-                placeholder="Label"
-                style={{ width: 120, padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", color: "var(--text-primary)", outline: "none" }}
-              />
-              <input
-                value={link.url}
-                onChange={(e) => {
-                  const updated = [...links];
-                  updated[i] = { ...link, url: e.target.value };
-                  setLinks(updated);
-                }}
-                placeholder="URL"
-                style={{ flex: 1, padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", color: "var(--text-primary)", outline: "none" }}
-              />
-              <button
-                onClick={() => setLinks(links.filter((_, j) => j !== i))}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-danger-500)", padding: 2 }}
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ))}
+          {links.map((link, i) => {
+            const labelInvalid = !link.label.trim();
+            const urlInvalid = !link.url.trim() || (!link.url.startsWith("http://") && !link.url.startsWith("https://") && !link.url.startsWith("mailto:") && !link.url.startsWith("/"));
+            return (
+              <div key={i} style={{ marginBottom: 8, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                  <ExternalLink size={12} color="var(--color-primary-500)" style={{ flexShrink: 0 }} />
+                  <input
+                    value={link.label}
+                    onChange={(e) => {
+                      const updated = [...links];
+                      updated[i] = { ...link, label: e.target.value };
+                      setLinks(updated);
+                    }}
+                    placeholder="Label (required)"
+                    style={{ width: 140, padding: "4px 8px", fontSize: 12, border: `1px solid ${labelInvalid ? "var(--color-danger-400)" : "var(--border)"}`, borderRadius: "var(--radius-sm)", background: "var(--bg-primary)", color: "var(--text-primary)", outline: "none" }}
+                  />
+                  <input
+                    value={link.url}
+                    onChange={(e) => {
+                      const updated = [...links];
+                      updated[i] = { ...link, url: e.target.value };
+                      setLinks(updated);
+                    }}
+                    placeholder="https://... or /path (required)"
+                    style={{ flex: 1, padding: "4px 8px", fontSize: 12, border: `1px solid ${urlInvalid && link.url.length > 0 ? "var(--color-danger-400)" : "var(--border)"}`, borderRadius: "var(--radius-sm)", background: "var(--bg-primary)", color: "var(--text-primary)", outline: "none" }}
+                  />
+                  <button
+                    onClick={() => setLinks(links.filter((_, j) => j !== i))}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-danger-500)", padding: 2 }}
+                    title="Remove link"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", paddingLeft: 18 }}>
+                  <input
+                    value={link.tooltip ?? ""}
+                    onChange={(e) => {
+                      const updated = [...links];
+                      updated[i] = { ...link, tooltip: e.target.value };
+                      setLinks(updated);
+                    }}
+                    placeholder="Tooltip (optional)"
+                    style={{ width: 140, padding: "3px 6px", fontSize: 11, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--bg-primary)", color: "var(--text-primary)", outline: "none" }}
+                  />
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-secondary)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={link.include_vars ?? false} onChange={(e) => { const updated = [...links]; updated[i] = { ...link, include_vars: e.target.checked }; setLinks(updated); }} />
+                    Include variables
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-secondary)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={link.include_time ?? false} onChange={(e) => { const updated = [...links]; updated[i] = { ...link, include_time: e.target.checked }; setLinks(updated); }} />
+                    Include time range
+                  </label>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
       <div style={{ marginBottom: 16 }}>
         <button
-          onClick={() => setLinks([...links, { label: "", url: "" }])}
+          onClick={() => setLinks([...links, { label: "", url: "", tooltip: "", include_vars: false, include_time: false }])}
           style={{
             display: "flex", alignItems: "center", gap: 4, padding: "4px 10px",
             background: "none", border: "1px dashed var(--border)", borderRadius: "var(--radius-sm)",
@@ -701,6 +734,7 @@ export function DashboardEditor({ dashboard, onBack, onSettings }: Props) {
           isNew={isAddingNew}
           onSave={handleDrawerSave}
           onClose={handleDrawerClose}
+          queryTenantId={queryTenantId}
         />
       )}
 

@@ -275,6 +275,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
     comparePeriodMs,
     refreshKey,
     variables: varValues,
+    queryTenantId,
   });
 
   const handleChangeBarClick = useCallback((panelId: string) => {

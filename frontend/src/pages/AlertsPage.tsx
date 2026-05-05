@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format, formatDistanceToNow } from "date-fns";
 import { BellOff, Check, Clock, Edit2, Plus, Power, Trash2, X } from "lucide-react";
+import { AlertTimeline } from "../components/AlertTimeline";
 import { useApi } from "../hooks/useApi";
 import { useInterval } from "../hooks/useInterval";
+import { useAuth } from "../contexts/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 import { api, formatError } from "../services/api";
 import {
@@ -37,7 +39,8 @@ const EVENT_SEVERITIES = ["all", "P1", "P2", "P3", "P4"];
 type SilenceModalMode =
   | { kind: "closed" }
   | { kind: "create-onetime" }
-  | { kind: "create-recurring" };
+  | { kind: "create-recurring" }
+  | { kind: "edit"; silence: Silence };
 
 function formatCooldown(sec: number): string {
   if (sec === 0) return "None";
@@ -64,7 +67,9 @@ function channelCountFromNotification(notification: Record<string, unknown>): nu
 
 export function AlertsPage() {
   const navigate = useNavigate();
+  const { user, tenant } = useAuth();
   const { canCreate, canEdit, canDelete } = usePermissions();
+  const queryTenantId = user?.is_super_admin ? tenant?.id : undefined;
   const [tab, setTab] = useState<"rules" | "events" | "silences">("rules");
   const [modal, setModal] = useState<ModalMode>({ kind: "closed" });
   const [silenceModal, setSilenceModal] = useState<SilenceModalMode>({ kind: "closed" });
@@ -84,14 +89,14 @@ export function AlertsPage() {
     [],
   );
   const { data: events, loading: eventsLoading, refetch: refetchEvents } = useApi<AlertEvent[]>(
-    () => api.alerts.listEvents({ limit: 500 }),
-    [],
+    () => api.alerts.listEvents({ limit: 500 }, { tenantId: queryTenantId }),
+    [queryTenantId],
   );
   const { data: silences, loading: silencesLoading, refetch: refetchSilences } = useApi<Silence[]>(
     () => api.alerts.listSilences(),
     [],
   );
-  const { data: metricNames } = useApi<string[]>(() => api.metrics.names(), []);
+  const { data: metricNames } = useApi<string[]>(() => api.metrics.names({ tenantId: queryTenantId }), [queryTenantId]);
 
   useInterval(() => {
     refetchRules();
@@ -111,6 +116,8 @@ export function AlertsPage() {
   );
 
   const firingCount = events?.filter((e) => e.status === "firing").length ?? 0;
+  const totalRules = rules?.length ?? 0;
+  const enabledRules = rules?.filter((r) => r.enabled).length ?? 0;
 
   // Reset page when filters change
   useEffect(() => { setEventsPage(0); }, [eventFilter, severityFilter]);
@@ -203,7 +210,11 @@ export function AlertsPage() {
     setSaving(true);
     setError(null);
     try {
-      await api.alerts.createSilence(data);
+      if (silenceModal.kind === "edit") {
+        await api.alerts.updateSilence(silenceModal.silence.id, data);
+      } else {
+        await api.alerts.createSilence(data);
+      }
       setSilenceModal({ kind: "closed" });
       refetchSilences();
     } catch (e) {
@@ -349,6 +360,7 @@ export function AlertsPage() {
     </Card>
   ) : (
     <>
+      <AlertTimeline events={events ?? []} hoursBack={24} />
       <div style={{ display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <span style={{ fontSize: "var(--typography-font-size-xs)", color: "var(--color-neutral-500)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", marginRight: 4 }}>Status:</span>
@@ -527,6 +539,11 @@ export function AlertsPage() {
                   <td style={{ ...tdStyle, textAlign: "right" }}>
                     <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                       {canEdit && (
+                        <Button variant="ghost" size="sm" title="Edit" onClick={() => setSilenceModal({ kind: "edit", silence: s })}>
+                          <Edit2 size={14} />
+                        </Button>
+                      )}
+                      {canEdit && (
                         <Button variant="ghost" size="sm" title={s.enabled ? "Disable" : "Enable"} onClick={() => handleToggleSilence(s)}>
                           <Power size={14} color={s.enabled ? "var(--color-success-500)" : "var(--color-neutral-400)"} />
                         </Button>
@@ -568,6 +585,15 @@ export function AlertsPage() {
         actions={canCreate ? <Button variant="primary" onClick={() => setModal({ kind: "create" })}><Plus size={16} /> Create Rule</Button> : undefined}
       />
 
+      {/* Alert Stats Strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 16 }}>
+        <AlertStat label="Total Rules" value={totalRules} color="var(--text-primary)" />
+        <AlertStat label="Enabled" value={enabledRules} color="var(--color-success-500)" />
+        <AlertStat label="Firing" value={firingCount} color={firingCount > 0 ? "var(--color-danger-500)" : "var(--color-success-500)"} pulse={firingCount > 0} />
+        <AlertStat label="Pending" value={events?.filter((e) => e.status === "pending").length ?? 0} color="var(--color-warning-500)" />
+        <AlertStat label="Active Silences" value={activeSilenceCount} color="var(--color-info-500)" />
+      </div>
+
       {error && (
         <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid var(--color-danger-500)", borderRadius: "var(--border-radius-md)", padding: "10px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "var(--typography-font-size-sm)", color: "var(--color-danger-500)" }}>
           <span>{error}</span>
@@ -580,7 +606,7 @@ export function AlertsPage() {
       <ConfirmDialog isOpen={deleteConfirm !== null} onConfirm={() => { if (deleteConfirm) handleDelete(deleteConfirm); }} onCancel={() => setDeleteConfirm(null)} title="Delete Alert Rule" description="Are you sure you want to delete this alert rule? This action cannot be undone." confirmLabel="Delete" tone="danger" />
       <ConfirmDialog isOpen={deleteSilenceConfirm !== null} onConfirm={() => { if (deleteSilenceConfirm) handleDeleteSilence(deleteSilenceConfirm); }} onCancel={() => setDeleteSilenceConfirm(null)} title="Delete Silence" description="Are you sure you want to delete this silence? This action cannot be undone." confirmLabel="Delete" tone="danger" />
 
-      <SilenceCreateModal isOpen={silenceModal.kind !== "closed"} mode={silenceModal.kind === "closed" ? "create-onetime" : silenceModal.kind} rules={rules ?? []} saving={saving} error={error} onSave={handleCreateSilence} onClose={() => { setSilenceModal({ kind: "closed" }); setError(null); }} />
+      <SilenceCreateModal isOpen={silenceModal.kind !== "closed"} mode={silenceModal.kind === "edit" ? (silenceModal.silence.recurring ? "create-recurring" : "create-onetime") : silenceModal.kind === "closed" ? "create-onetime" : silenceModal.kind} rules={rules ?? []} saving={saving} error={error} editSilence={silenceModal.kind === "edit" ? silenceModal.silence : null} onSave={handleCreateSilence} onClose={() => { setSilenceModal({ kind: "closed" }); setError(null); }} />
       <AlertRuleModal isOpen={modal.kind !== "closed"} mode={modal} metricNames={metricNames ?? []} saving={saving} error={error} onSave={(data) => { if (modal.kind === "create") handleCreate(data); else if (modal.kind === "edit") handleUpdate(modal.rule.id, data); }} onClose={() => { setModal({ kind: "closed" }); setError(null); }} />
     </div>
   );
@@ -601,4 +627,22 @@ function statusTone(s: string): "danger" | "success" | "warning" | "info" {
 
 function conditionSymbol(c: string): string {
   switch (c) { case "gt": return ">"; case "lt": return "<"; case "gte": return ">="; case "lte": return "<="; case "eq": return "="; case "ne": return "!="; default: return c; }
+}
+
+function AlertStat({ label, value, color, pulse }: { label: string; value: number; color: string; pulse?: boolean }) {
+  return (
+    <div style={{
+      padding: "10px 14px",
+      borderRadius: 8,
+      border: "1px solid var(--border)",
+      background: "var(--bg-secondary)",
+      textAlign: "center",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        {pulse && <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: color, animation: "pulse 1.5s infinite" }} />}
+        <span style={{ fontSize: 22, fontWeight: 700, color }}>{value}</span>
+      </div>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginTop: 2 }}>{label}</div>
+    </div>
+  );
 }
