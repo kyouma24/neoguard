@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:unit:watch": "vitest --config vitest.unit.config.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

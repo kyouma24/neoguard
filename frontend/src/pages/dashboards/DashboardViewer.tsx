@@ -19,6 +19,7 @@ import { DashboardComments } from "../../components/dashboard/DashboardComments"
 import { useAuth } from "../../contexts/AuthContext";
 import { useLiveStream } from "../../hooks/useLiveStream";
 import { useChangeIntelligence } from "../../hooks/useChangeIntelligence";
+import { useBatchPanelQueries } from "../../hooks/useBatchPanelQueries";
 import { Button, EmptyState } from "../../design-system";
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Code2, Edit2, GitCompareArrows, Info, Layers, LayoutDashboard, Maximize2, MessageSquarePlus, Monitor, RefreshCw, Settings } from "lucide-react";
 import { DashboardGrid } from "../../components/dashboard/DashboardGrid";
@@ -239,10 +240,28 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
     handleCustomRange(from.toISOString(), to.toISOString());
   }, [handleCustomRange]);
 
-  const { from, to } = getTimeRange(timeRangeKey, customFrom, customTo);
-  const interval = getIntervalForRange(timeRangeKey, customFrom, customTo);
+  const { from, to } = useMemo(
+    () => getTimeRange(timeRangeKey, customFrom, customTo),
+    [timeRangeKey, customFrom, customTo, refreshKey]
+  );
+  const interval = useMemo(
+    () => getIntervalForRange(timeRangeKey, customFrom, customTo),
+    [timeRangeKey, customFrom, customTo]
+  );
   const rangeDurationMs = to.getTime() - from.getTime();
   const comparePeriodMs = compareEnabled ? rangeDurationMs : undefined;
+
+  // Batch panel queries: single streaming request for all eligible panels
+  const batchResults = useBatchPanelQueries({
+    panels: dashboard.panels,
+    from,
+    to,
+    interval,
+    variables: varValues,
+    refreshKey,
+    dashboardId: dashboard.id,
+    enabled: dashboard.panels.length > 0,
+  });
 
   // Change Intelligence: fetch current/previous period averages for all panels when comparison is active
   const changeIntelligencePanels = useChangeIntelligence({
@@ -522,6 +541,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
                 onAnnotate={handleAnnotate}
                 onFilterChange={handleFilterChange}
                 onPanelDataReady={handlePanelDataReady}
+                batchResults={batchResults}
               />
             ) : (
               <DashboardGrid
@@ -548,6 +568,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
                           onAnnotate={handleAnnotate}
                           onFilterChange={handleFilterChange}
                           onDataReady={(d) => handlePanelDataReady(panel.id, d)}
+                          preloadedResult={batchResults[panel.id]}
                         />
                       </WidgetErrorBoundary>
                     </div>
@@ -626,6 +647,7 @@ interface GroupedPanelGridProps {
   onAnnotate?: (timestamp: Date) => void;
   onFilterChange?: (key: string, value: string) => void;
   onPanelDataReady?: (panelId: string, data: MetricQueryResult[] | null) => void;
+  batchResults: Record<string, import("../../hooks/useBatchPanelQueries").PanelBatchResult>;
 }
 
 function GroupedPanelGrid({
@@ -633,6 +655,7 @@ function GroupedPanelGrid({
   containerWidth,
   from, to, interval, refreshKey, variables, onFullscreen, onInspect,
   onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onPanelDataReady,
+  batchResults,
 }: GroupedPanelGridProps) {
   const groupedPanelIds = new Set(groups.flatMap((g) => g.panel_ids));
   const ungroupedPanels = panels.filter((p) => !groupedPanelIds.has(p.id));
@@ -701,6 +724,7 @@ function GroupedPanelGrid({
                             onAnnotate={onAnnotate}
                             onFilterChange={onFilterChange}
                             onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
+                            preloadedResult={batchResults[panel.id]}
                           />
                         </WidgetErrorBoundary>
                       </div>
@@ -737,6 +761,7 @@ function GroupedPanelGrid({
                         onAnnotate={onAnnotate}
                         onFilterChange={onFilterChange}
                         onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
+                        preloadedResult={batchResults[panel.id]}
                       />
                     </WidgetErrorBoundary>
                   </div>

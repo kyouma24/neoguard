@@ -32,11 +32,11 @@ logger = logging.getLogger(__name__)
 INTERNAL_METRIC_PREFIX = "neoguard."
 
 # Streaming batch limits (spec 02-dashboards-technical.md D.4)
-MAX_BATCH_QUERIES = 50
-MAX_BODY_BYTES = 1_048_576  # 1 MB
-BATCH_TIMEOUT_S = 15.0
+MAX_BATCH_QUERIES = 200
+MAX_BODY_BYTES = 2_097_152  # 2 MB
+BATCH_TIMEOUT_S = 30.0
 PER_QUERY_TIMEOUT_S = 10.0
-MAX_CONCURRENT_QUERIES = 10
+MAX_CONCURRENT_QUERIES = 20
 
 router = APIRouter(prefix="/api/v1/mql", tags=["mql"])
 
@@ -407,6 +407,13 @@ async def batch_query_stream(
     tenant_id: str | None = Depends(get_tenant_id),
 ) -> StreamingResponse:
     admin = _is_admin(request)
+
+    logger.info(
+        "batch_stream_request",
+        query_count=len(req.queries),
+        dashboard_id=req.dashboard_id,
+        tenant_id=tenant_id,
+    )
 
     return StreamingResponse(
         _stream_batch_results(req, tenant_id=tenant_id, is_admin=admin),

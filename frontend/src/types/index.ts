@@ -228,11 +228,22 @@ export interface DashboardVariable {
   name: string;
   label: string;
   type: VariableType;
+  /** Where to fetch values from: "metrics" (metric tags) or "resources" (discovered resources table) */
+  source?: "metrics" | "resources";
   tag_key?: string;
+  /** For source="resources": which column to query (external_id, name, region, account_id, resource_type) */
+  resource_field?: string;
+  /** For source="resources": filter by resource_type (e.g. "ec2", "rds") */
+  resource_type?: string;
+  /** Exact metric name to scope tag value queries (e.g. "aws.ec2.cpuutilization") */
+  metric_filter?: string;
+  /** Metric name prefix to scope tag value queries (e.g. "aws.ec2.") */
+  metric_prefix?: string;
   values: string[];
   default_value: string;
   multi: boolean;
   include_all: boolean;
+  /** Name of parent variable — when parent changes, this variable re-fetches with parent's value as a tag filter */
   depends_on?: string;
 }
 

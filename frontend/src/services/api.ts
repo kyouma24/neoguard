@@ -146,10 +146,23 @@ export const api = {
         body: JSON.stringify({ queries }),
       }),
     names: () => request<string[]>(`${BASE}/metrics/names`),
-    tagValues: (tag: string, metric?: string) => {
+    tagValues: (tag: string, opts?: { metric?: string; metric_prefix?: string; filters?: Record<string, string> }) => {
       const params = new URLSearchParams({ tag });
-      if (metric) params.set("metric", metric);
+      if (opts?.metric) params.set("metric", opts.metric);
+      if (opts?.metric_prefix) params.set("metric_prefix", opts.metric_prefix);
+      if (opts?.filters && Object.keys(opts.filters).length > 0) {
+        params.set("filters", JSON.stringify(opts.filters));
+      }
       return request<string[]>(`${BASE}/metrics/tag-values?${params}`);
+    },
+    resourceValues: (field: string, opts?: { resource_type?: string; provider?: string; filters?: Record<string, string> }) => {
+      const params = new URLSearchParams({ field });
+      if (opts?.resource_type) params.set("resource_type", opts.resource_type);
+      if (opts?.provider) params.set("provider", opts.provider);
+      if (opts?.filters && Object.keys(opts.filters).length > 0) {
+        params.set("filters", JSON.stringify(opts.filters));
+      }
+      return request<string[]>(`${BASE}/metrics/resource-values?${params}`);
     },
     stats: () => request<Record<string, number>>(`${BASE}/metrics/stats`),
   },
@@ -174,7 +187,7 @@ export const api = {
      * Streaming batch query using NDJSON.
      * Each line is yielded as it arrives, enabling progressive widget rendering.
      */
-    batchQueryStream: async function* (req: BatchQueryRequest): AsyncGenerator<BatchStreamMessage> {
+    batchQueryStream: async function* (req: BatchQueryRequest, signal?: AbortSignal): AsyncGenerator<BatchStreamMessage> {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
@@ -188,6 +201,7 @@ export const api = {
         headers,
         credentials: "include",
         body: JSON.stringify(req),
+        signal,
       });
 
       if (!response.ok) {

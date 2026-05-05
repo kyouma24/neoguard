@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { api } from "../../services/api";
 import type { AlertEvent, Annotation, PanelDefinition, MetricQueryResult } from "../../types";
+import type { PanelBatchResult } from "../../hooks/useBatchPanelQueries";
 import { getTimeRange, getIntervalForRange } from "./TimeRangePicker";
 import { getWidgetDefinition } from "../charts/widgetRegistry";
 import { ChartEmptyState } from "../charts/ChartEmptyState";
@@ -23,9 +24,11 @@ interface Props {
   onFilterChange?: (key: string, value: string) => void;
   /** Expose raw data for panel inspector */
   onDataReady?: (data: MetricQueryResult[] | null) => void;
+  /** When provided from batch fetch, skip individual query */
+  preloadedResult?: PanelBatchResult;
 }
 
-export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: dashInterval, height, refreshKey, variables, onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onDataReady }: Props) {
+export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: dashInterval, height, refreshKey, variables, onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onDataReady, preloadedResult }: Props) {
   const [data, setData] = useState<MetricQueryResult[] | null>(null);
   const [comparisonData, setComparisonData] = useState<MetricQueryResult[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,6 +44,27 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
     return { from: dashFrom, to: dashTo, interval: dashInterval };
   }, [override?.range, override?.customFrom, override?.customTo, dashFrom, dashTo, dashInterval]);
 
+  // When batch result is provided, use it directly instead of individual fetch
+  const useBatchData = !!preloadedResult;
+  const batchStatus = preloadedResult?.status;
+  const batchData = preloadedResult?.data;
+  const batchError = preloadedResult?.error?.message;
+
+  useEffect(() => {
+    if (!useBatchData) return;
+    if (batchStatus === "ok") {
+      setData(batchData ?? []);
+      setLoading(false);
+      setError(null);
+    } else if (batchStatus === "error") {
+      setError(batchError ?? "Query failed");
+      setLoading(false);
+    } else if (batchStatus === "loading") {
+      setLoading(true);
+      setError(null);
+    }
+  }, [useBatchData, batchStatus, batchData, batchError]);
+
   // Variables are sent to the server for substitution at MQL compile time (spec D.2).
   const rawMql = panel.mql_query;
   const hasMql = !!rawMql?.trim();
@@ -48,7 +72,27 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
   // Stable reference for variables to avoid unnecessary re-fetches.
   const variablesJson = variables ? JSON.stringify(variables) : "";
 
+  // Substitute $variable references in legacy metric tags client-side.
+  const resolvedTags = useMemo(() => {
+    const tags = panel.tags ?? {};
+    if (!variables || Object.keys(variables).length === 0) return tags;
+    const result: Record<string, string> = {};
+    for (const [k, v] of Object.entries(tags)) {
+      if (v.startsWith("$")) {
+        const varName = v.slice(1);
+        const resolved = variables[varName];
+        if (resolved && resolved !== "*") {
+          result[k] = resolved;
+        }
+      } else {
+        result[k] = v;
+      }
+    }
+    return result;
+  }, [panel.tags, variablesJson]);
+
   useEffect(() => {
+    if (useBatchData) return;
     if (panel.panel_type === "text") return;
     if (!hasMql && !hasLegacy) return;
 
@@ -70,7 +114,7 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
       ? api.mql.query(mqlRequest)
       : api.metrics.query({
           name: panel.metric_name!,
-          tags: panel.tags ?? {},
+          tags: resolvedTags,
           start: from.toISOString(),
           end: to.toISOString(),
           interval,
@@ -86,7 +130,7 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
       });
 
     return () => { cancelled = true; };
-  }, [rawMql, variablesJson, panel.metric_name, panel.tags, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey]);
+  }, [useBatchData, rawMql, variablesJson, resolvedTags, panel.metric_name, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey]);
 
   useEffect(() => {
     if (!comparePeriodMs || panel.panel_type === "text") {
@@ -113,7 +157,7 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
       ? api.mql.query(compMqlRequest)
       : api.metrics.query({
           name: panel.metric_name!,
-          tags: panel.tags ?? {},
+          tags: resolvedTags,
           start: compFrom.toISOString(),
           end: compTo.toISOString(),
           interval,
@@ -125,7 +169,7 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
       .catch(() => { if (!cancelled) setComparisonData(null); });
 
     return () => { cancelled = true; };
-  }, [comparePeriodMs, rawMql, variablesJson, panel.metric_name, panel.tags, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey]);
+  }, [comparePeriodMs, rawMql, variablesJson, resolvedTags, panel.metric_name, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey]);
 
   const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const isChartPanel = panel.panel_type === "timeseries" || panel.panel_type === "area";
@@ -157,14 +201,11 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
     [data, transform],
   );
 
-  const stableOnDataReady = useCallback(
-    (d: MetricQueryResult[] | null) => { onDataReady?.(d); },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [onDataReady],
-  );
+  const onDataReadyRef = useRef(onDataReady);
+  onDataReadyRef.current = onDataReady;
   useEffect(() => {
-    stableOnDataReady(data);
-  }, [data, stableOnDataReady]);
+    onDataReadyRef.current?.(data);
+  }, [data]);
 
   if (panel.panel_type === "text" && definition) {
     const { Renderer } = definition;
