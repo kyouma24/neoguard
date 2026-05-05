@@ -135,24 +135,29 @@ export const api = {
   health: () => request<HealthStatus>("/health"),
 
   metrics: {
-    query: (q: MetricQuery) =>
-      request<MetricQueryResult[]>(`${BASE}/metrics/query`, {
+    query: (q: MetricQuery, opts?: { tenantId?: string }) => {
+      const qs = opts?.tenantId ? `?tenant_id=${encodeURIComponent(opts.tenantId)}` : "";
+      return request<MetricQueryResult[]>(`${BASE}/metrics/query${qs}`, {
         method: "POST",
         body: JSON.stringify(q),
-      }),
-    queryBatch: (queries: MetricQuery[]) =>
-      request<MetricQueryResult[][]>(`${BASE}/metrics/query/batch`, {
+      });
+    },
+    queryBatch: (queries: MetricQuery[], opts?: { tenantId?: string }) => {
+      const qs = opts?.tenantId ? `?tenant_id=${encodeURIComponent(opts.tenantId)}` : "";
+      return request<MetricQueryResult[][]>(`${BASE}/metrics/query/batch${qs}`, {
         method: "POST",
         body: JSON.stringify({ queries }),
-      }),
+      });
+    },
     names: () => request<string[]>(`${BASE}/metrics/names`),
-    tagValues: (tag: string, opts?: { metric?: string; metric_prefix?: string; filters?: Record<string, string> }) => {
+    tagValues: (tag: string, opts?: { metric?: string; metric_prefix?: string; filters?: Record<string, string>; tenantId?: string }) => {
       const params = new URLSearchParams({ tag });
       if (opts?.metric) params.set("metric", opts.metric);
       if (opts?.metric_prefix) params.set("metric_prefix", opts.metric_prefix);
       if (opts?.filters && Object.keys(opts.filters).length > 0) {
         params.set("filters", JSON.stringify(opts.filters));
       }
+      if (opts?.tenantId) params.set("tenant_id", opts.tenantId);
       return request<string[]>(`${BASE}/metrics/tag-values?${params}`);
     },
     resourceValues: (field: string, opts?: { resource_type?: string; provider?: string; filters?: Record<string, string> }) => {
@@ -168,16 +173,20 @@ export const api = {
   },
 
   mql: {
-    query: (q: MQLQueryRequest) =>
-      request<MetricQueryResult[]>(`${BASE}/mql/query`, {
+    query: (q: MQLQueryRequest, opts?: { tenantId?: string }) => {
+      const qs = opts?.tenantId ? `?tenant_id=${encodeURIComponent(opts.tenantId)}` : "";
+      return request<MetricQueryResult[]>(`${BASE}/mql/query${qs}`, {
         method: "POST",
         body: JSON.stringify(q),
-      }),
-    queryBatch: (queries: MQLQueryRequest[]) =>
-      request<MetricQueryResult[][]>(`${BASE}/mql/query/batch`, {
+      });
+    },
+    queryBatch: (queries: MQLQueryRequest[], opts?: { tenantId?: string }) => {
+      const qs = opts?.tenantId ? `?tenant_id=${encodeURIComponent(opts.tenantId)}` : "";
+      return request<MetricQueryResult[][]>(`${BASE}/mql/query/batch${qs}`, {
         method: "POST",
         body: JSON.stringify({ queries }),
-      }),
+      });
+    },
     validate: (q: MQLQueryRequest) =>
       request<MQLValidateResponse>(`${BASE}/mql/validate`, {
         method: "POST",
@@ -187,7 +196,7 @@ export const api = {
      * Streaming batch query using NDJSON.
      * Each line is yielded as it arrives, enabling progressive widget rendering.
      */
-    batchQueryStream: async function* (req: BatchQueryRequest, signal?: AbortSignal): AsyncGenerator<BatchStreamMessage> {
+    batchQueryStream: async function* (req: BatchQueryRequest, signal?: AbortSignal, opts?: { tenantId?: string }): AsyncGenerator<BatchStreamMessage> {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
@@ -196,7 +205,8 @@ export const api = {
         headers["X-CSRF-Token"] = csrfToken;
       }
 
-      const response = await fetch(`${BASE}/mql/query/batch/stream`, {
+      const qs = opts?.tenantId ? `?tenant_id=${encodeURIComponent(opts.tenantId)}` : "";
+      const response = await fetch(`${BASE}/mql/query/batch/stream${qs}`, {
         method: "POST",
         headers,
         credentials: "include",
@@ -297,7 +307,7 @@ export const api = {
       }),
     deleteRule: (id: string) =>
       request<void>(`${BASE}/alerts/rules/${id}`, { method: "DELETE" }),
-    listEvents: (params?: { rule_id?: string; status?: string; severity?: string; start?: string; end?: string; limit?: number }) => {
+    listEvents: (params?: { rule_id?: string; status?: string; severity?: string; start?: string; end?: string; limit?: number }, opts?: { tenantId?: string }) => {
       const qs = new URLSearchParams();
       if (params?.rule_id) qs.set("rule_id", params.rule_id);
       if (params?.status) qs.set("status", params.status);
@@ -305,6 +315,7 @@ export const api = {
       if (params?.start) qs.set("start", params.start);
       if (params?.end) qs.set("end", params.end);
       if (params?.limit) qs.set("limit", String(params.limit));
+      if (opts?.tenantId) qs.set("tenant_id", opts.tenantId);
       const query = qs.toString();
       return request<AlertEvent[]>(`${BASE}/alerts/events${query ? `?${query}` : ""}`);
     },
@@ -590,12 +601,13 @@ export const api = {
   },
 
   annotations: {
-    list: (params?: { dashboard_id?: string; from?: string; to?: string; limit?: number }) => {
+    list: (params?: { dashboard_id?: string; from?: string; to?: string; limit?: number }, opts?: { tenantId?: string }) => {
       const qs = new URLSearchParams();
       if (params?.dashboard_id) qs.set("dashboard_id", params.dashboard_id);
       if (params?.from) qs.set("from", params.from);
       if (params?.to) qs.set("to", params.to);
       if (params?.limit) qs.set("limit", String(params.limit));
+      if (opts?.tenantId) qs.set("tenant_id", opts.tenantId);
       const query = qs.toString();
       return request<Annotation[]>(`${BASE}/annotations${query ? `?${query}` : ""}`);
     },

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from neoguard.api.deps import get_current_user_id, get_tenant_id, get_tenant_id_required, require_scope
+from neoguard.api.deps import get_current_user_id, get_query_tenant_id, get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.annotations import Annotation, AnnotationCreate, AnnotationUpdate
 from neoguard.services.annotations import (
     create_annotation,
@@ -34,7 +34,7 @@ async def list_all(
     start: datetime | None = Query(default=None, alias="from"),
     end: datetime | None = Query(default=None, alias="to"),
     limit: int = Query(default=200, le=1000),
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> list[Annotation]:
     return await list_annotations(tenant_id, dashboard_id, start, end, limit)
 
@@ -42,7 +42,7 @@ async def list_all(
 @router.get("/{annotation_id}")
 async def get_one(
     annotation_id: str,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> Annotation:
     ann = await get_annotation(tenant_id, annotation_id)
     if not ann:

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
+from neoguard.api.deps import get_query_tenant_id, get_tenant_id, get_tenant_id_required, require_scope
 from neoguard.models.alerts import (
     AlertAcknowledge,
     AlertEvent,
@@ -106,7 +106,7 @@ async def list_events(
     start: datetime | None = None,
     end: datetime | None = None,
     limit: int = 50,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> list[AlertEvent]:
     return await list_alert_events(
         tenant_id, rule_id=rule_id, status=status,

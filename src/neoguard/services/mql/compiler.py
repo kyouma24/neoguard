@@ -48,6 +48,10 @@ class CompiledQuery:
     post_processors: tuple[MQLFunction, ...]
 
 
+class CompilerError(Exception):
+    """Raised when the MQL compiler cannot proceed safely."""
+
+
 def compile_query(
     query: MQLQuery,
     *,
@@ -56,7 +60,14 @@ def compile_query(
     end: datetime,
     interval: str = "1m",
     widget_width_px: int | None = None,
+    allow_cross_tenant: bool = False,
 ) -> CompiledQuery:
+    if tenant_id is None and not allow_cross_tenant:
+        raise CompilerError(
+            "tenant_id is required for query compilation. "
+            "Cross-tenant queries require explicit allow_cross_tenant=True."
+        )
+
     # If the caller specifies a widget width, use the planner to pick
     # the source table and interval automatically (spec D.6).
     if widget_width_px is not None and interval != "raw":

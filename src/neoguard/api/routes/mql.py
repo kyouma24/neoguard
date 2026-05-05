@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from neoguard.api.deps import get_tenant_id, require_scope
+from neoguard.api.deps import get_query_tenant_id, get_tenant_id, require_scope
 from neoguard.models.metrics import MetricQueryResult
 from neoguard.services.dashboard_metrics import record_cache_hit, record_cache_miss
 from neoguard.services.mql.cache import (
@@ -101,7 +101,7 @@ def _is_admin(request: Request) -> bool:
 async def mql_query(
     body: MQLQueryRequest,
     request: Request,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> list[MetricQueryResult]:
     query_str = body.query
     if body.variables:
@@ -195,7 +195,7 @@ async def _refresh_cache(compiled: object, cache_key: str, ttl: int) -> None:
 async def mql_query_batch(
     body: MQLBatchRequest,
     request: Request,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> list[list[MetricQueryResult]]:
     import asyncio
 
@@ -404,7 +404,7 @@ async def _stream_batch_results(
 async def batch_query_stream(
     req: StreamBatchRequest,
     request: Request,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> StreamingResponse:
     admin = _is_admin(request)
 

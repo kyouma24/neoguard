@@ -22,6 +22,7 @@ interface UseBatchPanelQueriesOptions {
   variables: Record<string, string>;
   refreshKey: number;
   dashboardId: string;
+  queryTenantId?: string;
   visiblePanelIds?: Set<string>;
   enabled?: boolean;
 }
@@ -70,6 +71,7 @@ export function useBatchPanelQueries({
   variables,
   refreshKey,
   dashboardId,
+  queryTenantId,
   visiblePanelIds,
   enabled = true,
 }: UseBatchPanelQueriesOptions) {
@@ -149,6 +151,7 @@ export function useBatchPanelQueries({
           dashboard_id: dashboardId,
         },
         controller.signal,
+        queryTenantId ? { tenantId: queryTenantId } : undefined,
       );
 
       for await (const msg of stream) {
@@ -179,7 +182,7 @@ export function useBatchPanelQueries({
         return next;
       });
     }
-  }, [panelIdsKey, fromMs, toMs, interval, variablesJson, dashboardId, visiblePanelIds]);
+  }, [panelIdsKey, fromMs, toMs, interval, variablesJson, dashboardId, queryTenantId, visiblePanelIds]);
 
   useEffect(() => {
     if (!enabled) {

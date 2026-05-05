@@ -8,9 +8,10 @@ interface Props {
   variables: DashboardVariable[];
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
+  queryTenantId?: string;
 }
 
-export function VariableBar({ variables, values, onChange }: Props) {
+export function VariableBar({ variables, values, onChange, queryTenantId }: Props) {
   if (!variables.length) return null;
 
   return (
@@ -29,45 +30,91 @@ export function VariableBar({ variables, values, onChange }: Props) {
           variable={v}
           value={values[v.name] ?? v.default_value ?? ""}
           allValues={values}
+          allVariables={variables}
           onChange={(val) => onChange({ ...values, [v.name]: val })}
+          queryTenantId={queryTenantId}
         />
       ))}
     </div>
   );
 }
 
-/** Shared hook: fetches options for query-type variables and handles cascading */
+/** Shared hook: fetches options for query-type variables with metric scoping and cascading filters */
 function useVariableOptions(
   variable: DashboardVariable,
   allValues: Record<string, string>,
+  allVariables: DashboardVariable[],
+  queryTenantId?: string,
 ) {
   const [options, setOptions] = useState<string[]>(variable.values);
   const [loading, setLoading] = useState(false);
 
+  // Build cascading filter chain: collect all ancestor variable values as tag filters
+  const buildFilters = useCallback((): Record<string, string> => {
+    const filters: Record<string, string> = {};
+    if (!variable.depends_on) return filters;
+
+    // Walk up the dependency chain
+    let current: DashboardVariable | undefined = variable;
+    const visited = new Set<string>();
+    while (current?.depends_on && !visited.has(current.depends_on)) {
+      visited.add(current.depends_on);
+      const parent = allVariables.find((v) => v.name === current!.depends_on);
+      if (parent?.tag_key) {
+        const parentVal = allValues[parent.name];
+        if (parentVal && parentVal !== ALL_VALUE) {
+          filters[parent.tag_key] = parentVal;
+        }
+      }
+      current = parent;
+    }
+    return filters;
+  }, [variable, allValues, allVariables]);
+
   const fetchOptions = useCallback(async () => {
-    if (variable.type !== "query" || !variable.tag_key) return;
+    if (variable.type !== "query") return;
+    const source = variable.source ?? "metrics";
     setLoading(true);
     try {
-      const vals = await api.metrics.tagValues(variable.tag_key);
+      let vals: string[];
+      if (source === "resources") {
+        const field = variable.resource_field ?? "external_id";
+        const filters = buildFilters();
+        vals = await api.metrics.resourceValues(field, {
+          resource_type: variable.resource_type,
+          provider: "aws",
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
+        });
+      } else {
+        if (!variable.tag_key) { setLoading(false); return; }
+        const filters = buildFilters();
+        vals = await api.metrics.tagValues(variable.tag_key, {
+          metric: variable.metric_filter,
+          metric_prefix: variable.metric_prefix,
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
+          tenantId: queryTenantId,
+        });
+      }
       setOptions(vals);
     } catch {
-      // keep existing options on error
+      setOptions([]);
     } finally {
       setLoading(false);
     }
-  }, [variable.type, variable.tag_key]);
+  }, [variable.type, variable.source, variable.tag_key, variable.resource_field, variable.resource_type, variable.metric_filter, variable.metric_prefix, buildFilters]);
 
   useEffect(() => {
     fetchOptions();
   }, [fetchOptions]);
 
-  // Refetch when dependent variable changes
+  // Refetch when any ancestor variable value changes
   const depValue = variable.depends_on ? allValues[variable.depends_on] : undefined;
   useEffect(() => {
-    if (variable.depends_on && depValue) {
+    if (variable.depends_on) {
       fetchOptions();
     }
-  }, [depValue, variable.depends_on, fetchOptions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depValue]);
 
   return { options, loading };
 }
@@ -76,14 +123,18 @@ function VariableDropdown({
   variable,
   value,
   allValues,
+  allVariables,
   onChange,
+  queryTenantId,
 }: {
   variable: DashboardVariable;
   value: string;
   allValues: Record<string, string>;
+  allVariables: DashboardVariable[];
   onChange: (val: string) => void;
+  queryTenantId?: string;
 }) {
-  const { options, loading } = useVariableOptions(variable, allValues);
+  const { options, loading } = useVariableOptions(variable, allValues, allVariables, queryTenantId);
   const label = variable.label || `$${variable.name}`;
 
   if (variable.type === "textbox") {

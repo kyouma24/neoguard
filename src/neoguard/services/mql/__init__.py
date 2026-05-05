@@ -25,7 +25,7 @@ from neoguard.services.mql.cache import (
 )
 from neoguard.services.mql.tokenizer import tokenize, Token, TokenType
 from neoguard.services.mql.parser import parse
-from neoguard.services.mql.compiler import compile_query, CompiledQuery
+from neoguard.services.mql.compiler import compile_query, CompiledQuery, CompilerError
 from neoguard.services.mql.executor import execute
 from neoguard.services.mql.planner import plan_rollup
 from neoguard.services.mql.variables import substitute_variables, VariableSubstitutionError
@@ -58,6 +58,7 @@ __all__ = [
     "parse",
     "compile_query",
     "CompiledQuery",
+    "CompilerError",
     "execute",
     "plan_rollup",
     "substitute_variables",

@@ -26,9 +26,11 @@ interface Props {
   onDataReady?: (data: MetricQueryResult[] | null) => void;
   /** When provided from batch fetch, skip individual query */
   preloadedResult?: PanelBatchResult;
+  /** Explicit tenant context for super admin cross-tenant viewing */
+  queryTenantId?: string;
 }
 
-export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: dashInterval, height, refreshKey, variables, onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onDataReady, preloadedResult }: Props) {
+export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: dashInterval, height, refreshKey, variables, onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onDataReady, preloadedResult, queryTenantId }: Props) {
   const [data, setData] = useState<MetricQueryResult[] | null>(null);
   const [comparisonData, setComparisonData] = useState<MetricQueryResult[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -110,8 +112,9 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
         }
       : null;
 
+    const tenantOpts = queryTenantId ? { tenantId: queryTenantId } : undefined;
     const promise = mqlRequest
-      ? api.mql.query(mqlRequest)
+      ? api.mql.query(mqlRequest, tenantOpts)
       : api.metrics.query({
           name: panel.metric_name!,
           tags: resolvedTags,
@@ -119,7 +122,7 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
           end: to.toISOString(),
           interval,
           aggregation: panel.aggregation ?? "avg",
-        });
+        }, tenantOpts);
 
     promise
       .then((result) => {
@@ -130,7 +133,7 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
       });
 
     return () => { cancelled = true; };
-  }, [useBatchData, rawMql, variablesJson, resolvedTags, panel.metric_name, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey]);
+  }, [useBatchData, rawMql, variablesJson, resolvedTags, panel.metric_name, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey, queryTenantId]);
 
   useEffect(() => {
     if (!comparePeriodMs || panel.panel_type === "text") {
@@ -153,8 +156,9 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
         }
       : null;
 
+    const tenantOpts = queryTenantId ? { tenantId: queryTenantId } : undefined;
     const promise = compMqlRequest
-      ? api.mql.query(compMqlRequest)
+      ? api.mql.query(compMqlRequest, tenantOpts)
       : api.metrics.query({
           name: panel.metric_name!,
           tags: resolvedTags,
@@ -162,14 +166,14 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
           end: compTo.toISOString(),
           interval,
           aggregation: panel.aggregation ?? "avg",
-        });
+        }, tenantOpts);
 
     promise
       .then((result) => { if (!cancelled) setComparisonData(result); })
       .catch(() => { if (!cancelled) setComparisonData(null); });
 
     return () => { cancelled = true; };
-  }, [comparePeriodMs, rawMql, variablesJson, resolvedTags, panel.metric_name, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey]);
+  }, [comparePeriodMs, rawMql, variablesJson, resolvedTags, panel.metric_name, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey, queryTenantId]);
 
   const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const isChartPanel = panel.panel_type === "timeseries" || panel.panel_type === "area";
@@ -185,13 +189,13 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
         start: from.toISOString(),
         end: to.toISOString(),
         limit: 50,
-      })
+      }, queryTenantId ? { tenantId: queryTenantId } : undefined)
       .then((events) => {
         if (!cancelled) setAlertEvents(events);
       })
       .catch(() => { if (!cancelled) setAlertEvents([]); });
     return () => { cancelled = true; };
-  }, [isChartPanel, panel.metric_name, from.getTime(), to.getTime(), refreshKey]);
+  }, [isChartPanel, panel.metric_name, from.getTime(), to.getTime(), refreshKey, queryTenantId]);
 
   const definition = getWidgetDefinition(panel.panel_type);
   const opts = panel.display_options;

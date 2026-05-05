@@ -37,7 +37,7 @@ from neoguard.db.redis.connection import get_redis
 
 logger = logging.getLogger(__name__)
 
-CACHE_KEY_PREFIX = "q"
+CACHE_KEY_PREFIX = "q2"
 
 
 class CacheStatus(str, Enum):
@@ -72,11 +72,11 @@ def make_cache_key(
     The compiled SQL (not the raw user query) is hashed so that
     semantically equivalent queries share cache entries.
     """
-    tid = tenant_id or "\x00__platform__"
+    tenant_part = tenant_id if tenant_id else "CROSS_TENANT"
     query_hash = hashlib.sha256(compiled_query.encode()).hexdigest()[:32]
     aligned_from = _align_ts(from_ts, interval)
     aligned_to = _align_ts(to_ts, interval)
-    return f"{CACHE_KEY_PREFIX}:{tid}:{query_hash}:{aligned_from}:{aligned_to}:{interval}"
+    return f"{CACHE_KEY_PREFIX}:{tenant_part}:{query_hash}:{aligned_from}:{aligned_to}:{interval}"
 
 
 def compute_ttl(from_ts: int, to_ts: int) -> int:

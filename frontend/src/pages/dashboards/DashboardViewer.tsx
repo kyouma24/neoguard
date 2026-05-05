@@ -49,6 +49,8 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
     return migrateToLatest(rawDashboard as unknown as Record<string, unknown>) as unknown as Dashboard;
   }, [rawDashboard]);
 
+  const queryTenantId = user?.is_super_admin ? dashboard.tenant_id : undefined;
+
   const [dvParams, setDvParams] = useSearchParams();
   const timeRangeKey = dvParams.get("range") || "1h";
   const isKiosk = dvParams.get("kiosk") === "1";
@@ -260,6 +262,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
     variables: varValues,
     refreshKey,
     dashboardId: dashboard.id,
+    queryTenantId,
     enabled: dashboard.panels.length > 0,
   });
 
@@ -297,10 +300,10 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
         dashboard_id: dashboard.id,
         from: fromIso,
         to: toIso,
-      })
+      }, { tenantId: queryTenantId })
       .then(setAnnotations)
       .catch(() => setAnnotations([]));
-  }, [dashboard.id, fromIso, toIso, annotationsEnabled]);
+  }, [dashboard.id, fromIso, toIso, annotationsEnabled, queryTenantId]);
 
   useEffect(() => {
     fetchAnnotations();
@@ -503,6 +506,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
               return next;
             }, { replace: true });
           }}
+          queryTenantId={queryTenantId}
         />
       )}
 
@@ -542,6 +546,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
                 onFilterChange={handleFilterChange}
                 onPanelDataReady={handlePanelDataReady}
                 batchResults={batchResults}
+                queryTenantId={queryTenantId}
               />
             ) : (
               <DashboardGrid
@@ -569,6 +574,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
                           onFilterChange={handleFilterChange}
                           onDataReady={(d) => handlePanelDataReady(panel.id, d)}
                           preloadedResult={batchResults[panel.id]}
+                          queryTenantId={queryTenantId}
                         />
                       </WidgetErrorBoundary>
                     </div>
@@ -648,6 +654,7 @@ interface GroupedPanelGridProps {
   onFilterChange?: (key: string, value: string) => void;
   onPanelDataReady?: (panelId: string, data: MetricQueryResult[] | null) => void;
   batchResults: Record<string, import("../../hooks/useBatchPanelQueries").PanelBatchResult>;
+  queryTenantId?: string;
 }
 
 function GroupedPanelGrid({
@@ -655,7 +662,7 @@ function GroupedPanelGrid({
   containerWidth,
   from, to, interval, refreshKey, variables, onFullscreen, onInspect,
   onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onPanelDataReady,
-  batchResults,
+  batchResults, queryTenantId,
 }: GroupedPanelGridProps) {
   const groupedPanelIds = new Set(groups.flatMap((g) => g.panel_ids));
   const ungroupedPanels = panels.filter((p) => !groupedPanelIds.has(p.id));
@@ -725,6 +732,7 @@ function GroupedPanelGrid({
                             onFilterChange={onFilterChange}
                             onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
                             preloadedResult={batchResults[panel.id]}
+                            queryTenantId={queryTenantId}
                           />
                         </WidgetErrorBoundary>
                       </div>
@@ -762,6 +770,7 @@ function GroupedPanelGrid({
                         onFilterChange={onFilterChange}
                         onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
                         preloadedResult={batchResults[panel.id]}
+                        queryTenantId={queryTenantId}
                       />
                     </WidgetErrorBoundary>
                   </div>
