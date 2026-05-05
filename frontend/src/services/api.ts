@@ -24,6 +24,8 @@ import type {
   DashboardPermissionLevel,
   DashboardVersion,
   HealthStatus,
+  FacetsResult,
+  HistogramResult,
   LogQuery,
   LogQueryResult,
   MembershipInfo,
@@ -250,6 +252,16 @@ export const api = {
   logs: {
     query: (q: LogQuery) =>
       request<LogQueryResult>(`${BASE}/logs/query`, {
+        method: "POST",
+        body: JSON.stringify(q),
+      }),
+    histogram: (q: { start: string; end: string; service?: string; severity?: string; query?: string; buckets?: number }) =>
+      request<HistogramResult>(`${BASE}/logs/histogram`, {
+        method: "POST",
+        body: JSON.stringify(q),
+      }),
+    facets: (q: { start: string; end: string; query?: string; service?: string; severity?: string }) =>
+      request<FacetsResult>(`${BASE}/logs/facets`, {
         method: "POST",
         body: JSON.stringify(q),
       }),

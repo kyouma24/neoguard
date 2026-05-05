@@ -106,6 +106,27 @@ export interface LogQueryResult {
   has_more: boolean;
 }
 
+export interface HistogramBucket {
+  timestamp: string;
+  count: number;
+  severity_counts: Record<string, number>;
+}
+
+export interface HistogramResult {
+  buckets: HistogramBucket[];
+  interval_seconds: number;
+}
+
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export interface FacetsResult {
+  severity: FacetValue[];
+  service: FacetValue[];
+}
+
 export type AggregationType = "avg" | "min" | "max" | "sum" | "count" | "last" | "p95" | "p99";
 export type NoDataAction = "ok" | "keep" | "alert";
 

@@ -205,19 +205,49 @@ export function OverviewPage() {
         }
       />
 
-      {health?.status === "degraded" && (
-        <Card variant="bordered" padding="sm">
-          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--color-danger-500)" }}>
-            <AlertTriangle size={16} />
-            <span style={{ fontWeight: 600 }}>System Degraded</span>
-            {(health.degraded_reasons?.length ?? 0) > 0 && (
-              <span style={{ color: "var(--color-neutral-500)" }}>
-                — {health.degraded_reasons?.join(", ")}
-              </span>
-            )}
-          </div>
-        </Card>
-      )}
+      {/* Health Banner */}
+      <div style={{
+        padding: "12px 16px",
+        borderRadius: 8,
+        marginBottom: 16,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        background: health?.status === "healthy"
+          ? "var(--color-success-50)"
+          : health?.status === "degraded"
+            ? "var(--color-warning-50)"
+            : "var(--color-danger-50)",
+        border: `1px solid ${health?.status === "healthy" ? "var(--color-success-200)" : health?.status === "degraded" ? "var(--color-warning-200)" : "var(--color-danger-200)"}`,
+      }}>
+        <div style={{
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          background: health?.status === "healthy"
+            ? "var(--color-success-500)"
+            : health?.status === "degraded"
+              ? "var(--color-warning-500)"
+              : "var(--color-danger-500)",
+          animation: health?.status !== "healthy" ? "pulse 2s infinite" : undefined,
+        }} />
+        <span style={{
+          fontWeight: 600,
+          fontSize: 13,
+          color: health?.status === "healthy"
+            ? "var(--color-success-700)"
+            : health?.status === "degraded"
+              ? "var(--color-warning-700)"
+              : "var(--color-danger-700)",
+        }}>
+          {health?.status === "healthy" ? "All Systems Operational" : health?.status === "degraded" ? "System Degraded" : "System Critical"}
+        </span>
+        {health?.status === "degraded" && (health.degraded_reasons?.length ?? 0) > 0 && (
+          <span style={{ color: "var(--color-neutral-500)", fontSize: 12 }}>
+            — {health.degraded_reasons?.join(", ")}
+          </span>
+        )}
+      </div>
 
       {/* Stat Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>

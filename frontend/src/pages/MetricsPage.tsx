@@ -1,7 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { subHours } from "date-fns";
-import { Plus, Save, X } from "lucide-react";
+import { Plus, Save, X, TrendingUp, BarChart3, Table, Activity } from "lucide-react";
 import { TimeSeriesChart } from "../components/TimeSeriesChart";
+import { AreaChartWidget } from "../components/charts/AreaChart";
+import { BarChartWidget } from "../components/charts/BarChart";
 import { useApi } from "../hooks/useApi";
 import { useInterval } from "../hooks/useInterval";
 import { useURLState } from "../hooks/useURLState";
@@ -18,6 +20,15 @@ import type { Dashboard, MetricQueryResult } from "../types";
 
 const COLORS = ["#635bff", "#22c55e", "#f59e0b", "#ef4444", "#3b82f6"];
 const MAX_QUERIES = 5;
+
+type ChartType = "line" | "area" | "bar" | "table";
+
+const CHART_TYPES: { value: ChartType; label: string; icon: typeof TrendingUp }[] = [
+  { value: "line", label: "Line", icon: TrendingUp },
+  { value: "area", label: "Area", icon: Activity },
+  { value: "bar", label: "Bar", icon: BarChart3 },
+  { value: "table", label: "Table", icon: Table },
+];
 
 const INTERVALS = [
   { value: "raw", label: "raw" },
@@ -62,24 +73,37 @@ export function MetricsPage() {
 
   const updateMetric = useCallback(
     (index: number, value: string) => {
-      const next = [...selectedMetrics];
-      next[index] = value;
-      setSelectedMetrics(next);
+      if (index < selectedMetrics.length) {
+        const next = [...selectedMetrics];
+        next[index] = value;
+        setSelectedMetrics(next);
+      } else {
+        const next = [...selectedMetrics, value];
+        setSelectedMetrics(next);
+        setExtraSlots((s) => Math.max(0, s - 1));
+      }
     },
     [selectedMetrics, setSelectedMetrics],
   );
 
+  const [extraSlots, setExtraSlots] = useState(0);
+
+  const displayMetrics = [...selectedMetrics, ...Array(extraSlots).fill("")];
+
   const addQuery = useCallback(() => {
-    if (selectedMetrics.length < MAX_QUERIES) {
-      const next = [...selectedMetrics.filter((m) => m !== ""), ""];
-      setMetricsStr(next.filter((m) => m !== "").join(","));
+    if (displayMetrics.length < MAX_QUERIES) {
+      setExtraSlots((s) => s + 1);
     }
-  }, [selectedMetrics, setMetricsStr]);
+  }, [displayMetrics.length]);
 
   const removeQuery = useCallback(
     (index: number) => {
-      const next = selectedMetrics.filter((_, i) => i !== index);
-      setSelectedMetrics(next.length > 0 ? next : [""]);
+      if (index < selectedMetrics.length) {
+        const next = selectedMetrics.filter((_, i) => i !== index);
+        setSelectedMetrics(next.length > 0 ? next : [""]);
+      } else {
+        setExtraSlots((s) => Math.max(0, s - 1));
+      }
     },
     [selectedMetrics, setSelectedMetrics],
   );
@@ -120,18 +144,38 @@ export function MetricsPage() {
 
   const metricOptions = (names ?? []).map((n) => ({ value: n, label: n }));
 
-  const showAddButton = selectedMetrics.length < MAX_QUERIES && activeMetrics.length > 0;
+  const showAddButton = displayMetrics.length < MAX_QUERIES && activeMetrics.length > 0;
 
+  const [chartType, setChartType] = useURLState("chart", "line") as [string, (v: string) => void];
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [recentQueries, setRecentQueries] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("neoguard_recent_metrics") || "[]");
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    if (activeMetrics.length > 0) {
+      const key = activeMetrics.join(",");
+      setRecentQueries((prev) => {
+        const next = [key, ...prev.filter((q) => q !== key)].slice(0, 10);
+        localStorage.setItem("neoguard_recent_metrics", JSON.stringify(next));
+        return next;
+      });
+    }
+  }, [metricsStr]);
 
   return (
     <div>
-      <PageHeader title="Metrics Explorer" />
+      <PageHeader
+        title="Explorer"
+        subtitle={recentQueries.length > 0 ? `${recentQueries.length} recent queries` : undefined}
+      />
 
       <Card variant="bordered" padding="md">
-        {selectedMetrics.map((metric, idx) => (
-          <div key={idx} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: idx < selectedMetrics.length - 1 ? 8 : 0 }}>
-            {selectedMetrics.length > 1 && (
+        {displayMetrics.map((metric, idx) => (
+          <div key={idx} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: idx < displayMetrics.length - 1 ? 8 : 0 }}>
+            {displayMetrics.length > 1 && (
               <div
                 style={{
                   width: 12,
@@ -185,7 +229,7 @@ export function MetricsPage() {
                 </div>
               </>
             )}
-            {selectedMetrics.length > 1 && (
+            {displayMetrics.length > 1 && (
               <Button variant="ghost" size="sm" onClick={() => removeQuery(idx)} title="Remove query">
                 <X size={14} />
               </Button>
@@ -195,18 +239,55 @@ export function MetricsPage() {
         {showAddButton && (
           <div style={{ marginTop: 8 }}>
             <Button variant="ghost" size="sm" onClick={addQuery}>
-              <Plus size={14} /> Add metric ({selectedMetrics.length}/{MAX_QUERIES})
+              <Plus size={14} /> Add metric ({displayMetrics.length}/{MAX_QUERIES})
             </Button>
           </div>
         )}
       </Card>
 
-      <div style={{ marginTop: 16 }}>
+      {/* Chart Type Switcher */}
+      <div style={{ marginTop: 12, display: "flex", gap: 4, alignItems: "center" }}>
+        {CHART_TYPES.map((ct) => {
+          const Icon = ct.icon;
+          return (
+            <button
+              key={ct.value}
+              onClick={() => setChartType(ct.value)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "4px 10px",
+                fontSize: 12,
+                fontWeight: 500,
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: chartType === ct.value ? "var(--accent)" : "transparent",
+                color: chartType === ct.value ? "var(--text-on-accent)" : "var(--text-secondary)",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              <Icon size={13} /> {ct.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 8 }}>
         <Card variant="bordered">
           {chartError ? (
             <div style={{ color: "var(--color-danger-500)", fontSize: 13, padding: 16 }}>Error loading metrics: {chartError}</div>
           ) : activeMetrics.length > 0 ? (
-            <TimeSeriesChart data={chartData ?? []} height={400} />
+            chartType === "table" ? (
+              <MetricsTable data={chartData ?? []} />
+            ) : chartType === "area" ? (
+              <AreaChartWidget data={chartData ?? []} height={400} />
+            ) : chartType === "bar" ? (
+              <BarChartWidget data={chartData ?? []} height={400} />
+            ) : (
+              <TimeSeriesChart data={chartData ?? []} height={400} />
+            )
           ) : (
             <EmptyState
               title="Select a metric to visualize"
@@ -319,3 +400,58 @@ function SaveToDashboardModal({
     </Modal>
   );
 }
+
+function MetricsTable({ data }: { data: MetricQueryResult[] }) {
+  if (data.length === 0) return <EmptyState title="No data" description="No metric data available." />;
+
+  return (
+    <div style={{ overflow: "auto", maxHeight: 400, padding: 12 }}>
+      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", fontFamily: "var(--typography-font-family-mono)" }}>
+        <thead>
+          <tr style={{ borderBottom: "2px solid var(--border)" }}>
+            <th style={tableHeaderStyle}>Metric</th>
+            <th style={tableHeaderStyle}>Last</th>
+            <th style={tableHeaderStyle}>Min</th>
+            <th style={tableHeaderStyle}>Max</th>
+            <th style={tableHeaderStyle}>Avg</th>
+            <th style={tableHeaderStyle}>Points</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((series, i) => {
+            const values = series.datapoints.map((dp) => dp[1]).filter((v): v is number => v !== null);
+            const last = values.length > 0 ? values[values.length - 1] : null;
+            const min = values.length > 0 ? Math.min(...values) : null;
+            const max = values.length > 0 ? Math.max(...values) : null;
+            const avg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null;
+            return (
+              <tr key={i} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                <td style={{ ...tableCellStyle, color: COLORS[i % COLORS.length], fontWeight: 600 }}>{series.name}</td>
+                <td style={tableCellStyle}>{last?.toFixed(2) ?? "-"}</td>
+                <td style={tableCellStyle}>{min?.toFixed(2) ?? "-"}</td>
+                <td style={tableCellStyle}>{max?.toFixed(2) ?? "-"}</td>
+                <td style={tableCellStyle}>{avg?.toFixed(2) ?? "-"}</td>
+                <td style={tableCellStyle}>{values.length}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const tableHeaderStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "8px 12px",
+  fontSize: 11,
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.5px",
+};
+
+const tableCellStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  color: "var(--text-primary)",
+};
