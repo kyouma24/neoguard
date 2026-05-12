@@ -111,7 +111,8 @@ function FacetSection({ title, facets, maxCount, onInclude, onExclude, colorFn }
                 <span
                   style={styles.facetLabel}
                   onClick={() => onInclude(f.value)}
-                  title={`Include ${f.value}`}
+                  role="button"
+                  aria-label={`Include ${f.value}`}
                 >
                   {f.value}
                 </span>
@@ -119,7 +120,7 @@ function FacetSection({ title, facets, maxCount, onInclude, onExclude, colorFn }
                 <button
                   style={styles.excludeBtn}
                   onClick={() => onExclude(f.value)}
-                  title={`Exclude ${f.value}`}
+                  aria-label={`Exclude ${f.value}`}
                 >
                   -
                 </button>

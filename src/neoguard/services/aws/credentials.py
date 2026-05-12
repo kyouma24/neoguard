@@ -5,7 +5,10 @@ from typing import Any
 
 import boto3
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
 
+from neoguard.core.config import settings
+from neoguard.core.logging import log
 from neoguard.models.aws import AWSAccount
 
 # TODO(production): Process-local cache; needs Redis-backed shared session cache for multi-worker
@@ -14,7 +17,7 @@ from neoguard.models.aws import AWSAccount
 # Migration risk: Low — STS assume-role is idempotent
 # Reference: docs/cloud_migration.md#credential-caches
 _session_cache: dict[str, tuple[Any, float]] = {}
-SESSION_TTL = 3500  # refresh 100s before the 1hr STS expiry
+SESSION_TTL = settings.aws_session_ttl
 
 BOTO_CONFIG = BotoConfig(
     retries={"max_attempts": 3, "mode": "adaptive"},
@@ -29,7 +32,27 @@ def get_boto_session(account: AWSAccount, region: str) -> boto3.Session:
     if cached and (time.time() - cached[1]) < SESSION_TTL:
         return cached[0]
 
-    session = _assume_role_session(account, region) if account.role_arn else boto3.Session(region_name=region)
+    try:
+        session = _assume_role_session(account, region) if account.role_arn else boto3.Session(region_name=region)
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        log.error(
+            "aws_session_error",
+            account_id=account.account_id,
+            region=region,
+            error_code=error_code,
+            error_class="auth",
+        )
+        raise
+    except (EndpointConnectionError, NoCredentialsError) as e:
+        log.error(
+            "aws_session_error",
+            account_id=account.account_id,
+            region=region,
+            error_code=type(e).__name__,
+            error_class="connectivity",
+        )
+        raise
 
     _session_cache[cache_key] = (session, time.time())
     return session
@@ -70,12 +93,30 @@ def get_enabled_regions(account: AWSAccount) -> list[str]:
     """
     session = get_boto_session(account, account.regions[0] if account.regions else "us-east-1")
     ec2 = session.client("ec2", config=BOTO_CONFIG)
-    resp = ec2.describe_regions(
-        Filters=[{
-            "Name": "opt-in-status",
-            "Values": ["opt-in-not-required", "opted-in"],
-        }],
-    )
+    try:
+        resp = ec2.describe_regions(
+            Filters=[{
+                "Name": "opt-in-status",
+                "Values": ["opt-in-not-required", "opted-in"],
+            }],
+        )
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        log.error(
+            "aws_describe_regions_error",
+            account_id=account.account_id,
+            error_code=error_code,
+            error_class="auth",
+        )
+        raise
+    except EndpointConnectionError as e:
+        log.error(
+            "aws_describe_regions_error",
+            account_id=account.account_id,
+            error_code=type(e).__name__,
+            error_class="connectivity",
+        )
+        raise
     enabled = {r["RegionName"] for r in resp.get("Regions", [])}
     return [r for r in account.regions if r in enabled]
 

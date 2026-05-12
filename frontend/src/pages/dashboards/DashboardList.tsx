@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, formatError } from "../../services/api";
-import type { Dashboard } from "../../types";
+import type { Dashboard, DashboardSummary } from "../../types";
 import { useDashboardList as useDashboardListQuery, useDeleteDashboard, useDuplicateDashboard } from "../../hooks/useDashboards";
 import { usePermissions } from "../../hooks/usePermissions";
 import { addRecentDashboard, getRecentDashboards, setRecentDashboardsTenantId } from "../../hooks/useRecentDashboards";
@@ -181,9 +181,23 @@ export function DashboardList() {
     input.click();
   };
 
-  const openDashboard = (d: Dashboard) => {
+  const openDashboard = async (d: DashboardSummary) => {
     addRecentDashboard(d.id, d.name);
-    setView({ kind: "view", dashboard: d });
+    try {
+      const full = await api.dashboards.get(d.id);
+      setView({ kind: "view", dashboard: full });
+    } catch (e) {
+      setError(formatError(e));
+    }
+  };
+
+  const editDashboard = async (d: DashboardSummary) => {
+    try {
+      const full = await api.dashboards.get(d.id);
+      setView({ kind: "edit", dashboard: full });
+    } catch (e) {
+      setError(formatError(e));
+    }
   };
 
   if (view.kind === "view") {
@@ -400,17 +414,17 @@ export function DashboardList() {
                   </div>
                 )}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--color-neutral-400)" }}>
-                  <span>{d.panels.length} panel{d.panels.length !== 1 ? "s" : ""}</span>
+                  <span>{d.panel_count} panel{d.panel_count !== 1 ? "s" : ""}</span>
                   <span>Updated {format(new Date(d.updated_at), "MMM d, yyyy")}</span>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 4, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-neutral-200)" }}>
                 {canEdit && (
-                  <Button variant="secondary" size="sm" onClick={() => setView({ kind: "edit", dashboard: d })}>
+                  <Button variant="secondary" size="sm" onClick={() => editDashboard(d)}>
                     <Edit2 size={12} /> Edit
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => setView({ kind: "settings", dashboard: d })} title="Dashboard settings">
+                <Button variant="ghost" size="sm" onClick={async () => { try { const full = await api.dashboards.get(d.id); setView({ kind: "settings", dashboard: full }); } catch (e) { setError(formatError(e)); } }} title="Dashboard settings">
                   <Settings size={12} />
                 </Button>
                 {canCreate && (

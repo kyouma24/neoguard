@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format, formatDistanceToNow } from "date-fns";
 import { BellOff, Check, Clock, Edit2, Plus, Power, Trash2, X } from "lucide-react";
@@ -88,10 +88,43 @@ export function AlertsPage() {
     () => api.alerts.listRules(),
     [],
   );
-  const { data: events, loading: eventsLoading, refetch: refetchEvents } = useApi<AlertEvent[]>(
-    () => api.alerts.listEvents({ limit: 500 }, { tenantId: queryTenantId }),
-    [queryTenantId],
-  );
+  const [events, setEvents] = useState<AlertEvent[] | null>(null);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const lastEventTime = useRef<string | null>(null);
+
+  const fetchEvents = async (incremental = false) => {
+    try {
+      const params: { limit?: number; since?: string } = { limit: 500 };
+      if (incremental && lastEventTime.current) {
+        params.since = lastEventTime.current;
+      }
+      const result = await api.alerts.listEvents(
+        params as Parameters<typeof api.alerts.listEvents>[0],
+        { tenantId: queryTenantId },
+      );
+      if (incremental && lastEventTime.current && events) {
+        const existingIds = new Set(events.map((e) => e.id));
+        const newEvents = result.filter((e) => !existingIds.has(e.id));
+        if (newEvents.length > 0) {
+          setEvents([...newEvents, ...events].slice(0, 500));
+        }
+      } else {
+        setEvents(result);
+      }
+      if (result.length > 0) {
+        lastEventTime.current = result[0].fired_at;
+      }
+    } finally {
+      setEventsLoading(false);
+    }
+  };
+
+  const refetchEvents = () => fetchEvents(true);
+
+  useEffect(() => {
+    fetchEvents(false);
+  }, [queryTenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: silences, loading: silencesLoading, refetch: refetchSilences } = useApi<Silence[]>(
     () => api.alerts.listSilences(),
     [],
@@ -104,11 +137,14 @@ export function AlertsPage() {
     refetchSilences();
   }, 15_000);
 
-  const filteredEvents = events?.filter((e) => {
-    if (eventFilter !== "all" && e.status !== eventFilter) return false;
-    if (severityFilter !== "all" && e.severity !== severityFilter) return false;
-    return true;
-  });
+  const filteredEvents = useMemo(
+    () => events?.filter((e) => {
+      if (eventFilter !== "all" && e.status !== eventFilter) return false;
+      if (severityFilter !== "all" && e.severity !== severityFilter) return false;
+      return true;
+    }),
+    [events, eventFilter, severityFilter],
+  );
 
   const paginatedEvents = filteredEvents?.slice(
     eventsPage * eventsPageSize,
@@ -199,7 +235,7 @@ export function AlertsPage() {
 
   const handleAcknowledge = async (eventId: string) => {
     try {
-      await api.alerts.acknowledgeEvent(eventId, { acknowledged_by: "admin" });
+      await api.alerts.acknowledgeEvent(eventId, { acknowledged_by: user?.email ?? "unknown" });
       refetchEvents();
     } catch (e) {
       setError(formatError(e));

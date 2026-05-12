@@ -17,7 +17,7 @@ import {
   PageHeader,
   EmptyState,
 } from "../design-system";
-import type { Dashboard, MetricQueryResult } from "../types";
+import type { DashboardSummary, MetricQueryResult } from "../types";
 
 const COLORS = ["#635bff", "#22c55e", "#f59e0b", "#ef4444", "#3b82f6"];
 const MAX_QUERIES = 5;
@@ -172,7 +172,7 @@ export function MetricsPage() {
   return (
     <div>
       <PageHeader
-        title="Explorer"
+        title="Metrics Explorer"
         subtitle={recentQueries.length > 0 ? `${recentQueries.length} recent queries` : undefined}
       />
 
@@ -337,7 +337,7 @@ function SaveToDashboardModal({
   aggregation: string;
   onClose: () => void;
 }) {
-  const { data: dashboards } = useApi<Dashboard[]>(() => api.dashboards.list(), []);
+  const { data: dashboards } = useApi<DashboardSummary[]>(() => api.dashboards.list(), []);
   const [selectedId, setSelectedId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");

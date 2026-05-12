@@ -81,10 +81,10 @@ export function CommandPalette() {
   const navItems: CommandItem[] = [
     { id: "nav-overview", label: "Go to Overview", icon: Activity, keywords: ["home", "overview", "dashboard"], onSelect: () => go("/") },
     { id: "nav-infrastructure", label: "Go to Infrastructure", icon: Server, keywords: ["infra", "servers", "aws", "azure", "cloud"], onSelect: () => go("/infrastructure") },
-    { id: "nav-metrics", label: "Go to Metrics", icon: BarChart3, keywords: ["metrics", "charts", "graphs", "data"], onSelect: () => go("/metrics") },
+    { id: "nav-metrics", label: "Go to Metrics Explorer", icon: BarChart3, keywords: ["metrics", "explorer", "charts", "graphs", "data"], onSelect: () => go("/metrics") },
     { id: "nav-logs", label: "Go to Logs", icon: FileText, keywords: ["logs", "events", "entries"], onSelect: () => go("/logs") },
     { id: "nav-alerts", label: "Go to Alerts", icon: AlertTriangle, keywords: ["alerts", "rules", "notifications", "firing"], onSelect: () => go("/alerts") },
-    { id: "nav-dashboards", label: "Go to Dashboards", icon: LayoutDashboard, keywords: ["dashboards", "panels", "widgets"], onSelect: () => go("/dashboards") },
+    { id: "nav-dashboards", label: "Go to Insights", icon: LayoutDashboard, keywords: ["insights", "dashboards", "panels", "widgets"], onSelect: () => go("/dashboards") },
     { id: "nav-settings", label: "Go to Settings", icon: Settings, keywords: ["settings", "config", "preferences", "team", "api keys"], onSelect: () => go("/settings") },
   ];
 
@@ -128,7 +128,7 @@ export function CommandPalette() {
     );
   }
 
-  groups.push({ heading: "Dashboards", items: dashboardActions });
+  groups.push({ heading: "Insights", items: dashboardActions });
 
   // Time range
   const timeRanges: CommandItem[] = [

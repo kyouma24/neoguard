@@ -116,10 +116,10 @@ describe("CommandPalette", () => {
       expect(screen.getByText("Go to Overview")).toBeInTheDocument();
     });
     expect(screen.getByText("Go to Infrastructure")).toBeInTheDocument();
-    expect(screen.getByText("Go to Metrics")).toBeInTheDocument();
+    expect(screen.getByText("Go to Metrics Explorer")).toBeInTheDocument();
     expect(screen.getByText("Go to Logs")).toBeInTheDocument();
     expect(screen.getByText("Go to Alerts")).toBeInTheDocument();
-    expect(screen.getByText("Go to Dashboards")).toBeInTheDocument();
+    expect(screen.getByText("Go to Insights")).toBeInTheDocument();
     expect(screen.getByText("Go to Settings")).toBeInTheDocument();
   });
 
@@ -176,7 +176,7 @@ describe("CommandPalette", () => {
     await user.type(input, "dash");
 
     await waitFor(() => {
-      expect(screen.getByText("Go to Dashboards")).toBeInTheDocument();
+      expect(screen.getByText("Go to Insights")).toBeInTheDocument();
       expect(screen.getByText("Create new dashboard")).toBeInTheDocument();
     });
 
@@ -204,10 +204,10 @@ describe("CommandPalette", () => {
     await openPalette();
 
     await waitFor(() => {
-      expect(screen.getByText("Go to Metrics")).toBeInTheDocument();
+      expect(screen.getByText("Go to Metrics Explorer")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText("Go to Metrics"));
+    await user.click(screen.getByText("Go to Metrics Explorer"));
 
     await waitFor(() => {
       expect(screen.queryByTestId("command-palette")).not.toBeInTheDocument();

@@ -105,12 +105,13 @@ async def list_events(
     severity: str | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
+    since: datetime | None = None,
     limit: int = 50,
     tenant_id: str = Depends(get_query_tenant_id),
 ) -> list[AlertEvent]:
     return await list_alert_events(
         tenant_id, rule_id=rule_id, status=status,
-        severity=severity, start=start, end=end, limit=limit,
+        severity=severity, start=start, end=end, since=since, limit=limit,
     )
 
 

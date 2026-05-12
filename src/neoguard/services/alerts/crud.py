@@ -4,6 +4,7 @@ import orjson
 from ulid import ULID
 
 from neoguard.db.timescale.connection import get_pool
+from neoguard.services.alerts.engine import CONDITION_OPS
 from neoguard.models.alerts import (
     AlertCondition,
     AlertEvent,
@@ -32,7 +33,7 @@ async def create_alert_rule(tenant_id: str, data: AlertRuleCreate) -> AlertRule:
             rule_id, tenant_id, data.name, data.description, data.metric_name,
             orjson.dumps(data.tags_filter).decode(),
             data.condition.value, data.threshold, data.duration_sec, data.interval_sec,
-            data.severity.value, orjson.dumps(data.notification).decode(),
+            data.severity.value, orjson.dumps(data.notification.model_dump()).decode(),
             data.aggregation.value, data.cooldown_sec, data.nodata_action.value,
         )
     return _row_to_rule(row)
@@ -73,6 +74,14 @@ async def list_alert_rules(
     return [_row_to_rule(r) for r in rows]
 
 
+_ALLOWED_UPDATE_FIELDS = frozenset({
+    "name", "description", "metric_name", "tags_filter",
+    "condition", "threshold", "duration_sec", "interval_sec",
+    "severity", "notification", "enabled", "aggregation",
+    "cooldown_sec", "nodata_action",
+})
+
+
 async def update_alert_rule(
     tenant_id: str, rule_id: str, data: AlertRuleUpdate,
 ) -> AlertRule | None:
@@ -88,6 +97,8 @@ async def update_alert_rule(
     json_fields = {"notification", "tags_filter"}
 
     for field, value in updates.items():
+        if field not in _ALLOWED_UPDATE_FIELDS:
+            continue
         if field in enum_fields:
             value = value.value
         elif field in json_fields:
@@ -95,6 +106,9 @@ async def update_alert_rule(
         set_parts.append(f"{field} = ${idx}")
         params.append(value)
         idx += 1
+
+    if not set_parts:
+        return await get_alert_rule(tenant_id, rule_id)
 
     set_parts.append("updated_at = NOW()")
 
@@ -125,6 +139,7 @@ async def list_alert_events(
     severity: str | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
+    since: datetime | None = None,
     limit: int = 50,
 ) -> list[AlertEvent]:
     conditions: list[str] = []
@@ -149,6 +164,11 @@ async def list_alert_events(
     if severity:
         conditions.append(f"severity = ${idx}")
         params.append(severity)
+        idx += 1
+
+    if since:
+        conditions.append(f"fired_at > ${idx}")
+        params.append(since)
         idx += 1
 
     if start:
@@ -210,6 +230,8 @@ async def preview_alert_rule(
         tag_params.extend([key, val])
         idx += 2
 
+    _PREVIEW_ROW_LIMIT = 100000
+
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             f"""
@@ -217,10 +239,12 @@ async def preview_alert_rule(
             FROM metrics
             WHERE tenant_id = $1 AND name = $2 AND time >= $3{tag_conditions}
             ORDER BY time ASC
+            LIMIT {_PREVIEW_ROW_LIMIT}
             """,
             *tag_params,
         )
 
+    truncated = len(rows) >= _PREVIEW_ROW_LIMIT
     datapoints = len(rows)
     if datapoints == 0:
         return AlertPreviewResult(
@@ -282,23 +306,13 @@ async def preview_alert_rule(
         current_value=current_value,
         datapoints=datapoints,
         simulated_events=simulated_events,
+        truncated=truncated,
     )
 
 
 def _check_condition(value: float, condition: AlertCondition, threshold: float) -> bool:
-    if condition == AlertCondition.GT:
-        return value > threshold
-    if condition == AlertCondition.LT:
-        return value < threshold
-    if condition == AlertCondition.GTE:
-        return value >= threshold
-    if condition == AlertCondition.LTE:
-        return value <= threshold
-    if condition == AlertCondition.EQ:
-        return value == threshold
-    if condition == AlertCondition.NE:
-        return value != threshold
-    return False
+    op = CONDITION_OPS.get(condition)
+    return op(value, threshold) if op else False
 
 
 def _aggregate(values: list[float], aggregation: str) -> float:

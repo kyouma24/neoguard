@@ -31,6 +31,12 @@ function hasTimeRangeOverride(panel: PanelDefinition): boolean {
   return !!panel.display_options?.timeRangeOverride?.range;
 }
 
+const SAFE_MQL_VALUE = /^[a-zA-Z0-9_\-.*/:]+$/;
+
+function isSafeMQLValue(value: string): boolean {
+  return SAFE_MQL_VALUE.test(value) && value.length <= 256;
+}
+
 function panelToMQL(panel: PanelDefinition, variables: Record<string, string>): string | null {
   if (panel.mql_query?.trim()) return panel.mql_query;
   if (!panel.metric_name) return null;
@@ -43,10 +49,10 @@ function panelToMQL(panel: PanelDefinition, variables: Record<string, string>): 
     if (v.startsWith("$")) {
       const varName = v.slice(1);
       const resolved = variables[varName];
-      if (resolved && resolved !== "*") {
+      if (resolved && resolved !== "*" && isSafeMQLValue(resolved)) {
         resolvedTags[k] = resolved;
       }
-    } else if (v !== "*") {
+    } else if (v !== "*" && isSafeMQLValue(v)) {
       resolvedTags[k] = v;
     }
   }
@@ -78,7 +84,7 @@ export function useBatchPanelQueries({
   const [results, setResults] = useState<Record<string, PanelBatchResult>>({});
   const abortRef = useRef<AbortController | null>(null);
   const fetchedPanelIdsRef = useRef<Set<string>>(new Set());
-  const variablesJson = JSON.stringify(variables);
+  const variablesJson = JSON.stringify(variables, Object.keys(variables).sort());
 
   // Stabilize Date deps as timestamps to prevent re-triggering on every render
   const fromMs = from.getTime();

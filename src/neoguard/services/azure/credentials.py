@@ -5,6 +5,7 @@ from typing import Any
 
 from azure.identity import ClientSecretCredential
 
+from neoguard.core.logging import log
 from neoguard.models.azure import AzureSubscription
 
 # TODO(production): Process-local cache; needs Redis-backed shared credential cache for multi-worker
@@ -17,17 +18,32 @@ CREDENTIAL_TTL = 3500
 
 
 def get_credential(sub: AzureSubscription) -> ClientSecretCredential:
-    cache_key = f"{sub.subscription_id}:{sub.azure_tenant_id}:{sub.client_id}"
+    cache_key = f"{sub.tenant_id}:{sub.subscription_id}:{sub.azure_tenant_id}:{sub.client_id}"
     cached = _credential_cache.get(cache_key)
     if cached and (time.time() - cached[1]) < CREDENTIAL_TTL:
         return cached[0]
 
-    credential = ClientSecretCredential(
-        tenant_id=sub.azure_tenant_id,
-        client_id=sub.client_id,
-        client_secret=_get_client_secret(sub),
-    )
+    secret = _get_client_secret(sub)
+    try:
+        credential = ClientSecretCredential(
+            tenant_id=sub.azure_tenant_id,
+            client_id=sub.client_id,
+            client_secret=secret,
+        )
+    except (ValueError, TypeError) as e:
+        log.error(
+            "azure_credential_creation_error",
+            subscription_id=sub.subscription_id,
+            client_id=sub.client_id,
+            error=str(e),
+        )
+        raise RuntimeError(
+            f"Failed to create Azure credential for subscription {sub.subscription_id}: {e}"
+        ) from e
     _credential_cache[cache_key] = (credential, time.time())
+    # Secret is now held by the credential object internally.
+    # Remove from our plaintext cache to minimize exposure window.
+    _secret_cache.pop(sub.subscription_id, None)
     return credential
 
 
@@ -36,7 +52,7 @@ CLIENT_TTL = 600
 
 
 def get_mgmt_client(sub: AzureSubscription, client_class: type, **kwargs):
-    cache_key = f"{sub.subscription_id}:{client_class.__name__}"
+    cache_key = f"{sub.tenant_id}:{sub.subscription_id}:{client_class.__name__}"
     cached = _client_cache.get(cache_key)
     if cached and (time.time() - cached[1]) < CLIENT_TTL:
         return cached[0]

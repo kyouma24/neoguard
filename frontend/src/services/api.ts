@@ -20,6 +20,7 @@ import type {
   BatchStreamMessage,
   Dashboard,
   DashboardMyPermission,
+  DashboardSummary,
   DashboardPermission,
   DashboardPermissionLevel,
   DashboardVersion,
@@ -86,6 +87,17 @@ function isAuthPath(path: string): boolean {
   return AUTH_PATHS.some((p) => path === p || path.startsWith(p + "?"));
 }
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  const controller = new AbortController();
+  for (const s of signals) {
+    if (s.aborted) { controller.abort(s.reason); return controller.signal; }
+    s.addEventListener("abort", () => controller.abort(s.reason), { once: true });
+  }
+  return controller.signal;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -98,16 +110,28 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     }
   }
 
-  const res = await fetch(path, {
-    credentials: "include",
-    headers,
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const signal = options?.signal
+    ? anySignal([options.signal, controller.signal])
+    : controller.signal;
+
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      credentials: "include",
+      headers,
+      ...options,
+      signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (!res.ok) {
-    // 401 handler: session expired — redirect to login (unless already on an auth endpoint)
-    if (res.status === 401 && !isAuthPath(path)) {
+    // 401 handler: session expired — redirect to login
+    // Skip redirect if: calling an auth endpoint, or already on /login (prevents infinite loop)
+    if (res.status === 401 && !isAuthPath(path) && window.location.pathname !== "/login") {
       window.location.href = "/login";
-      // Return a never-resolving promise so callers don't see an error flash
       return new Promise<T>(() => {});
     }
 
@@ -316,13 +340,14 @@ export const api = {
       }),
     deleteRule: (id: string) =>
       request<void>(`${BASE}/alerts/rules/${id}`, { method: "DELETE" }),
-    listEvents: (params?: { rule_id?: string; status?: string; severity?: string; start?: string; end?: string; limit?: number }, opts?: { tenantId?: string }) => {
+    listEvents: (params?: { rule_id?: string; status?: string; severity?: string; start?: string; end?: string; since?: string; limit?: number }, opts?: { tenantId?: string }) => {
       const qs = new URLSearchParams();
       if (params?.rule_id) qs.set("rule_id", params.rule_id);
       if (params?.status) qs.set("status", params.status);
       if (params?.severity) qs.set("severity", params.severity);
       if (params?.start) qs.set("start", params.start);
       if (params?.end) qs.set("end", params.end);
+      if (params?.since) qs.set("since", params.since);
       if (params?.limit) qs.set("limit", String(params.limit));
       if (opts?.tenantId) qs.set("tenant_id", opts.tenantId);
       const query = qs.toString();
@@ -487,7 +512,7 @@ export const api = {
       const qs = new URLSearchParams();
       if (params?.search) qs.set("search", params.search);
       const query = qs.toString();
-      return request<Dashboard[]>(`${BASE}/dashboards${query ? `?${query}` : ""}`);
+      return request<DashboardSummary[]>(`${BASE}/dashboards${query ? `?${query}` : ""}`);
     },
     get: (id: string) => request<Dashboard>(`${BASE}/dashboards/${id}`),
     create: (data: Partial<Dashboard>) =>

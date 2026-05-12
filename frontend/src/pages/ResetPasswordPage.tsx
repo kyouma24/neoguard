@@ -142,7 +142,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: {
     fontSize: "var(--typography-font-size-2xl)",
-    fontWeight: "var(--typography-font-weight-bold)" as unknown as number,
+    fontWeight: 700,
     color: "var(--color-neutral-900)",
     margin: "var(--spacing-sm) 0 var(--spacing-xs)",
   },
@@ -186,7 +186,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   label: {
     fontSize: "var(--typography-font-size-sm)",
-    fontWeight: "var(--typography-font-weight-semibold)" as unknown as number,
+    fontWeight: 600,
     color: "var(--color-neutral-700)",
   },
   input: {

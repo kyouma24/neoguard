@@ -636,3 +636,60 @@ describe("useBatchPanelQueries", () => {
     expect(secondCallArgs.queries[0].id).toBe("p2");
   });
 });
+
+describe("FE2-006: variable key order does not trigger refetch", () => {
+  it("does not refetch when variables have same values but different key order", async () => {
+    const panels = [
+      makePanel({ id: "p1", metric_name: "cpu" }),
+    ];
+
+    const stream = (async function* () {
+      yield { type: "query_result", id: "p1", status: "ok", series: [], meta: { total_series: 0, truncated_series: false, max_points: 500 } };
+    })();
+    mockBatchQueryStream.mockReturnValue(stream);
+
+    const baseOptions = {
+      panels,
+      from: new Date("2026-05-01T00:00:00Z"),
+      to: new Date("2026-05-01T01:00:00Z"),
+      interval: "1m",
+      variables: { env: "prod", region: "us-east-1" } as Record<string, string>,
+      refreshKey: 0,
+      dashboardId: "d1",
+      visiblePanelIds: new Set(["p1"]),
+      enabled: true,
+    };
+
+    const { rerender } = renderHook(
+      (props) => useBatchPanelQueries(props),
+      { initialProps: baseOptions }
+    );
+
+    // Wait for initial fetch(es) to settle
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100));
+    });
+
+    const callCountAfterInitial = mockBatchQueryStream.mock.calls.length;
+    expect(callCountAfterInitial).toBeGreaterThan(0);
+
+    // Re-render with same variables but different key insertion order
+    const stream2 = (async function* () {
+      yield { type: "query_result", id: "p1", status: "ok", series: [], meta: { total_series: 0, truncated_series: false, max_points: 500 } };
+    })();
+    mockBatchQueryStream.mockReturnValue(stream2);
+
+    rerender({
+      ...baseOptions,
+      variables: { region: "us-east-1", env: "prod" },
+    });
+
+    // Give it time to trigger if it would
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100));
+    });
+
+    // With sorted serialization, reordered variables produce same key — no refetch
+    expect(mockBatchQueryStream).toHaveBeenCalledTimes(callCountAfterInitial);
+  });
+});

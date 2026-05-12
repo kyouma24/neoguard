@@ -32,7 +32,7 @@ export function useVisiblePanels({
   const initiallyVisible = useMemo(() => {
     return new Set(
       [...panels]
-        .filter((p) => p.panel_type !== "text" || true) // include all for layout
+        .filter((p) => p.panel_type !== "text")
         .sort((a, b) => a.position_y - b.position_y || a.position_x - b.position_x)
         .slice(0, 6)
         .map((p) => p.id)

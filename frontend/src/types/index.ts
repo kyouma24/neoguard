@@ -278,6 +278,19 @@ export interface Dashboard {
   updated_at: string;
 }
 
+export interface DashboardSummary {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string;
+  panel_count: number;
+  tags?: string[];
+  layout_version?: number;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type DashboardPermissionLevel = "view" | "edit" | "admin";
 
 export interface DashboardPermission {

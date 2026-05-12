@@ -27,10 +27,10 @@ const SIDEBAR_KEY = "neoguard_sidebar_collapsed";
 const navItems = [
   { to: "/", icon: Activity, label: "Overview" },
   { to: "/infrastructure", icon: Radar, label: "Infrastructure" },
-  { to: "/metrics", icon: Gauge, label: "Explorer" },
+  { to: "/metrics", icon: Gauge, label: "Metrics Explorer" },
   { to: "/logs", icon: FileText, label: "Logs" },
   { to: "/alerts", icon: Bell, label: "Alerts" },
-  { to: "/dashboards", icon: LayoutDashboard, label: "Dashboards" },
+  { to: "/dashboards", icon: LayoutDashboard, label: "Insights" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 

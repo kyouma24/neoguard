@@ -353,7 +353,7 @@ describe("AlertsPage — Events Tab", () => {
     const ackBtns = screen.getAllByRole("button", { name: /Ack/ });
     await user.click(ackBtns[0]);
 
-    expect(api.alerts.acknowledgeEvent).toHaveBeenCalledWith("evt-1", { acknowledged_by: "admin" });
+    expect(api.alerts.acknowledgeEvent).toHaveBeenCalledWith("evt-1", { acknowledged_by: "test@test.com" });
   });
 
   it("shows empty state with no events", async () => {

@@ -257,4 +257,33 @@ describe("useVisiblePanels", () => {
 
     expect(mockObserve).not.toHaveBeenCalled();
   });
+
+  it("excludes text panels from initial visible set (they need no data queries)", () => {
+    const panels = [
+      makePanel({ id: "text-1", panel_type: "text", position_y: 0 }),
+      makePanel({ id: "ts-1", panel_type: "timeseries", position_y: 1 }),
+      makePanel({ id: "text-2", panel_type: "text", position_y: 2 }),
+      makePanel({ id: "ts-2", panel_type: "timeseries", position_y: 3 }),
+      makePanel({ id: "ts-3", panel_type: "timeseries", position_y: 4 }),
+      makePanel({ id: "text-3", panel_type: "text", position_y: 5 }),
+      makePanel({ id: "ts-4", panel_type: "timeseries", position_y: 6 }),
+      makePanel({ id: "ts-5", panel_type: "timeseries", position_y: 7 }),
+    ];
+    const containerRef = makeContainerRef(panels.map((p) => p.id));
+
+    const { result } = renderHook(() =>
+      useVisiblePanels({ panels, containerRef })
+    );
+
+    // Text panels should NOT be in the initial visible set
+    expect(result.current.has("text-1")).toBe(false);
+    expect(result.current.has("text-2")).toBe(false);
+    expect(result.current.has("text-3")).toBe(false);
+    // Non-text panels should be visible (first 6 non-text = ts-1 through ts-5)
+    expect(result.current.has("ts-1")).toBe(true);
+    expect(result.current.has("ts-2")).toBe(true);
+    expect(result.current.has("ts-3")).toBe(true);
+    expect(result.current.has("ts-4")).toBe(true);
+    expect(result.current.has("ts-5")).toBe(true);
+  });
 });

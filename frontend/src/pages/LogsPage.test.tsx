@@ -15,6 +15,26 @@ vi.mock("../services/api", () => ({
   formatError: (e: unknown) => e instanceof Error ? e.message : String(e),
 }));
 
+vi.mock("../hooks/useURLState", () => ({
+  useURLState: (_key: string, defaultVal: string) => [defaultVal, vi.fn()],
+}));
+
+vi.mock("../hooks/useInterval", () => ({
+  useInterval: vi.fn(),
+}));
+
+vi.mock("../components/LogHistogram", () => ({
+  LogHistogram: () => <div data-testid="log-histogram" />,
+}));
+
+vi.mock("../components/LogFacetsSidebar", () => ({
+  LogFacetsSidebar: () => <div data-testid="log-facets" />,
+}));
+
+vi.mock("../components/LogDetailDrawer", () => ({
+  LogDetailDrawer: () => null,
+}));
+
 const LOG_RESULT: LogQueryResult = {
   logs: [
     {
@@ -37,11 +57,13 @@ const LOG_RESULT: LogQueryResult = {
     },
   ],
   total: 3,
+  has_more: false,
 };
 
 const EMPTY_RESULT: LogQueryResult = {
   logs: [],
   total: 0,
+  has_more: false,
 };
 
 function renderPage() {
@@ -65,7 +87,7 @@ describe("LogsPage", () => {
 
   it("shows search input", () => {
     renderPage();
-    expect(screen.getByPlaceholderText("Search logs...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search logs... (supports AND, OR, NOT, field:value)")).toBeInTheDocument();
   });
 
   it("shows service input", () => {
@@ -126,26 +148,28 @@ describe("LogsPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("No logs found")).toBeInTheDocument();
-      expect(screen.getByText("Try adjusting your search filters.")).toBeInTheDocument();
+      expect(screen.getByText("Try adjusting your search filters or time range.")).toBeInTheDocument();
     });
   });
 
   it("calls query API on mount", () => {
     renderPage();
-    expect(api.logs.query).toHaveBeenCalledWith({
-      query: undefined,
-      service: undefined,
-      severity: undefined,
-      limit: 100,
-      offset: 0,
-    });
+    expect(api.logs.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: undefined,
+        service: undefined,
+        severity: undefined,
+        limit: 100,
+        offset: 0,
+      }),
+    );
   });
 
   it("triggers search on button click", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByPlaceholderText("Search logs..."), "error");
+    await user.type(screen.getByPlaceholderText("Search logs... (supports AND, OR, NOT, field:value)"), "error");
     await user.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => {
@@ -159,7 +183,7 @@ describe("LogsPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByPlaceholderText("Search logs..."), "test{enter}");
+    await user.type(screen.getByPlaceholderText("Search logs... (supports AND, OR, NOT, field:value)"), "test{enter}");
 
     await waitFor(() => {
       expect(api.logs.query).toHaveBeenCalledWith(
