@@ -291,6 +291,7 @@ async def get_resource_issues(tenant_id: str | None) -> dict:
             )
 
         # --- 2. Stale active resources (last_seen_at > 15 min ago) ---
+        # Only 'active' — 'unknown' resources already have uncertain state and should not be marked stale.
         if tenant_id:
             stale_rows = await conn.fetch(
                 """

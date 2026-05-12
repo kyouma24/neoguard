@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from neoguard.api.routes.sse import format_sse, router
+from neoguard.core.config import settings as _settings
 
 TENANT_A = "tenant-aaa"
 DASHBOARD_ID = "dash-001"
@@ -55,10 +57,16 @@ def _make_unauthenticated_app() -> FastAPI:
     return app
 
 
+@contextmanager
 def _quick_exit_patches():
     """Context manager that makes the SSE generator exit immediately after
-    emitting the 'connected' event by setting MAX_DURATION=0."""
-    return patch("neoguard.api.routes.sse.MAX_DURATION", 0)
+    emitting the 'connected' event by setting sse_max_duration_sec=0."""
+    original = _settings.sse_max_duration_sec
+    _settings.sse_max_duration_sec = 0
+    try:
+        yield
+    finally:
+        _settings.sse_max_duration_sec = original
 
 
 async def _get_stream(app: FastAPI, dashboard_id: str = DASHBOARD_ID, timeout: float = 5.0):
@@ -175,9 +183,13 @@ class TestSSEHeartbeat:
                 raise asyncio.CancelledError()
             await original_sleep(0.01)
 
-        with patch("neoguard.api.routes.sse.HEARTBEAT_INTERVAL", 0.01), \
-             patch("neoguard.api.routes.sse.asyncio.sleep", side_effect=fast_sleep):
-            resp = await _get_stream(app)
+        original_hb = _settings.sse_heartbeat_sec
+        _settings.sse_heartbeat_sec = 0.01
+        try:
+            with patch("neoguard.api.routes.sse.asyncio.sleep", side_effect=fast_sleep):
+                resp = await _get_stream(app)
+        finally:
+            _settings.sse_heartbeat_sec = original_hb
 
         messages = _parse_sse_messages(resp.text)
         types = [m["type"] for m in messages]

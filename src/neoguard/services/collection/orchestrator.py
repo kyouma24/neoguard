@@ -228,73 +228,115 @@ class CollectionOrchestrator:
         await self._run_azure_discovery()
 
     async def _run_aws_discovery(self) -> None:
-        from datetime import datetime, timezone
-
         accounts = await list_aws_accounts(None, enabled_only=True)
-        for acct in accounts:
-            tid = acct.tenant_id
-            cycle_start = datetime.now(timezone.utc)
-            job = await create_job(tid, "discovery", acct.id)
-            try:
-                regions = await _resolve_regions(acct)
-                all_results: dict[str, dict] = {}
-                for region in regions:
-                    results = await aws_discover_all(acct, region, tid)
-                    all_results[region] = results
+        if not accounts:
+            return
 
-                removed = await reconcile_stale_resources(
-                    tid, acct.account_id, "aws", cycle_start,
-                )
-                await aws_mark_synced(tid, acct.id)
-                await complete_job(job["id"], tid, result=all_results)
-                await maybe_create_starter_dashboard(tid, "aws")
-                await log.ainfo(
-                    "AWS discovery complete",
-                    account=acct.account_id,
-                    regions=len(regions),
-                    removed=removed,
-                )
-            except Exception as e:
-                await complete_job(job["id"], tid, error=str(e))
+        sem = asyncio.Semaphore(settings.discovery_max_concurrency)
+
+        async def bounded_discover(acct):
+            async with sem:
+                return await self._discover_single_aws_account(acct)
+
+        results = await asyncio.gather(
+            *[bounded_discover(acct) for acct in accounts],
+            return_exceptions=True,
+        )
+
+        for acct, result in zip(accounts, results):
+            if isinstance(result, BaseException):
+                self._discovery_stats.failure_count += 1
                 await log.aerror(
                     "AWS discovery failed",
                     account=acct.account_id,
-                    error=str(e),
+                    tenant_id=acct.tenant_id,
+                    provider="aws",
+                    error=str(result),
                 )
 
-    async def _run_azure_discovery(self) -> None:
+    async def _discover_single_aws_account(self, acct) -> None:
         from datetime import datetime, timezone
 
-        subs = await list_azure_subscriptions(None, enabled_only=True)
-        for sub in subs:
-            tid = sub.tenant_id
-            cycle_start = datetime.now(timezone.utc)
-            job = await create_job(tid, "discovery", sub.id)
-            try:
-                all_results: dict[str, dict] = {}
-                for region in sub.regions:
-                    results = await azure_discover_all(sub, region, tid)
-                    all_results[region] = results
+        tid = acct.tenant_id
+        cycle_start = datetime.now(timezone.utc)
+        job = await create_job(tid, "discovery", acct.id)
+        try:
+            regions = await _resolve_regions(acct)
+            all_results: dict[str, dict] = {}
+            for region in regions:
+                results = await aws_discover_all(acct, region, tid)
+                all_results[region] = results
 
-                removed = await reconcile_stale_resources(
-                    tid, sub.subscription_id, "azure", cycle_start,
-                )
-                await azure_mark_synced(tid, sub.id)
-                await complete_job(job["id"], tid, result=all_results)
-                await maybe_create_starter_dashboard(tid, "azure")
-                await log.ainfo(
-                    "Azure discovery complete",
-                    subscription=sub.subscription_id,
-                    regions=len(sub.regions),
-                    removed=removed,
-                )
-            except Exception as e:
-                await complete_job(job["id"], tid, error=str(e))
+            removed = await reconcile_stale_resources(
+                tid, acct.account_id, "aws", cycle_start,
+            )
+            await aws_mark_synced(tid, acct.id)
+            await complete_job(job["id"], tid, result=all_results)
+            await maybe_create_starter_dashboard(tid, "aws")
+            await log.ainfo(
+                "AWS discovery complete",
+                account=acct.account_id,
+                regions=len(regions),
+                removed=removed,
+            )
+        except Exception as e:
+            await complete_job(job["id"], tid, error=str(e))
+            raise
+
+    async def _run_azure_discovery(self) -> None:
+        subs = await list_azure_subscriptions(None, enabled_only=True)
+        if not subs:
+            return
+
+        sem = asyncio.Semaphore(settings.discovery_max_concurrency)
+
+        async def bounded_discover(sub):
+            async with sem:
+                return await self._discover_single_azure_subscription(sub)
+
+        results = await asyncio.gather(
+            *[bounded_discover(sub) for sub in subs],
+            return_exceptions=True,
+        )
+
+        for sub, result in zip(subs, results):
+            if isinstance(result, BaseException):
+                self._discovery_stats.failure_count += 1
                 await log.aerror(
                     "Azure discovery failed",
                     subscription=sub.subscription_id,
-                    error=str(e),
+                    tenant_id=sub.tenant_id,
+                    provider="azure",
+                    error=str(result),
                 )
+
+    async def _discover_single_azure_subscription(self, sub) -> None:
+        from datetime import datetime, timezone
+
+        tid = sub.tenant_id
+        cycle_start = datetime.now(timezone.utc)
+        job = await create_job(tid, "discovery", sub.id)
+        try:
+            all_results: dict[str, dict] = {}
+            for region in sub.regions:
+                results = await azure_discover_all(sub, region, tid)
+                all_results[region] = results
+
+            removed = await reconcile_stale_resources(
+                tid, sub.subscription_id, "azure", cycle_start,
+            )
+            await azure_mark_synced(tid, sub.id)
+            await complete_job(job["id"], tid, result=all_results)
+            await maybe_create_starter_dashboard(tid, "azure")
+            await log.ainfo(
+                "Azure discovery complete",
+                subscription=sub.subscription_id,
+                regions=len(sub.regions),
+                removed=removed,
+            )
+        except Exception as e:
+            await complete_job(job["id"], tid, error=str(e))
+            raise
 
     async def _run_metrics_collection(self) -> None:
         await self._run_aws_metrics()
@@ -312,11 +354,11 @@ class CollectionOrchestrator:
                 )
                 continue
             regions = await _resolve_regions(acct)
-            for region in regions:
-                resources = await list_resources(
-                    tid, provider="aws", account_id=acct.account_id,
-                )
+            resources = await list_resources(
+                tid, provider="aws", account_id=acct.account_id,
+            )
 
+            for region in regions:
                 by_namespace: dict[str, list[tuple[str, dict]]] = {}
                 for res in resources:
                     if res.region != region:
@@ -402,4 +444,14 @@ class CollectionOrchestrator:
 # Cloud: Redis-based distributed lock (Redlock) — only leader runs collection
 # Migration risk: High — concurrent discovery causes duplicate API calls and race conditions
 # Reference: docs/cloud_migration.md#background-singletons
-orchestrator = CollectionOrchestrator()
+_orchestrator_instance: CollectionOrchestrator | None = None
+
+
+def get_orchestrator() -> CollectionOrchestrator:
+    global _orchestrator_instance
+    if _orchestrator_instance is None:
+        _orchestrator_instance = CollectionOrchestrator()
+    return _orchestrator_instance
+
+
+orchestrator = get_orchestrator()

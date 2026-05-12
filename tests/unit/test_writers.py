@@ -123,11 +123,13 @@ class TestMetricBatchWriter:
         assert writer._total_written == 0
         assert writer._total_dropped == 0
 
+    @patch("neoguard.services.metrics.writer.asyncio.sleep", new_callable=AsyncMock)
     @patch("neoguard.services.metrics.writer.log")
     @patch("neoguard.services.metrics.writer.get_pool", new_callable=AsyncMock)
-    async def test_db_error_increments_total_dropped(self, mock_get_pool, mock_log):
+    async def test_db_error_increments_total_dropped(self, mock_get_pool, mock_log, _mock_sleep):
         """When the DB raises, dropped counter should increase."""
         mock_log.aerror = AsyncMock()
+        mock_log.awarn = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.copy_records_to_table.side_effect = asyncpg.PostgresError("connection lost")
         mock_pool = _mock_pool_with_conn(mock_conn)
@@ -183,11 +185,13 @@ class TestMetricBatchWriter:
         assert writer._total_written == 0
         mock_get_pool.assert_not_awaited()
 
+    @patch("neoguard.services.metrics.writer.asyncio.sleep", new_callable=AsyncMock)
     @patch("neoguard.services.metrics.writer.log")
     @patch("neoguard.services.metrics.writer.get_pool", new_callable=AsyncMock)
-    async def test_os_error_increments_total_dropped(self, mock_get_pool, mock_log):
+    async def test_os_error_increments_total_dropped(self, mock_get_pool, mock_log, _mock_sleep):
         """OSError during flush should also increment dropped counter."""
         mock_log.aerror = AsyncMock()
+        mock_log.awarn = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.copy_records_to_table.side_effect = OSError("network unreachable")
         mock_pool = _mock_pool_with_conn(mock_conn)

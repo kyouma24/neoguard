@@ -19,7 +19,6 @@ from neoguard.services.dashboards import (
     create_dashboard,
     list_dashboards,
     list_favorites,
-    record_view,
     toggle_favorite,
     _row_to_dashboard,
 )
@@ -220,75 +219,6 @@ class TestCreateDashboardLayoutVersion:
         args = conn.fetchrow.call_args[0]
         assert args[10] == 1
 
-
-# ---------------------------------------------------------------------------
-# record_view
-# ---------------------------------------------------------------------------
-
-
-class TestRecordView:
-    @pytest.mark.asyncio
-    async def test_inserts_view_record(self):
-        pool, conn = _mock_pool_with_conn()
-        now = datetime(2026, 5, 2, 10, 0, tzinfo=timezone.utc)
-        conn.fetchrow.return_value = {
-            "id": 1,
-            "tenant_id": TENANT_ID,
-            "dashboard_id": DASH_ID,
-            "user_id": USER_ID,
-            "viewed_at": now,
-        }
-
-        with patch("neoguard.services.dashboards.get_pool", AsyncMock(return_value=pool)):
-            result = await record_view(TENANT_ID, DASH_ID, USER_ID)
-
-        assert isinstance(result, DashboardView)
-        assert result.id == 1
-        assert result.tenant_id == TENANT_ID
-        assert result.dashboard_id == DASH_ID
-        assert result.user_id == USER_ID
-        assert result.viewed_at == now
-
-    @pytest.mark.asyncio
-    async def test_inserts_correct_sql(self):
-        pool, conn = _mock_pool_with_conn()
-        conn.fetchrow.return_value = {
-            "id": 1, "tenant_id": TENANT_ID, "dashboard_id": DASH_ID,
-            "user_id": USER_ID,
-            "viewed_at": datetime(2026, 5, 2, tzinfo=timezone.utc),
-        }
-
-        with patch("neoguard.services.dashboards.get_pool", AsyncMock(return_value=pool)):
-            await record_view(TENANT_ID, DASH_ID, USER_ID)
-
-        sql = conn.fetchrow.call_args[0][0]
-        assert "INSERT INTO dashboard_views" in sql
-        assert "RETURNING *" in sql
-        args = conn.fetchrow.call_args[0]
-        assert args[1] == TENANT_ID
-        assert args[2] == DASH_ID
-        assert args[3] == USER_ID
-
-    @pytest.mark.asyncio
-    async def test_records_multiple_views(self):
-        pool, conn = _mock_pool_with_conn()
-        now = datetime(2026, 5, 2, 10, 0, tzinfo=timezone.utc)
-
-        conn.fetchrow.side_effect = [
-            {"id": i, "tenant_id": TENANT_ID, "dashboard_id": DASH_ID,
-             "user_id": USER_ID, "viewed_at": now}
-            for i in range(1, 4)
-        ]
-
-        with patch("neoguard.services.dashboards.get_pool", AsyncMock(return_value=pool)):
-            v1 = await record_view(TENANT_ID, DASH_ID, USER_ID)
-            v2 = await record_view(TENANT_ID, DASH_ID, USER_ID)
-            v3 = await record_view(TENANT_ID, DASH_ID, USER_ID)
-
-        assert v1.id == 1
-        assert v2.id == 2
-        assert v3.id == 3
-        assert conn.fetchrow.call_count == 3
 
 
 # ---------------------------------------------------------------------------

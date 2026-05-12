@@ -94,7 +94,7 @@ async def system_stats(
     }
 
 
-@router.get("/feature-flags")
+@router.get("/feature-flags", dependencies=[Depends(require_scope("admin"))])
 async def get_feature_flags() -> dict[str, bool]:
     from neoguard.services.feature_flags import get_all_flags
     return await get_all_flags()

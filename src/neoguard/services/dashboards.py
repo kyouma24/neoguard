@@ -6,9 +6,9 @@ from neoguard.models.dashboards import (
     Dashboard,
     DashboardCreate,
     DashboardLink,
+    DashboardSummary,
     DashboardUpdate,
     DashboardVariable,
-    DashboardView,
     PanelDefinition,
     PanelGroup,
 )
@@ -54,7 +54,7 @@ async def get_dashboard(tenant_id: str | None, dashboard_id: str) -> Dashboard |
 
 async def list_dashboards(
     tenant_id: str | None, limit: int = 50, offset: int = 0, search: str | None = None,
-) -> list[Dashboard]:
+) -> list[DashboardSummary]:
     conditions = []
     params: list = []
     idx = 1
@@ -89,7 +89,7 @@ async def list_dashboards(
             f" ORDER BY updated_at DESC LIMIT ${limit_idx} OFFSET ${offset_idx}",
             *params,
         )
-    return [_row_to_dashboard(r) for r in rows]
+    return [_row_to_summary(r) for r in rows]
 
 
 async def update_dashboard(
@@ -171,23 +171,6 @@ async def list_favorites(tenant_id: str, user_id: str) -> list[str]:
     return [r["dashboard_id"] for r in rows]
 
 
-async def record_view(tenant_id: str, dashboard_id: str, user_id: str) -> DashboardView:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "INSERT INTO dashboard_views (tenant_id, dashboard_id, user_id)"
-            " VALUES ($1, $2, $3)"
-            " RETURNING *",
-            tenant_id, dashboard_id, user_id,
-        )
-    return DashboardView(
-        id=row["id"],
-        tenant_id=row["tenant_id"],
-        dashboard_id=row["dashboard_id"],
-        user_id=row["user_id"],
-        viewed_at=row["viewed_at"],
-    )
-
 
 async def delete_dashboard(tenant_id: str, dashboard_id: str) -> bool:
     pool = await get_pool()
@@ -197,6 +180,30 @@ async def delete_dashboard(tenant_id: str, dashboard_id: str) -> bool:
             dashboard_id, tenant_id,
         )
     return result == "DELETE 1"
+
+
+def _row_to_summary(row) -> DashboardSummary:
+    panels_raw = row["panels"]
+    if isinstance(panels_raw, str):
+        panels_raw = orjson.loads(panels_raw)
+    panel_count = len(panels_raw) if isinstance(panels_raw, list) else 0
+
+    tags_raw = row.get("tags") or "[]"
+    if isinstance(tags_raw, str):
+        tags_raw = orjson.loads(tags_raw)
+
+    return DashboardSummary(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        name=row["name"],
+        description=row["description"],
+        panel_count=panel_count,
+        tags=tags_raw,
+        layout_version=row.get("layout_version", 1),
+        created_by=row.get("created_by"),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
 
 
 def _row_to_dashboard(row) -> Dashboard:

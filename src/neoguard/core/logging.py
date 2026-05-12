@@ -1,3 +1,5 @@
+import sys
+
 import structlog
 
 
@@ -13,7 +15,7 @@ def setup_logging(debug: bool = False) -> None:
         ],
         wrapper_class=structlog.make_filtering_bound_logger(0),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.WriteLoggerFactory(file=sys.stdout),
         cache_logger_on_first_use=True,
     )
 

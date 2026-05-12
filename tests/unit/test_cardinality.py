@@ -100,14 +100,14 @@ class TestObserveCardinality:
         mock_conn.fetch.return_value = [
             {"tag_key": "env", "distinct_count": 3, "sample_size": 500},
         ]
-        mock_conn.execute = AsyncMock()
+        mock_conn.executemany = AsyncMock()
         mock_pool = _mock_pool_with_conn(mock_conn)
 
         with patch("neoguard.services.metrics.cardinality.get_pool", AsyncMock(return_value=mock_pool)):
             await observe_cardinality(TENANT)
 
-        mock_conn.execute.assert_called_once()
-        sql = mock_conn.execute.call_args[0][0]
+        mock_conn.executemany.assert_called_once()
+        sql = mock_conn.executemany.call_args[0][0]
         assert "INSERT INTO tag_cardinality_observations" in sql
         assert "ON CONFLICT" in sql
 

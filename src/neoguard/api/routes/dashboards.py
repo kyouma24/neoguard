@@ -14,6 +14,7 @@ from neoguard.models.dashboards import (
     DashboardPermissionLevel,
     DashboardPermissionResponse,
     DashboardPermissionSet,
+    DashboardSummary,
     DashboardUpdate,
     DashboardVariable,
     PanelDefinition,
@@ -94,7 +95,7 @@ async def list_all(
     offset: int = 0,
     search: str | None = None,
     tenant_id: str | None = Depends(get_tenant_id),
-) -> list[Dashboard]:
+) -> list[DashboardSummary]:
     return await list_dashboards(tenant_id, limit=min(limit, 500), offset=offset, search=search)
 
 

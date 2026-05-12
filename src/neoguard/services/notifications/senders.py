@@ -17,14 +17,28 @@ from email.message import EmailMessage
 import aiohttp
 
 from neoguard.core.logging import log
-from neoguard.models.notifications import AlertPayload, ChannelType
-from neoguard.services.notifications.url_validator import SSRFError, validate_outbound_url
+from neoguard.models.notifications import (
+    AlertPayload,
+    ChannelType,
+    _BLOCKED_WEBHOOK_HEADERS,
+)
+from neoguard.services.notifications.url_validator import (
+    create_pinned_session,
+    validate_outbound_url,
+)
 
-_FRESHDESK_SEVERITY_MAP = {
+FRESHDESK_SEVERITY_MAP = {
     "P1": 4,  # Urgent
     "P2": 3,  # High
     "P3": 2,  # Medium
     "P4": 1,  # Low
+}
+
+PAGERDUTY_SEVERITY_MAP = {
+    "P1": "critical",
+    "P2": "error",
+    "P3": "warning",
+    "P4": "info",
 }
 
 _FRESHDESK_STATUS_OPEN = 2
@@ -84,6 +98,20 @@ async def _retry(fn, *, max_retries: int = _MAX_RETRIES):
     raise last_exc  # type: ignore[misc]
 
 
+def _sanitize_headers(headers: dict) -> dict:
+    """Strip blocked headers at send time (defense-in-depth for legacy configs)."""
+    cleaned = {}
+    for name, value in headers.items():
+        if name.lower() in _BLOCKED_WEBHOOK_HEADERS:
+            log.warning(
+                "Stripped blocked header from webhook config at send time",
+                header=name,
+            )
+            continue
+        cleaned[name] = value
+    return cleaned
+
+
 class BaseSender(abc.ABC):
     @abc.abstractmethod
     async def send_firing(
@@ -113,8 +141,8 @@ class WebhookSender(BaseSender):
         ).hexdigest()
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
-        url, _ = validate_outbound_url(config["url"])
-        headers = {**config.get("headers", {})}
+        url, safe_ips = validate_outbound_url(config["url"])
+        headers = _sanitize_headers(config.get("headers") or {})
         body = _build_webhook_body(payload)
         import orjson as _orjson
         body_bytes = _orjson.dumps(body)
@@ -125,11 +153,10 @@ class WebhookSender(BaseSender):
 
         async def _do() -> dict:
             async with (
-                aiohttp.ClientSession() as session,
+                create_pinned_session(safe_ips, _TIMEOUT_DEFAULT) as session,
                 session.post(
                     url, data=body_bytes,
                     headers={**headers, "Content-Type": "application/json"},
-                    timeout=_TIMEOUT_DEFAULT,
                 ) as resp,
             ):
                 await _check_response(resp, "Webhook POST")
@@ -144,8 +171,8 @@ class WebhookSender(BaseSender):
     async def send_resolved(
         self, payload: AlertPayload, config: dict, firing_meta: dict,
     ) -> None:
-        url, _ = validate_outbound_url(config["url"])
-        headers = {**config.get("headers", {})}
+        url, safe_ips = validate_outbound_url(config["url"])
+        headers = _sanitize_headers(config.get("headers") or {})
         body = _build_webhook_body(payload)
         import orjson as _orjson
         body_bytes = _orjson.dumps(body)
@@ -156,11 +183,10 @@ class WebhookSender(BaseSender):
 
         async def _do() -> None:
             async with (
-                aiohttp.ClientSession() as session,
+                create_pinned_session(safe_ips, _TIMEOUT_DEFAULT) as session,
                 session.post(
                     url, data=body_bytes,
                     headers={**headers, "Content-Type": "application/json"},
-                    timeout=_TIMEOUT_DEFAULT,
                 ) as resp,
             ):
                 await _check_response(resp, "Webhook resolved POST")
@@ -176,7 +202,7 @@ class SlackSender(BaseSender):
     """Posts to a Slack incoming webhook URL."""
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
-        webhook_url, _ = validate_outbound_url(config["webhook_url"])
+        webhook_url, safe_ips = validate_outbound_url(config["webhook_url"])
         channel = config.get("channel", "")
         color = "#e01e5a" if payload.severity in ("P1", "P2") else "#ecb22e"
 
@@ -203,10 +229,8 @@ class SlackSender(BaseSender):
 
         async def _do() -> dict:
             async with (
-                aiohttp.ClientSession() as session,
-                session.post(
-                    webhook_url, json=slack_body, timeout=_TIMEOUT_DEFAULT,
-                ) as resp,
+                create_pinned_session(safe_ips, _TIMEOUT_DEFAULT) as session,
+                session.post(webhook_url, json=slack_body) as resp,
             ):
                 body_text = await resp.text()
                 if resp.status == 200 and body_text != "ok":
@@ -225,7 +249,7 @@ class SlackSender(BaseSender):
     async def send_resolved(
         self, payload: AlertPayload, config: dict, firing_meta: dict,
     ) -> None:
-        webhook_url, _ = validate_outbound_url(config["webhook_url"])
+        webhook_url, safe_ips = validate_outbound_url(config["webhook_url"])
         channel = config.get("channel", "")
 
         slack_body = {
@@ -243,10 +267,8 @@ class SlackSender(BaseSender):
 
         async def _do() -> None:
             async with (
-                aiohttp.ClientSession() as session,
-                session.post(
-                    webhook_url, json=slack_body, timeout=_TIMEOUT_DEFAULT,
-                ) as resp,
+                create_pinned_session(safe_ips, _TIMEOUT_DEFAULT) as session,
+                session.post(webhook_url, json=slack_body) as resp,
             ):
                 body_text = await resp.text()
                 if resp.status == 200 and body_text != "ok":
@@ -317,11 +339,11 @@ class FreshdeskSender(BaseSender):
         domain = config["domain"]
         validate_outbound_url(f"https://{domain}/api/v2/tickets")  # validates only, uses domain for URL
         api_key = config["api_key"]
-        requester_email = config.get("email", "neoguard@alerts.internal")
+        requester_email = config["email"]
         group_id = config.get("group_id")
         ticket_type = config.get("type", "Incident")
 
-        priority = _FRESHDESK_SEVERITY_MAP.get(payload.severity, 1)
+        priority = FRESHDESK_SEVERITY_MAP.get(payload.severity, 1)
         tags_str = ", ".join(
             f"{k}={v}" for k, v in payload.tags_filter.items()
         ) if payload.tags_filter else "none"
@@ -347,7 +369,11 @@ class FreshdeskSender(BaseSender):
             "tags": ["neoguard", f"severity:{payload.severity}", payload.metric_name],
         }
         if group_id:
-            ticket_body["group_id"] = int(group_id)
+            try:
+                ticket_body["group_id"] = int(group_id)
+            except (ValueError, TypeError):
+                # Safety net: legacy channel configs created before NOTIF-009 validation
+                pass
 
         url = f"https://{domain}/api/v2/tickets"
         auth = aiohttp.BasicAuth(api_key, "X")
@@ -449,8 +475,7 @@ class PagerDutySender(BaseSender):
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
         routing_key = config["routing_key"]
-        severity_map = {"P1": "critical", "P2": "error", "P3": "warning", "P4": "info"}
-        pd_severity = severity_map.get(payload.severity, "warning")
+        pd_severity = PAGERDUTY_SEVERITY_MAP.get(payload.severity, "warning")
 
         pd_body = {
             "routing_key": routing_key,
@@ -528,12 +553,36 @@ class PagerDutySender(BaseSender):
 
         await _retry(_do)
 
+    async def test_connection(self, config: dict) -> dict | None:
+        routing_key = config["routing_key"]
+        change_body = {
+            "routing_key": routing_key,
+            "payload": {
+                "summary": "NeoGuard connectivity test",
+                "source": "neoguard/test_connection",
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        }
+
+        async def _do() -> dict:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    "https://events.pagerduty.com/v2/change/enqueue",
+                    json=change_body, timeout=_TIMEOUT_DEFAULT,
+                ) as resp,
+            ):
+                await _check_response(resp, "PagerDuty connectivity test")
+                return {"status_code": resp.status, "connected": True}
+
+        return await _retry(_do)
+
 
 class MSTeamsSender(BaseSender):
     """Posts adaptive cards to Microsoft Teams incoming webhook."""
 
     async def send_firing(self, payload: AlertPayload, config: dict) -> dict:
-        webhook_url, _ = validate_outbound_url(config["webhook_url"])
+        webhook_url, safe_ips = validate_outbound_url(config["webhook_url"])
         color = "attention" if payload.severity in ("P1", "P2") else "warning"
 
         card = {
@@ -574,10 +623,8 @@ class MSTeamsSender(BaseSender):
 
         async def _do() -> dict:
             async with (
-                aiohttp.ClientSession() as session,
-                session.post(
-                    webhook_url, json=card, timeout=_TIMEOUT_DEFAULT,
-                ) as resp,
+                create_pinned_session(safe_ips, _TIMEOUT_DEFAULT) as session,
+                session.post(webhook_url, json=card) as resp,
             ):
                 await _check_response(resp, "MS Teams webhook")
                 await log.ainfo(
@@ -591,7 +638,7 @@ class MSTeamsSender(BaseSender):
     async def send_resolved(
         self, payload: AlertPayload, config: dict, firing_meta: dict,
     ) -> None:
-        webhook_url, _ = validate_outbound_url(config["webhook_url"])
+        webhook_url, safe_ips = validate_outbound_url(config["webhook_url"])
 
         card = {
             "type": "message",
@@ -624,10 +671,8 @@ class MSTeamsSender(BaseSender):
 
         async def _do() -> None:
             async with (
-                aiohttp.ClientSession() as session,
-                session.post(
-                    webhook_url, json=card, timeout=_TIMEOUT_DEFAULT,
-                ) as resp,
+                create_pinned_session(safe_ips, _TIMEOUT_DEFAULT) as session,
+                session.post(webhook_url, json=card) as resp,
             ):
                 await _check_response(resp, "MS Teams resolved webhook")
                 await log.ainfo(
@@ -669,7 +714,14 @@ def _build_webhook_body(payload: AlertPayload) -> dict:
 async def _send_email(config: dict, subject: str, body: str) -> None:
     import smtplib
 
+    from neoguard.services.notifications.url_validator import (
+        SSRFError,
+        validate_outbound_host,
+    )
+
     smtp_host = config["smtp_host"]
+    validate_outbound_host(smtp_host)
+
     smtp_port = config.get("smtp_port", 587)
     smtp_user = config.get("smtp_user", "")
     smtp_pass = config.get("smtp_pass", "")
@@ -694,6 +746,8 @@ async def _send_email(config: dict, subject: str, body: str) -> None:
 
     try:
         await asyncio.get_running_loop().run_in_executor(None, _blocking_send)
+    except SSRFError:
+        raise
     except Exception as e:
         raise NotificationSendError(0, f"SMTP error: {e}") from e
     await log.ainfo("Email sent", subject=subject, to=to_addrs)

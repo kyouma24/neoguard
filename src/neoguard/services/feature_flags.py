@@ -3,21 +3,28 @@
 Flags are stored in Redis as a hash at key `neoguard:feature_flags`.
 Each field is the flag name, value is "1" (enabled) or "0" (disabled).
 
-If Redis is unavailable, flags fall back to their hardcoded defaults
-(fail-open for safety — existing features stay enabled).
+If Redis is unavailable, flags fall back to their hardcoded defaults.
+Flags that gate EXISTING features (batch queries, viewport loading) fail-open
+so users keep working. Flags that gate NEW or RESTRICTIVE behavior (cardinality
+denylist, singleflight) fail-closed so experimental features don't activate
+during an outage.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+_FLAG_CACHE_TTL = 5.0  # seconds
+_flag_cache: dict[str, tuple[bool, float]] = {}
+
 # TODO(production): Local Redis; needs HA Redis with replication
-# Current: Single Redis instance, fail-open to defaults
+# Current: Single Redis instance, fail-closed for new behavior
 # Cloud: ElastiCache cluster with automatic failover
-# Migration risk: Low — fail-open design handles outages gracefully
+# Migration risk: Low — fail-closed is safer than fail-open
 # Reference: docs/cloud_migration.md#redis-ha
 REDIS_KEY = "neoguard:feature_flags"
 
@@ -34,11 +41,18 @@ DEFAULTS: dict[str, bool] = {
     Flag.DASHBOARDS_BATCH_QUERIES: True,
     Flag.DASHBOARDS_VIEWPORT_LOADING: True,
     Flag.METRICS_CARDINALITY_DENYLIST: True,
-    # mql.streaming_batch is frontend-only — controls whether the frontend calls
-    # /query/batch/stream (NDJSON) or /query/batch (JSON array). No backend fallback.
     Flag.MQL_STREAMING_BATCH: True,
     Flag.MQL_SINGLEFLIGHT: False,
 }
+
+# Flags that gate EXPERIMENTAL or UNPROVEN behavior must fail-closed on Redis outage.
+# If Redis is down, these return False regardless of their default, preventing
+# experimental features from activating during infrastructure failures.
+# Note: METRICS_CARDINALITY_DENYLIST is a SAFETY feature (restricts dangerous queries)
+# and therefore fails OPEN — it stays enabled even during Redis outage.
+_FAIL_CLOSED_FLAGS: frozenset[str] = frozenset({
+    Flag.MQL_SINGLEFLIGHT,
+})
 
 
 def _flag_key(flag: str | Flag) -> str:
@@ -46,25 +60,44 @@ def _flag_key(flag: str | Flag) -> str:
 
 
 async def is_enabled(flag: str | Flag) -> bool:
-    """Check if a feature flag is enabled. Fail-open on Redis errors."""
+    """Check if a feature flag is enabled.
+
+    Fail-open for existing features (users keep working during outage).
+    Fail-closed for new/restrictive features (experiments don't activate during outage).
+    Uses in-process cache with 5s TTL to avoid Redis call on every check.
+    """
     key = _flag_key(flag)
+    now = time.monotonic()
+    cached = _flag_cache.get(key)
+    if cached is not None:
+        value, ts = cached
+        if (now - ts) < _FLAG_CACHE_TTL:
+            return value
+
     try:
         from neoguard.db.redis.connection import get_redis
         redis = get_redis()
         val = await redis.hget(REDIS_KEY, key)
         if val is None:
-            return DEFAULTS.get(key, True)
-        return val == "1"
+            result = DEFAULTS.get(key, False)
+        else:
+            result = val == "1"
+        _flag_cache[key] = (result, now)
+        return result
     except Exception:
-        logger.debug("Feature flag check failed, using default for %s", key)
-        return DEFAULTS.get(key, True)
+        logger.warning("Feature flag Redis check failed for %s, using fallback", key)
+        if key in _FAIL_CLOSED_FLAGS:
+            return False
+        return DEFAULTS.get(key, False)
 
 
 async def set_flag(flag: str | Flag, enabled: bool) -> None:
     """Set a feature flag value in Redis."""
     from neoguard.db.redis.connection import get_redis
     redis = get_redis()
-    await redis.hset(REDIS_KEY, _flag_key(flag), "1" if enabled else "0")
+    key = _flag_key(flag)
+    await redis.hset(REDIS_KEY, key, "1" if enabled else "0")
+    _flag_cache.pop(key, None)
 
 
 async def get_all_flags() -> dict[str, bool]:

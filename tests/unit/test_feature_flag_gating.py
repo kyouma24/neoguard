@@ -8,7 +8,15 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from neoguard.services import feature_flags as _ff_module
 from neoguard.services.feature_flags import Flag
+
+
+@pytest.fixture(autouse=True)
+def _clear_flag_cache():
+    _ff_module._flag_cache.clear()
+    yield
+    _ff_module._flag_cache.clear()
 
 
 class TestCardinalityDenylistFlagGating:

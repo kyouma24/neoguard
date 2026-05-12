@@ -1,6 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from neoguard.api.deps import get_tenant_id, get_tenant_id_required, require_scope
+from neoguard.api.deps import (
+    get_current_user_id,
+    get_query_tenant_id,
+    get_tenant_id,
+    get_tenant_id_required,
+    require_scope,
+)
+from neoguard.core.logging import log
 from neoguard.models.notifications import (
     NotificationChannel,
     NotificationChannelCreate,
@@ -35,19 +42,29 @@ async def create(
 async def list_all(
     limit: int = 50,
     offset: int = 0,
-    tenant_id: str | None = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_query_tenant_id),
 ) -> list[NotificationChannel]:
     return await list_channels(tenant_id, limit=min(limit, 500), offset=offset)
 
 
 @router.get("/channels/{channel_id}")
 async def get_one(
+    request: Request,
     channel_id: str,
     tenant_id: str | None = Depends(get_tenant_id),
+    user_id: str = Depends(get_current_user_id),
 ) -> NotificationChannel:
     ch = await get_channel(tenant_id, channel_id)
     if not ch:
         raise HTTPException(status_code=404, detail="Channel not found")
+    if tenant_id is None and ch.tenant_id != getattr(request.state, "tenant_id", None):
+        await log.awarn(
+            "Super admin cross-tenant channel access",
+            user_id=user_id,
+            channel_id=channel_id,
+            target_tenant_id=ch.tenant_id,
+            session_tenant_id=getattr(request.state, "tenant_id", None),
+        )
     return ch
 
 

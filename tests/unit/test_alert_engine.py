@@ -12,19 +12,32 @@ from neoguard.services.alerts.engine import CONDITION_OPS, AlertEngine, _RuleSta
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _mock_pool_with_conn(mock_conn: AsyncMock | None = None) -> MagicMock:
-    """Build a mock asyncpg pool whose acquire() yields a mock connection.
+class _AcquireProxy:
+    """Mimics asyncpg's PoolAcquireContext: both awaitable and async context manager."""
 
-    pool.acquire() in asyncpg returns an async context manager (not a coroutine),
-    so the pool itself must be a MagicMock so .acquire() is a regular call.
-    """
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __await__(self):
+        async def _resolve():
+            return self._conn
+        return _resolve().__await__()
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, *args):
+        pass
+
+
+def _mock_pool_with_conn(mock_conn: AsyncMock | None = None) -> MagicMock:
+    """Build a mock asyncpg pool whose acquire() supports both await and async with."""
     if mock_conn is None:
         mock_conn = AsyncMock()
+    mock_conn.close = AsyncMock()
     mock_pool = MagicMock()
-    mock_ctx = AsyncMock()
-    mock_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_ctx.__aexit__ = AsyncMock(return_value=False)
-    mock_pool.acquire.return_value = mock_ctx
+    mock_pool.release = AsyncMock()
+    mock_pool.acquire.return_value = _AcquireProxy(mock_conn)
     return mock_pool
 
 
@@ -178,13 +191,15 @@ class TestTransition:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         now = datetime.now(UTC)
-        await engine._transition("rule-1", "pending", now)
+        await engine._transition("default:rule-1", "pending", now)
 
-        assert "rule-1" in engine._rule_states
-        assert engine._rule_states["rule-1"].status == "pending"
-        assert engine._rule_states["rule-1"].entered_at == now
+        assert "default:rule-1" in engine._rule_states
+        assert engine._rule_states["default:rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].entered_at == now
 
     @patch("neoguard.services.alerts.engine.settings")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
@@ -192,15 +207,17 @@ class TestTransition:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         t1 = datetime.now(UTC)
-        await engine._transition("rule-1", "pending", t1)
+        await engine._transition("default:rule-1", "pending", t1)
 
         t2 = t1 + timedelta(seconds=10)
-        await engine._transition("rule-1", "pending", t2)
+        await engine._transition("default:rule-1", "pending", t2)
 
         # entered_at should remain t1 because the transition was a no-op
-        assert engine._rule_states["rule-1"].entered_at == t1
+        assert engine._rule_states["default:rule-1"].entered_at == t1
 
     @patch("neoguard.services.alerts.engine.settings")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
@@ -208,15 +225,17 @@ class TestTransition:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         t1 = datetime.now(UTC)
-        await engine._transition("rule-1", "pending", t1)
+        await engine._transition("default:rule-1", "pending", t1)
 
         t2 = t1 + timedelta(seconds=30)
-        await engine._transition("rule-1", "firing", t2)
+        await engine._transition("default:rule-1", "firing", t2)
 
-        assert engine._rule_states["rule-1"].status == "firing"
-        assert engine._rule_states["rule-1"].entered_at == t2
+        assert engine._rule_states["default:rule-1"].status == "firing"
+        assert engine._rule_states["default:rule-1"].entered_at == t2
 
     @patch("neoguard.services.alerts.engine.settings")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
@@ -225,6 +244,8 @@ class TestTransition:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         now = datetime.now(UTC)
         await engine._transition("new-rule", "ok", now)
@@ -236,16 +257,18 @@ class TestTransition:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         now = datetime.now(UTC)
-        await engine._transition("rule-1", "ok", now)
-        assert engine._rule_states["rule-1"].transition_count == 1
+        await engine._transition("default:rule-1", "ok", now)
+        assert engine._rule_states["default:rule-1"].transition_count == 1
 
-        await engine._transition("rule-1", "pending", now + timedelta(seconds=1))
-        assert engine._rule_states["rule-1"].transition_count == 2
+        await engine._transition("default:rule-1", "pending", now + timedelta(seconds=1))
+        assert engine._rule_states["default:rule-1"].transition_count == 2
 
-        await engine._transition("rule-1", "firing", now + timedelta(seconds=2))
-        assert engine._rule_states["rule-1"].transition_count == 3
+        await engine._transition("default:rule-1", "firing", now + timedelta(seconds=2))
+        assert engine._rule_states["default:rule-1"].transition_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +280,7 @@ class TestEvaluateRule:
     """Integration-style tests for the state machine in _evaluate_rule."""
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_no_data_transitions_to_ok(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -265,6 +288,8 @@ class TestEvaluateRule:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=None, cnt=0)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -274,10 +299,10 @@ class TestEvaluateRule:
 
         await engine._evaluate_rule(rule)
 
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_breach_transitions_ok_to_pending(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -285,6 +310,8 @@ class TestEvaluateRule:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         # cpu_usage > 80 (threshold), agg_val=95 means breached
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=95.0, cnt=10)
@@ -295,10 +322,10 @@ class TestEvaluateRule:
 
         await engine._evaluate_rule(rule)
 
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.dispatch_firing", new_callable=AsyncMock)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
@@ -309,6 +336,8 @@ class TestEvaluateRule:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_settings.alert_default_cooldown_sec = 300
         mock_log.awarn = AsyncMock()
         mock_conn = AsyncMock()
@@ -321,19 +350,19 @@ class TestEvaluateRule:
 
         # First call: ok -> pending
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
         # Simulate that enough time has passed by backdating entered_at
-        engine._rule_states["rule-1"].entered_at = (
+        engine._rule_states["default:rule-1"].entered_at = (
             datetime.now(UTC) - timedelta(seconds=120)
         )
 
         # Second call: pending -> firing (duration exceeded)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "firing"
+        assert engine._rule_states["default:rule-1"].status == "firing"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_pending_stays_pending_before_duration(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -341,6 +370,8 @@ class TestEvaluateRule:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=95.0, cnt=10)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -350,15 +381,15 @@ class TestEvaluateRule:
 
         # First call: ok -> pending
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
         # entered_at was just set (now), so duration_sec=300 is NOT exceeded.
         # Second call: should remain pending (transition is noop for same status)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.dispatch_resolved", new_callable=AsyncMock)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
@@ -369,6 +400,8 @@ class TestEvaluateRule:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_log.awarn = AsyncMock()
         mock_log.ainfo = AsyncMock()
         mock_conn = AsyncMock()
@@ -379,7 +412,7 @@ class TestEvaluateRule:
         rule = _make_rule(condition="gt", threshold=80.0)
 
         # Manually set state to firing
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="firing",
             entered_at=datetime.now(UTC) - timedelta(seconds=120),
         )
@@ -388,10 +421,10 @@ class TestEvaluateRule:
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=10)
 
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "resolved"
+        assert engine._rule_states["default:rule-1"].status == "resolved"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_ok_stays_ok_when_not_breached(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -399,6 +432,8 @@ class TestEvaluateRule:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=10)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -407,14 +442,14 @@ class TestEvaluateRule:
         rule = _make_rule(condition="gt", threshold=80.0)
 
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
         # Call again — still ok
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_pending_back_to_ok_when_recovered(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -422,6 +457,8 @@ class TestEvaluateRule:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
 
@@ -431,12 +468,12 @@ class TestEvaluateRule:
         # First: breach -> pending
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=95.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
         # Second: value recovers -> ok
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -468,9 +505,11 @@ class TestFireAndResolve:
         mock_conn.execute.assert_awaited_once()
         sql = mock_conn.execute.call_args[0][0]
         assert "INSERT INTO alert_events" in sql
-        assert "'firing'" in sql
+        assert "$10" in sql
         assert "rule_name" in sql
         assert "severity" in sql
+        args = mock_conn.execute.call_args[0][1:]
+        assert "firing" in args
 
         # Check the passed parameters (now includes rule_name and severity)
         args = mock_conn.execute.call_args[0]
@@ -544,7 +583,7 @@ class TestEvaluateRuleWithTags:
     """Test that tags_filter is correctly parsed and applied."""
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_tags_filter_adds_sql_conditions(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -552,6 +591,8 @@ class TestEvaluateRuleWithTags:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=5)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -571,7 +612,7 @@ class TestEvaluateRuleWithTags:
         assert "us-east" in params
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_empty_tags_filter_no_extra_conditions(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -579,6 +620,8 @@ class TestEvaluateRuleWithTags:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=5)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -601,7 +644,7 @@ class TestEvaluateRuleWithTags:
 class TestSilenceIntegration:
     """Tests for silence checking in _evaluate_rule."""
 
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=True)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=True)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_silenced_rule_skips_evaluation(self, mock_get_pool, mock_log, _mock_silence):
@@ -617,7 +660,7 @@ class TestSilenceIntegration:
         mock_conn.fetchrow.assert_not_awaited()
         assert engine._silenced_count == 1
 
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=True)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=True)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_silenced_firing_rule_stays_firing(self, mock_get_pool, mock_log, _mock_silence):
@@ -627,30 +670,31 @@ class TestSilenceIntegration:
 
         engine = AlertEngine()
         rule = _make_rule()
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="firing",
             entered_at=datetime.now(UTC) - timedelta(seconds=120),
         )
 
         await engine._evaluate_rule(rule)
 
-        assert engine._rule_states["rule-1"].status == "firing"
+        assert engine._rule_states["default:rule-1"].status == "firing"
         assert engine._silenced_count == 1
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch(
-        "neoguard.services.alerts.engine.is_rule_silenced",
-        new_callable=AsyncMock, side_effect=Exception("db error"),
-    )
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", side_effect=Exception("parse error"))
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_silence_check_failure_does_not_block_evaluation(
         self, mock_get_pool, mock_log, _mock_silence, mock_settings,
     ):
-        """If is_rule_silenced raises, evaluation should proceed normally."""
+        """If _check_silence_cache raises, evaluation should still proceed."""
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=95.0, cnt=10)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -660,9 +704,9 @@ class TestSilenceIntegration:
 
         await engine._evaluate_rule(rule)
 
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=True)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=True)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_silenced_counter_increments_per_rule(self, mock_get_pool, mock_log, _mock_silence):
@@ -679,7 +723,7 @@ class TestSilenceIntegration:
 
         assert engine._silenced_count == 2
 
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=True)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=True)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_silenced_pending_rule_stays_pending(self, mock_get_pool, mock_log, _mock_silence):
@@ -689,14 +733,14 @@ class TestSilenceIntegration:
 
         engine = AlertEngine()
         rule = _make_rule()
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="pending",
             entered_at=datetime.now(UTC) - timedelta(seconds=30),
         )
 
         await engine._evaluate_rule(rule)
         # pending rules that aren't firing just return — state preserved
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
 
 # ---------------------------------------------------------------------------
@@ -729,6 +773,8 @@ class TestEngineStats:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         now = datetime.now(UTC)
         await engine._transition("r1", "pending", now)
@@ -765,13 +811,15 @@ class TestEngineStats:
 
 class TestEvaluateAll:
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_evaluate_all_processes_multiple_rules(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetch.return_value = [
             _make_rule(rule_id="rule-1"),
@@ -787,7 +835,7 @@ class TestEvaluateAll:
         assert engine._rules_evaluated == 3
         assert len(engine._rule_states) == 3
 
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_evaluate_all_with_zero_rules(self, mock_get_pool, mock_log, _mock_silence):
@@ -886,7 +934,7 @@ class TestFullStateMachineCycle:
     @patch("neoguard.services.alerts.engine.settings")
     @patch("neoguard.services.alerts.engine.dispatch_resolved", new_callable=AsyncMock)
     @patch("neoguard.services.alerts.engine.dispatch_firing", new_callable=AsyncMock)
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_full_cycle(
@@ -895,6 +943,8 @@ class TestFullStateMachineCycle:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_settings.alert_default_cooldown_sec = 300
         mock_log.awarn = AsyncMock()
         mock_log.ainfo = AsyncMock()
@@ -908,26 +958,26 @@ class TestFullStateMachineCycle:
         # Step 1: breach -> ok to pending
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=95.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
         # Step 2: still breached, backdate to exceed duration -> pending to firing
-        engine._rule_states["rule-1"].entered_at = datetime.now(UTC) - timedelta(seconds=120)
+        engine._rule_states["default:rule-1"].entered_at = datetime.now(UTC) - timedelta(seconds=120)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "firing"
+        assert engine._rule_states["default:rule-1"].status == "firing"
         mock_dispatch_fire.assert_awaited_once()
 
         # Step 3: value recovers -> firing to resolved
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "resolved"
+        assert engine._rule_states["default:rule-1"].status == "resolved"
         mock_dispatch_resolve.assert_awaited_once()
 
         # Step 4: still recovered -> resolved to ok
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_lt_condition_cycle(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -935,6 +985,8 @@ class TestFullStateMachineCycle:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
 
@@ -944,15 +996,15 @@ class TestFullStateMachineCycle:
         # Value below threshold -> breach -> pending
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=5.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
         # Value recovers above threshold -> ok
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_eq_condition(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -960,6 +1012,8 @@ class TestFullStateMachineCycle:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
 
@@ -968,14 +1022,14 @@ class TestFullStateMachineCycle:
 
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=42.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=41.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_ne_condition(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -983,6 +1037,8 @@ class TestFullStateMachineCycle:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
 
@@ -991,11 +1047,11 @@ class TestFullStateMachineCycle:
 
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=1.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=0.0, cnt=10)
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -1007,7 +1063,7 @@ class TestNoDataHandling:
     """Tests for nodata_action behavior."""
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_nodata_ok_transitions_to_ok(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -1015,6 +1071,8 @@ class TestNoDataHandling:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=None, cnt=0)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -1022,10 +1080,10 @@ class TestNoDataHandling:
         engine = AlertEngine()
         rule = _make_rule(nodata_action="ok")
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "ok"
+        assert engine._rule_states["default:rule-1"].status == "ok"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_nodata_keep_preserves_state(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -1033,23 +1091,25 @@ class TestNoDataHandling:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=None, cnt=0)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
 
         engine = AlertEngine()
         # Set state to firing first
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="firing", entered_at=datetime.now(UTC) - timedelta(seconds=60),
         )
 
         rule = _make_rule(nodata_action="keep")
         await engine._evaluate_rule(rule)
         # Should still be firing (kept)
-        assert engine._rule_states["rule-1"].status == "firing"
+        assert engine._rule_states["default:rule-1"].status == "firing"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_nodata_keep_with_no_existing_state(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -1057,6 +1117,8 @@ class TestNoDataHandling:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=None, cnt=0)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -1069,7 +1131,7 @@ class TestNoDataHandling:
 
     @patch("neoguard.services.alerts.engine.settings")
     @patch("neoguard.services.alerts.engine.dispatch_firing", new_callable=AsyncMock)
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_nodata_alert_transitions_to_nodata(
@@ -1079,6 +1141,8 @@ class TestNoDataHandling:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_log.awarn = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
@@ -1088,12 +1152,14 @@ class TestNoDataHandling:
         engine = AlertEngine()
         rule = _make_rule(nodata_action="alert")
         await engine._evaluate_rule(rule)
-        assert engine._rule_states["rule-1"].status == "nodata"
+        assert engine._rule_states["default:rule-1"].status == "nodata"
 
         # Should have fired a nodata event
         insert_sql = mock_conn.execute.call_args[0][0]
         assert "INSERT INTO alert_events" in insert_sql
-        assert "'nodata'" in insert_sql
+        assert "$10" in insert_sql
+        insert_args = mock_conn.execute.call_args[0][1:]
+        assert "nodata" in insert_args
         mock_dispatch.assert_awaited_once()
 
 
@@ -1114,6 +1180,8 @@ class TestCooldown:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_settings.alert_default_cooldown_sec = 300
         mock_log.awarn = AsyncMock()
         mock_conn = AsyncMock()
@@ -1125,7 +1193,7 @@ class TestCooldown:
         now = datetime.now(UTC)
 
         # Pre-set rule to firing with a recent last_fired_at
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="firing",
             entered_at=now - timedelta(seconds=120),
             last_fired_at=now - timedelta(seconds=30),  # fired 30s ago
@@ -1135,7 +1203,7 @@ class TestCooldown:
         await engine._evaluate_rule(rule)
 
         # Should still be firing but dispatch NOT called (cooldown)
-        assert engine._rule_states["rule-1"].status == "firing"
+        assert engine._rule_states["default:rule-1"].status == "firing"
         mock_dispatch.assert_not_awaited()
 
     @patch("neoguard.services.alerts.engine.settings")
@@ -1147,6 +1215,8 @@ class TestCooldown:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_settings.alert_default_cooldown_sec = 300
         mock_log.awarn = AsyncMock()
         mock_conn = AsyncMock()
@@ -1158,7 +1228,7 @@ class TestCooldown:
         now = datetime.now(UTC)
 
         # Pre-set rule to firing with an old last_fired_at (cooldown expired)
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="firing",
             entered_at=now - timedelta(seconds=600),
             last_fired_at=now - timedelta(seconds=400),  # fired 400s ago, cooldown=300
@@ -1186,17 +1256,19 @@ class TestFlappingDetection:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 3
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         now = datetime.now(UTC)
 
         # Simulate rapid transitions
-        await engine._transition("rule-1", "ok", now)
-        await engine._transition("rule-1", "pending", now + timedelta(seconds=1))
-        await engine._transition("rule-1", "ok", now + timedelta(seconds=2))
-        await engine._transition("rule-1", "pending", now + timedelta(seconds=3))
+        await engine._transition("default:rule-1", "ok", now)
+        await engine._transition("default:rule-1", "pending", now + timedelta(seconds=1))
+        await engine._transition("default:rule-1", "ok", now + timedelta(seconds=2))
+        await engine._transition("default:rule-1", "pending", now + timedelta(seconds=3))
 
         # 4 transitions > threshold of 3 — should be flapping
-        assert engine._rule_states["rule-1"].flapping is True
+        assert engine._rule_states["default:rule-1"].flapping is True
 
     @patch("neoguard.services.alerts.engine.settings")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
@@ -1205,15 +1277,17 @@ class TestFlappingDetection:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         engine = AlertEngine()
         now = datetime.now(UTC)
 
-        await engine._transition("rule-1", "ok", now)
-        await engine._transition("rule-1", "pending", now + timedelta(seconds=1))
-        await engine._transition("rule-1", "firing", now + timedelta(seconds=2))
+        await engine._transition("default:rule-1", "ok", now)
+        await engine._transition("default:rule-1", "pending", now + timedelta(seconds=1))
+        await engine._transition("default:rule-1", "firing", now + timedelta(seconds=2))
 
         # 3 transitions <= threshold of 6
-        assert engine._rule_states["rule-1"].flapping is False
+        assert engine._rule_states["default:rule-1"].flapping is False
 
     @patch("neoguard.services.alerts.engine.settings")
     @patch("neoguard.services.alerts.engine.dispatch_firing", new_callable=AsyncMock)
@@ -1229,7 +1303,7 @@ class TestFlappingDetection:
 
         engine = AlertEngine()
         # Set rule as flapping
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="firing",
             entered_at=datetime.now(UTC),
             transition_count=10,
@@ -1255,7 +1329,7 @@ class TestFlappingDetection:
         now = datetime.now(UTC)
 
         # Create a state that was entered long ago (outside the window)
-        engine._rule_states["rule-1"] = _RuleState(
+        engine._rule_states["default:rule-1"] = _RuleState(
             status="ok",
             entered_at=now - timedelta(seconds=120),  # 120s ago > 60s window
             transition_count=10,
@@ -1263,9 +1337,9 @@ class TestFlappingDetection:
         )
 
         # Transition now — should reset counter because previous state is outside window
-        await engine._transition("rule-1", "pending", now)
-        assert engine._rule_states["rule-1"].transition_count == 1
-        assert engine._rule_states["rule-1"].flapping is False
+        await engine._transition("default:rule-1", "pending", now)
+        assert engine._rule_states["default:rule-1"].transition_count == 1
+        assert engine._rule_states["default:rule-1"].flapping is False
 
 
 # ---------------------------------------------------------------------------
@@ -1375,13 +1449,15 @@ class TestAggregationChoice:
     """Tests for _query_metric_value with different aggregation types."""
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_avg_aggregation(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=95.0, cnt=10)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -1392,16 +1468,18 @@ class TestAggregationChoice:
 
         sql = mock_conn.fetchrow.call_args[0][0]
         assert "AVG(value)" in sql
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_max_aggregation(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=99.0, cnt=10)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -1412,16 +1490,18 @@ class TestAggregationChoice:
 
         sql = mock_conn.fetchrow.call_args[0][0]
         assert "MAX(value)" in sql
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_p99_aggregation(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=98.0, cnt=10)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -1434,7 +1514,7 @@ class TestAggregationChoice:
         assert "PERCENTILE_CONT(0.99)" in sql
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_last_aggregation(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
@@ -1442,6 +1522,8 @@ class TestAggregationChoice:
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         # First call: COUNT query returns cnt=5
         # Second call: value query returns the latest value
@@ -1460,16 +1542,18 @@ class TestAggregationChoice:
         second_sql = mock_conn.fetchrow.call_args_list[1][0][0]
         assert "ORDER BY time DESC" in second_sql
         assert "LIMIT 1" in second_sql
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"
 
     @patch("neoguard.services.alerts.engine.settings")
-    @patch("neoguard.services.alerts.engine.is_rule_silenced", new_callable=AsyncMock, return_value=False)
+    @patch("neoguard.services.alerts.engine.AlertEngine._check_silence_cache", return_value=False)
     @patch("neoguard.services.alerts.engine.log")
     @patch("neoguard.services.alerts.engine.get_pool", new_callable=AsyncMock)
     async def test_count_aggregation(self, mock_get_pool, mock_log, _mock_silence, mock_settings):
         mock_settings.alert_state_persistence = False
         mock_settings.alert_flap_threshold = 6
         mock_settings.alert_flap_window_sec = 3600
+        mock_settings.alert_rule_eval_timeout_sec = 30
+        mock_settings.alert_strict_duration_check = False
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_db_row(agg_val=50.0, cnt=50)
         mock_get_pool.return_value = _mock_pool_with_conn(mock_conn)
@@ -1480,4 +1564,4 @@ class TestAggregationChoice:
 
         sql = mock_conn.fetchrow.call_args[0][0]
         assert "COUNT(*)" in sql
-        assert engine._rule_states["rule-1"].status == "pending"
+        assert engine._rule_states["default:rule-1"].status == "pending"

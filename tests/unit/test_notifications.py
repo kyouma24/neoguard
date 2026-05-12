@@ -102,6 +102,7 @@ class TestConfigValidation:
                 config={
                     "domain": "https://x.freshdesk.com",
                     "api_key": "abc",
+                    "email": "alerts@co.com",
                 },
             )
 
@@ -129,12 +130,12 @@ class TestConfigValidation:
     def test_freshdesk_valid_config_accepted(self):
         c = NotificationChannelCreate(
             name="OK", channel_type=ChannelType.FRESHDESK,
-            config={"domain": "co.freshdesk.com", "api_key": "abc123"},
+            config={"domain": "co.freshdesk.com", "api_key": "abc123", "email": "a@b.com"},
         )
         assert c.channel_type == "freshdesk"
 
     def test_validate_channel_config_standalone(self):
-        with pytest.raises(ValueError, match="missing: domain, api_key"):
+        with pytest.raises(ValueError, match="missing: domain, api_key, email"):
             validate_channel_config("freshdesk", {})
 
     def test_empty_required_value_rejected(self):
@@ -207,7 +208,7 @@ class TestNotificationModels:
         c = NotificationChannelCreate(
             name="Freshdesk Prod",
             channel_type=ChannelType.FRESHDESK,
-            config={"domain": "company.freshdesk.com", "api_key": "abc123"},
+            config={"domain": "company.freshdesk.com", "api_key": "abc123", "email": "a@b.com"},
         )
         assert c.channel_type == "freshdesk"
         assert c.config["domain"] == "company.freshdesk.com"
@@ -538,7 +539,7 @@ class TestFreshdeskSender:
 
     async def test_severity_mapping_critical(self):
         sender = FreshdeskSender()
-        config = {"domain": "x.freshdesk.com", "api_key": "k"}
+        config = {"domain": "x.freshdesk.com", "api_key": "k", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.post(
@@ -552,7 +553,7 @@ class TestFreshdeskSender:
 
     async def test_severity_mapping_p2(self):
         sender = FreshdeskSender()
-        config = {"domain": "x.freshdesk.com", "api_key": "k"}
+        config = {"domain": "x.freshdesk.com", "api_key": "k", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.post(
@@ -566,7 +567,7 @@ class TestFreshdeskSender:
 
     async def test_severity_mapping_p4(self):
         sender = FreshdeskSender()
-        config = {"domain": "x.freshdesk.com", "api_key": "k"}
+        config = {"domain": "x.freshdesk.com", "api_key": "k", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.post(
@@ -581,7 +582,7 @@ class TestFreshdeskSender:
     async def test_resolve_adds_note_and_closes_ticket(self):
         sender = FreshdeskSender()
         payload = _make_payload(status="resolved", current_value=85.0)
-        config = {"domain": "company.freshdesk.com", "api_key": "test-key"}
+        config = {"domain": "company.freshdesk.com", "api_key": "test-key", "email": "a@b.com"}
         firing_meta = {"ticket_id": 9001, "domain": "company.freshdesk.com"}
 
         with aioresponses() as m:
@@ -598,7 +599,7 @@ class TestFreshdeskSender:
     async def test_resolve_skips_without_ticket_id(self):
         sender = FreshdeskSender()
         payload = _make_payload(status="resolved")
-        config = {"domain": "x.freshdesk.com", "api_key": "k"}
+        config = {"domain": "x.freshdesk.com", "api_key": "k", "email": "a@b.com"}
 
         await sender.send_resolved(payload, config, {})
 
@@ -607,7 +608,7 @@ class TestFreshdeskSender:
         payload = _make_payload(
             tags_filter={"region": "us-east-1", "instance_type": "c5.xlarge"},
         )
-        config = {"domain": "x.freshdesk.com", "api_key": "k"}
+        config = {"domain": "x.freshdesk.com", "api_key": "k", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.post(
@@ -620,7 +621,7 @@ class TestFreshdeskSender:
     async def test_raises_on_401_unauthorized(self):
         sender = FreshdeskSender()
         payload = _make_payload()
-        config = {"domain": "x.freshdesk.com", "api_key": "bad-key"}
+        config = {"domain": "x.freshdesk.com", "api_key": "bad-key", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.post(
@@ -634,7 +635,7 @@ class TestFreshdeskSender:
     async def test_raises_on_missing_ticket_id_in_response(self):
         sender = FreshdeskSender()
         payload = _make_payload()
-        config = {"domain": "x.freshdesk.com", "api_key": "k"}
+        config = {"domain": "x.freshdesk.com", "api_key": "k", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.post(
@@ -646,7 +647,7 @@ class TestFreshdeskSender:
 
     async def test_test_connection_validates_credentials(self):
         sender = FreshdeskSender()
-        config = {"domain": "x.freshdesk.com", "api_key": "k"}
+        config = {"domain": "x.freshdesk.com", "api_key": "k", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.get(
@@ -660,7 +661,7 @@ class TestFreshdeskSender:
 
     async def test_test_connection_raises_on_bad_key(self):
         sender = FreshdeskSender()
-        config = {"domain": "x.freshdesk.com", "api_key": "bad"}
+        config = {"domain": "x.freshdesk.com", "api_key": "bad", "email": "a@b.com"}
 
         with aioresponses() as m:
             m.get(

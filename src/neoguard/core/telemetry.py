@@ -106,35 +106,103 @@ class Histogram:
             return result
 
 
+class _NoOpCounter:
+    """Counter that discards all writes."""
+    __slots__ = ()
+
+    def inc(self, value: float = 1.0) -> None:
+        pass
+
+    def get(self) -> float:
+        return 0.0
+
+    def reset(self) -> float:
+        return 0.0
+
+
+class _NoOpGauge:
+    """Gauge that discards all writes."""
+    __slots__ = ()
+
+    def set(self, value: float) -> None:
+        pass
+
+    def inc(self, value: float = 1.0) -> None:
+        pass
+
+    def dec(self, value: float = 1.0) -> None:
+        pass
+
+    def get(self) -> float:
+        return 0.0
+
+
+class _NoOpHistogram:
+    """Histogram that discards all observations."""
+    __slots__ = ()
+
+    def observe(self, value: float) -> None:
+        pass
+
+    def percentiles(self, quantiles: list[float] | None = None) -> dict[float, float]:
+        return {}
+
+    def count(self) -> int:
+        return 0
+
+    def sum(self) -> float:
+        return 0.0
+
+    def reset(self) -> dict:
+        return {"count": 0, "sum": 0.0, "p50": 0.0, "p95": 0.0, "p99": 0.0}
+
+
+_DEFAULT_MAX_METRICS = 10000
+
+
 class MetricsRegistry:
 
-    def __init__(self) -> None:
+    def __init__(self, max_metrics: int = _DEFAULT_MAX_METRICS) -> None:
         self._counters: dict[tuple[str, frozenset], Counter] = {}
         self._gauges: dict[tuple[str, frozenset], Gauge] = {}
         self._histograms: dict[tuple[str, frozenset], Histogram] = {}
         self._lock = threading.Lock()
+        self._max_metrics = max_metrics
+        self._cap_rejections: int = 0
 
-    def counter(self, name: str, tags: dict[str, str] | None = None) -> Counter:
+    def _total_series(self) -> int:
+        return len(self._counters) + len(self._gauges) + len(self._histograms)
+
+    def counter(self, name: str, tags: dict[str, str] | None = None) -> "Counter | _NoOpCounter":
         key = (name, frozenset((tags or {}).items()))
         if key not in self._counters:
             with self._lock:
                 if key not in self._counters:
+                    if self._total_series() >= self._max_metrics:
+                        self._cap_rejections += 1
+                        return _NoOpCounter()
                     self._counters[key] = Counter()
         return self._counters[key]
 
-    def gauge(self, name: str, tags: dict[str, str] | None = None) -> Gauge:
+    def gauge(self, name: str, tags: dict[str, str] | None = None) -> "Gauge | _NoOpGauge":
         key = (name, frozenset((tags or {}).items()))
         if key not in self._gauges:
             with self._lock:
                 if key not in self._gauges:
+                    if self._total_series() >= self._max_metrics:
+                        self._cap_rejections += 1
+                        return _NoOpGauge()
                     self._gauges[key] = Gauge()
         return self._gauges[key]
 
-    def histogram(self, name: str, tags: dict[str, str] | None = None) -> Histogram:
+    def histogram(self, name: str, tags: dict[str, str] | None = None) -> "Histogram | _NoOpHistogram":
         key = (name, frozenset((tags or {}).items()))
         if key not in self._histograms:
             with self._lock:
                 if key not in self._histograms:
+                    if self._total_series() >= self._max_metrics:
+                        self._cap_rejections += 1
+                        return _NoOpHistogram()
                     self._histograms[key] = Histogram()
         return self._histograms[key]
 

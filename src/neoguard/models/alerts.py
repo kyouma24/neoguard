@@ -62,7 +62,7 @@ class SilenceCreate(BaseModel):
     matchers: dict[str, str] = Field(default_factory=dict)
     starts_at: datetime
     ends_at: datetime
-    timezone: str = "Asia/Kolkata"
+    timezone: str = "UTC"
     recurring: bool = False
     recurrence_days: list[SilenceScheduleDay] = Field(default_factory=list)
     recurrence_start_time: str | None = None
@@ -117,6 +117,10 @@ class Silence(BaseModel):
     updated_at: datetime
 
 
+class NotificationConfig(BaseModel):
+    channel_ids: list[str] = Field(default_factory=list)
+
+
 class AlertRuleCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     description: str = ""
@@ -127,7 +131,7 @@ class AlertRuleCreate(BaseModel):
     duration_sec: int = Field(default=60, ge=10, le=3600)
     interval_sec: int = Field(default=30, ge=10, le=600)
     severity: AlertSeverity = AlertSeverity.P3
-    notification: dict = Field(default_factory=dict)
+    notification: NotificationConfig = Field(default_factory=NotificationConfig)
     aggregation: AlertAggregation = AlertAggregation.AVG
     cooldown_sec: int = Field(default=300, ge=0, le=86400)
     nodata_action: NoDataAction = NoDataAction.OK
@@ -144,7 +148,7 @@ class AlertRuleUpdate(BaseModel):
     interval_sec: int | None = Field(default=None, ge=10, le=600)
     severity: AlertSeverity | None = None
     enabled: bool | None = None
-    notification: dict | None = None
+    notification: NotificationConfig | None = None
     aggregation: AlertAggregation | None = None
     cooldown_sec: int | None = Field(default=None, ge=0, le=86400)
     nodata_action: NoDataAction | None = None
@@ -163,7 +167,7 @@ class AlertRule(BaseModel):
     interval_sec: int
     severity: AlertSeverity
     enabled: bool
-    notification: dict
+    notification: NotificationConfig
     aggregation: AlertAggregation
     cooldown_sec: int
     nodata_action: NoDataAction
@@ -207,3 +211,4 @@ class AlertPreviewResult(BaseModel):
     current_value: float | None
     datapoints: int
     simulated_events: list[dict]
+    truncated: bool = False

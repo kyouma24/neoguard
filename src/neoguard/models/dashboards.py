@@ -165,6 +165,19 @@ class Dashboard(BaseModel):
     updated_at: datetime
 
 
+class DashboardSummary(BaseModel):
+    id: str
+    tenant_id: str
+    name: str
+    description: str
+    panel_count: int
+    tags: list[str] = Field(default_factory=list)
+    layout_version: int = 1
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class DashboardTag(BaseModel):
     tenant_id: str
     dashboard_id: str

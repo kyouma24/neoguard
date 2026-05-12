@@ -83,7 +83,7 @@ async def _discover_vms(sub: AzureSubscription, region: str, tenant_id: str) -> 
         os_profile = vm.os_profile
         net_interfaces = vm.network_profile.network_interfaces if vm.network_profile else []
 
-        status = ResourceStatus.ACTIVE
+        status = ResourceStatus.UNKNOWN
         try:
             instance_view = await asyncio.to_thread(
                 client.virtual_machines.instance_view,

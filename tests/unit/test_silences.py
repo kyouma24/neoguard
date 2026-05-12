@@ -272,8 +272,8 @@ class TestIsRecurringActive:
 
     def test_invalid_timezone_falls_back(self):
         row = self._make_row(tz="Invalid/Zone")
-        ist = timezone(timedelta(hours=5, minutes=30))
-        now = datetime(2026, 4, 29, 12, 0, tzinfo=ist).astimezone(UTC)
+        # Falls back to UTC now (not Asia/Kolkata), so use UTC-active time
+        now = datetime(2026, 4, 29, 12, 0, tzinfo=UTC)
         assert _is_recurring_active(now, row) is True
 
     def test_weekend_days(self):
@@ -300,11 +300,10 @@ class TestIsRecurringActive:
         row = self._make_row(start="09:00", end="17:00")
         assert _is_recurring_active(now, row) is True
 
-    def test_empty_timezone_falls_back_to_ist(self):
+    def test_empty_timezone_falls_back_to_utc(self):
         row = self._make_row(tz="")
-        ist = timezone(timedelta(hours=5, minutes=30))
-        now = datetime(2026, 4, 29, 12, 0, tzinfo=ist).astimezone(UTC)
-        # empty tz -> fallback to Asia/Kolkata -> still Wednesday -> active
+        # Falls back to UTC now, use a UTC-active time on a weekday
+        now = datetime(2026, 4, 29, 12, 0, tzinfo=UTC)
         assert _is_recurring_active(now, row) is True
 
     def test_utc_timezone_different_day(self):
@@ -677,14 +676,14 @@ class TestSilenceCreateValidation:
         assert s.rule_ids == ["rule-1"]
         assert s.matchers == {"env": "prod"}
 
-    def test_default_timezone_is_ist(self):
+    def test_default_timezone_is_utc(self):
         s = SilenceCreate(
             name="Test",
             rule_ids=["rule-1"],
             starts_at=datetime.now(UTC),
             ends_at=datetime.now(UTC) + timedelta(hours=2),
         )
-        assert s.timezone == "Asia/Kolkata"
+        assert s.timezone == "UTC"
 
     def test_custom_timezone(self):
         s = SilenceCreate(

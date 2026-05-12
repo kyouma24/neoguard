@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 import orjson
@@ -5,6 +6,8 @@ from ulid import ULID
 
 from neoguard.db.timescale.connection import get_pool
 from neoguard.models.alerts import Silence, SilenceCreate, SilenceUpdate
+
+log = logging.getLogger(__name__)
 
 
 async def create_silence(tenant_id: str, data: SilenceCreate, created_by: str = "") -> Silence:
@@ -175,11 +178,12 @@ def _is_recurring_active(now: datetime, row: dict) -> bool:
     """Check if a recurring silence is active right now."""
     import zoneinfo
 
-    tz_name = row["timezone"] or "Asia/Kolkata"
+    tz_name = row["timezone"] or "UTC"
     try:
         tz = zoneinfo.ZoneInfo(tz_name)
     except (KeyError, zoneinfo.ZoneInfoNotFoundError):
-        tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+        log.warning("Invalid timezone %r in silence, falling back to UTC", tz_name)
+        tz = zoneinfo.ZoneInfo("UTC")
 
     local_now = now.astimezone(tz)
     day_abbr = local_now.strftime("%a").lower()[:3]

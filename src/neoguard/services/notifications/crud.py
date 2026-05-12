@@ -53,13 +53,14 @@ async def list_channels(
         if tenant_id:
             rows = await conn.fetch(
                 "SELECT * FROM notification_channels WHERE tenant_id = $1"
-                f" ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}",
-                tenant_id,
+                " ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                tenant_id, limit, offset,
             )
         else:
             rows = await conn.fetch(
                 "SELECT * FROM notification_channels"
-                f" ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}",
+                " ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                limit, offset,
             )
     return [_row_to_channel(r) for r in rows]
 

@@ -23,15 +23,19 @@ from datetime import UTC, datetime
 
 import orjson
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from neoguard.api.deps import get_tenant_id, require_scope
+from neoguard.core.config import settings
 from neoguard.core.logging import log
 
 router = APIRouter(prefix="/api/v1/query", tags=["sse"])
 
-HEARTBEAT_INTERVAL = 15  # seconds
-MAX_DURATION = 30 * 60  # 30 minutes
+
+# COLL-005: connection caps to prevent DoS via unbounded SSE coroutines
+_active_sse_connections: int = 0
+_tenant_sse_connections: dict[str, int] = {}
+_sse_connections_rejected: int = 0
 
 
 def format_sse(data: dict, event: str | None = None) -> str:
@@ -51,14 +55,14 @@ def format_sse(data: dict, event: str | None = None) -> str:
 @router.get(
     "/stream",
     dependencies=[Depends(require_scope("read"))],
-    response_class=StreamingResponse,
+    response_model=None,
     summary="SSE stream for live dashboard updates",
 )
 async def query_stream(
     request: Request,
     dashboard_id: str = Query(..., min_length=1, max_length=200),
     tenant_id: str | None = Depends(get_tenant_id),
-) -> StreamingResponse:
+):
     """SSE endpoint for live dashboard updates.
 
     Opens a long-lived ``text/event-stream`` connection that emits:
@@ -71,6 +75,27 @@ async def query_stream(
     Auth is via session cookie — ``EventSource`` must use
     ``withCredentials: true``.
     """
+    global _active_sse_connections, _sse_connections_rejected
+
+    # COLL-005: enforce connection caps
+    effective_tenant = tenant_id or "anonymous"
+    if _active_sse_connections >= settings.sse_max_connections_global:
+        _sse_connections_rejected += 1
+        return JSONResponse(
+            status_code=503,
+            content={"error": "max SSE connections reached", "limit": "global"},
+        )
+    tenant_count = _tenant_sse_connections.get(effective_tenant, 0)
+    if tenant_count >= settings.sse_max_connections_per_tenant:
+        _sse_connections_rejected += 1
+        return JSONResponse(
+            status_code=503,
+            content={"error": "max SSE connections reached", "limit": "per_tenant"},
+        )
+
+    _active_sse_connections += 1
+    _tenant_sse_connections[effective_tenant] = tenant_count + 1
+
     await log.ainfo(
         "sse_stream_open",
         dashboard_id=dashboard_id,
@@ -79,19 +104,20 @@ async def query_stream(
     )
 
     async def event_generator():
-        # 1. Connection confirmation
-        yield format_sse({
-            "type": "connected",
-            "dashboard_id": dashboard_id,
-            "ts": int(datetime.now(tz=UTC).timestamp()),
-        })
-
-        start_time = asyncio.get_event_loop().time()
-
+        global _active_sse_connections
         try:
+            # 1. Connection confirmation
+            yield format_sse({
+                "type": "connected",
+                "dashboard_id": dashboard_id,
+                "ts": int(datetime.now(tz=UTC).timestamp()),
+            })
+
+            start_time = asyncio.get_event_loop().time()
+
             while True:
                 elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed > MAX_DURATION:
+                if elapsed > settings.sse_max_duration_sec:
                     yield format_sse({
                         "type": "close",
                         "reason": "max_duration",
@@ -109,10 +135,16 @@ async def query_stream(
                     "ts": int(datetime.now(tz=UTC).timestamp()),
                 })
 
-                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                await asyncio.sleep(settings.sse_heartbeat_sec)
         except asyncio.CancelledError:
             pass
         finally:
+            _active_sse_connections -= 1
+            current = _tenant_sse_connections.get(effective_tenant, 1) - 1
+            if current <= 0:
+                _tenant_sse_connections.pop(effective_tenant, None)
+            else:
+                _tenant_sse_connections[effective_tenant] = current
             await log.ainfo(
                 "sse_stream_close",
                 dashboard_id=dashboard_id,

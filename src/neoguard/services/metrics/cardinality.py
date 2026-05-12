@@ -82,8 +82,26 @@ async def observe_cardinality(tenant_id: str) -> list[dict]:
         )
 
         observations = []
-        for row in rows:
-            await conn.execute(
+        if rows:
+            # COLL-007: batch all upserts in a single executemany call.
+            # Unit test validates application-level batching (1 call not N).
+            # Actual network round-trip reduction depends on asyncpg pipeline mode (PG14+).
+            params = []
+            for row in rows:
+                params.append((
+                    tenant_id,
+                    row["tag_key"],
+                    row["distinct_count"],
+                    window_start,
+                    now,
+                    row["sample_size"],
+                ))
+                observations.append({
+                    "tag_key": row["tag_key"],
+                    "distinct_count": row["distinct_count"],
+                    "sample_size": row["sample_size"],
+                })
+            await conn.executemany(
                 """
                 INSERT INTO tag_cardinality_observations
                     (tenant_id, tag_key, observed_distinct_count,
@@ -94,18 +112,8 @@ async def observe_cardinality(tenant_id: str) -> list[dict]:
                     observed_distinct_count = EXCLUDED.observed_distinct_count,
                     sample_size = EXCLUDED.sample_size
                 """,
-                tenant_id,
-                row["tag_key"],
-                row["distinct_count"],
-                window_start,
-                now,
-                row["sample_size"],
+                params,
             )
-            observations.append({
-                "tag_key": row["tag_key"],
-                "distinct_count": row["distinct_count"],
-                "sample_size": row["sample_size"],
-            })
 
     logger.info(
         "cardinality_observation_complete",

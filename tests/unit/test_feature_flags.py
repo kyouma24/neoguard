@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from neoguard.services import feature_flags as _ff_module
 from neoguard.services.feature_flags import (
     DEFAULTS,
     REDIS_KEY,
@@ -13,6 +14,13 @@ from neoguard.services.feature_flags import (
     is_enabled,
     set_flag,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_flag_cache():
+    _ff_module._flag_cache.clear()
+    yield
+    _ff_module._flag_cache.clear()
 
 
 class TestIsEnabled:
@@ -50,12 +58,13 @@ class TestIsEnabled:
             result = await is_enabled("metrics.cardinality_denylist")
         assert result is False
 
-    async def test_unknown_flag_defaults_to_true(self):
+    async def test_unknown_flag_defaults_to_false(self):
+        """Unknown flags are disabled by default (fail-closed posture)."""
         mock_redis = AsyncMock()
         mock_redis.hget.return_value = None
         with patch("neoguard.db.redis.connection.get_redis", return_value=mock_redis):
             result = await is_enabled("unknown.flag")
-        assert result is True
+        assert result is False
 
 
 class TestSetFlag:

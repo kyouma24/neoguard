@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     alert_state_persistence: bool = True
     alert_flap_threshold: int = 6
     alert_flap_window_sec: int = 3600
+    alert_max_rules_per_cycle: int = 1000
+    alert_rule_eval_timeout_sec: int = 30
+    alert_strict_duration_check: bool = False
 
     # TODO(production): Single Redis instance; needs Sentinel/Cluster for HA
     # Current: localhost single-instance, no failover
@@ -57,6 +60,19 @@ class Settings(BaseSettings):
     auth_login_rate_window: int = 900       # 15 minutes in seconds
     auth_signup_rate_limit: int = 10        # max attempts
     auth_signup_rate_window: int = 3600     # 1 hour in seconds
+
+    aws_session_ttl: int = 3300  # 55 min — 5-minute margin before 1hr STS expiry
+
+    sse_max_connections_global: int = 100
+    sse_max_connections_per_tenant: int = 20
+    sse_heartbeat_sec: int = 15
+    sse_max_duration_sec: int = 1800
+
+    metric_flush_max_retries: int = 3
+    metric_flush_retry_base_sec: float = 1.0
+    metric_buffer_max_size: int = 50000
+
+    discovery_max_concurrency: int = 5
 
     telemetry_enabled: bool = True
     telemetry_interval_sec: int = 15

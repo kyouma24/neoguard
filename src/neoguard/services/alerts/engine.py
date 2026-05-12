@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
+import math
 import re
 import time as _time
+from collections import deque
 from datetime import UTC, datetime, timedelta
 
 import orjson
@@ -12,7 +14,7 @@ from neoguard.core.logging import log
 from neoguard.db.timescale.connection import get_pool
 from neoguard.models.alerts import AlertCondition
 from neoguard.models.notifications import AlertPayload
-from neoguard.services.alerts.silences import is_rule_silenced
+from neoguard.services.alerts.silences import _is_recurring_active, _matches_rule, _parse_json
 from neoguard.services.notifications.dispatcher import (
     dispatch_firing,
     dispatch_resolved,
@@ -64,6 +66,9 @@ class AlertEngine:
         self._notifications_sent: int = 0
         self._notifications_failed: int = 0
         self._silenced_count: int = 0
+        self._eval_timeouts: int = 0
+        self._last_rule_eval_duration_ms: float = 0.0
+        self._silence_cache_size: int = 0
 
     async def start(self) -> None:
         if settings.alert_state_persistence:
@@ -101,6 +106,9 @@ class AlertEngine:
             "silenced": self._silenced_count,
             "flapping_rules": flapping_rules,
             "nodata_rules": nodata_rules,
+            "eval_timeouts": self._eval_timeouts,
+            "last_rule_eval_duration_ms": round(self._last_rule_eval_duration_ms, 1),
+            "silence_cache_size": self._silence_cache_size,
         }
 
     # ------------------------------------------------------------------
@@ -182,11 +190,31 @@ class AlertEngine:
         async with pool.acquire() as conn:
             rules = await conn.fetch(
                 "SELECT * FROM alert_rules WHERE enabled = TRUE"
+                " ORDER BY tenant_id, created_at LIMIT $1",
+                settings.alert_max_rules_per_cycle,
             )
+
+        # ALERT-005: Batch-fetch all active silences once per cycle
+        now = datetime.now(UTC)
+        tenant_ids = list({r["tenant_id"] for r in rules})
+        silence_cache: list[dict] = []
+        if tenant_ids:
+            async with pool.acquire() as conn:
+                silence_cache = await conn.fetch(
+                    """
+                    SELECT tenant_id, rule_ids, matchers, recurring,
+                           starts_at, ends_at, timezone,
+                           recurrence_days, recurrence_start_time, recurrence_end_time
+                    FROM alert_silences
+                    WHERE tenant_id = ANY($1) AND enabled = TRUE
+                    """,
+                    tenant_ids,
+                )
+        self._silence_cache_size = len(silence_cache)
 
         self._rules_evaluated += len(rules)
         for rule in rules:
-            await self._evaluate_rule(rule)
+            await self._evaluate_rule(rule, silence_cache=silence_cache)
 
     # ------------------------------------------------------------------
     # Metric querying with aggregation choice
@@ -259,56 +287,78 @@ class AlertEngine:
     # Per-rule evaluation
     # ------------------------------------------------------------------
 
-    async def _evaluate_rule(self, rule: dict) -> None:
+    async def _evaluate_rule(self, rule: dict, *, silence_cache: list | None = None) -> None:
         rule_id = rule["id"]
+        tenant_id = rule["tenant_id"]
+        state_key = f"{tenant_id}:{rule_id}"
         now = datetime.now(UTC)
 
         raw_tags = rule["tags_filter"]
         rule_tags = orjson.loads(raw_tags) if isinstance(raw_tags, str) else raw_tags
 
+        # ALERT-005: Check silence from batch cache instead of per-rule DB query
         try:
-            silenced = await is_rule_silenced(rule_id, rule["tenant_id"], rule_tags)
+            silenced = self._check_silence_cache(
+                rule_id, tenant_id, rule_tags, silence_cache or [], now,
+            )
         except Exception:
             silenced = False
 
         if silenced:
             self._silenced_count += 1
-            if self._rule_states.get(rule_id) and self._rule_states[rule_id].status == "firing":
-                pass  # keep firing state, just suppress notifications
+            if self._rule_states.get(state_key) and self._rule_states[state_key].status == "firing":
+                pass
             return
 
+        # ALERT-003: Wrap DB query in timeout, close conn on timeout
+        rule_start = _time.monotonic()
         pool = await get_pool()
-        async with pool.acquire() as conn:
+        conn = await pool.acquire()
+        try:
             lookback = timedelta(seconds=rule["duration_sec"])
 
             tag_conditions = ""
-            params: list = [rule["tenant_id"], rule["metric_name"], now - lookback, now]
+            params: list = [tenant_id, rule["metric_name"], now - lookback, now]
             for k, v in rule_tags.items():
                 if not _SAFE_TAG_KEY.match(k) or len(k) > 128:
+                    await log.awarn(
+                        "Invalid tag key skipped in alert rule — query broadened",
+                        rule_id=rule_id, invalid_tag_key=k[:64],
+                    )
                     continue
                 idx = len(params) + 1
                 tag_conditions += f" AND tags->>({f'${idx}'}) = ${idx + 1}"
                 params.extend([k, v])
 
-            current_value, cnt = await self._query_metric_value(conn, rule, tag_conditions, params)
+            current_value, cnt = await asyncio.wait_for(
+                self._query_metric_value(conn, rule, tag_conditions, params),
+                timeout=settings.alert_rule_eval_timeout_sec,
+            )
+        except asyncio.TimeoutError:
+            self._eval_timeouts += 1
+            await conn.close()
+            await log.awarn("Rule eval timeout", rule_id=rule_id, tenant_id=tenant_id)
+            return
+        else:
+            await pool.release(conn)
+        finally:
+            self._last_rule_eval_duration_ms = (_time.monotonic() - rule_start) * 1000
 
         # ---- No-data handling ----
         if cnt == 0 or current_value is None:
             nodata_action = rule.get("nodata_action", "ok")
             if nodata_action == "keep":
-                # Do nothing — preserve current state
                 return
             elif nodata_action == "alert":
-                await self._transition(rule_id, "nodata", now)
+                await self._transition(state_key, "nodata", now)
                 await self._fire_nodata_alert(rule)
                 return
             else:
-                # "ok" — default / original behaviour
-                await self._transition(rule_id, "ok", now)
+                await self._transition(state_key, "ok", now)
                 return
 
         # ---- Update last_value on the in-memory state ----
-        state = self._rule_states.get(rule_id)
+        state = self._rule_states.get(state_key)
         if state:
             state.last_value = current_value
 
@@ -319,21 +369,63 @@ class AlertEngine:
 
         if breached:
             if state is None or state.status in ("ok", "nodata"):
-                await self._transition(rule_id, "pending", now, last_value=current_value)
-            elif state.status == "pending" and (
-                (now - state.entered_at).total_seconds() >= rule["duration_sec"]
-            ):
-                await self._transition(rule_id, "firing", now, last_value=current_value)
-                await self._fire_alert(rule, current_value)
+                await self._transition(state_key, "pending", now, last_value=current_value)
+            elif state.status == "pending":
+                # Increment breach_eval_count for strict mode
+                state.breach_eval_count += 1
+
+                elapsed = (now - state.entered_at).total_seconds()
+                if elapsed >= rule["duration_sec"]:
+                    # ALERT-006: Strict duration check (feature flag)
+                    if settings.alert_strict_duration_check:
+                        required_evals = max(
+                            2, math.ceil(rule["duration_sec"] / settings.alert_eval_interval_sec),
+                        )
+                        if state.breach_eval_count < required_evals:
+                            return
+
+                    await self._transition(state_key, "firing", now, last_value=current_value)
+                    await self._fire_alert(rule, current_value)
             elif state.status == "firing":
-                # Still breached & already firing — check cooldown for re-fire
                 await self._maybe_refire(rule, current_value, now)
         else:
+            # Reset breach_eval_count on non-breach
+            if state and state.status == "pending":
+                state.breach_eval_count = 0
             if state and state.status == "firing":
-                await self._transition(rule_id, "resolved", now, last_value=current_value)
+                await self._transition(state_key, "resolved", now, last_value=current_value)
                 await self._resolve_alert(rule, current_value)
             else:
-                await self._transition(rule_id, "ok", now, last_value=current_value)
+                await self._transition(state_key, "ok", now, last_value=current_value)
+
+    def _check_silence_cache(
+        self,
+        rule_id: str,
+        tenant_id: str,
+        rule_tags: dict[str, str],
+        silence_cache: list,
+        now: datetime,
+    ) -> bool:
+        """Check if a rule is silenced using the pre-fetched cache."""
+        for row in silence_cache:
+            if row["tenant_id"] != tenant_id:
+                continue
+
+            rule_ids = _parse_json(row["rule_ids"])
+            matchers = _parse_json(row["matchers"])
+
+            if not _matches_rule(rule_id, rule_tags, rule_ids, matchers):
+                continue
+
+            if not row["recurring"]:
+                # ALERT-005: ends_at > now filter at read time
+                if row["starts_at"] <= now < row["ends_at"]:
+                    return True
+            else:
+                if _is_recurring_active(now, row):
+                    return True
+
+        return False
 
     # ------------------------------------------------------------------
     # State transitions + flapping detection
@@ -368,19 +460,14 @@ class AlertEngine:
             transition_count=old_transition_count + 1,
         )
 
-        # Flapping detection: check if transitions exceed threshold in the window
-        # We use transition_count as a rolling count; on each transition we check
-        # whether the count in the current window exceeds the flap threshold.
-        # Reset logic: if the previous state's entered_at is older than the flap
-        # window, reset the counter.
-        if current and (now - current.entered_at).total_seconds() > settings.alert_flap_window_sec:
-            # Outside the window — this is a fresh sequence
-            new_state.transition_count = 1
-            new_state.flapping = False
-        elif new_state.transition_count > settings.alert_flap_threshold:
-            new_state.flapping = True
-        else:
-            new_state.flapping = False
+        # Flapping detection: sliding window of transition timestamps
+        prev_times = current.transition_times if current else deque()
+        cutoff = now - timedelta(seconds=settings.alert_flap_window_sec)
+        new_times = deque(t for t in prev_times if t > cutoff)
+        new_times.append(now)
+        new_state.transition_times = new_times
+        new_state.transition_count = len(new_times)
+        new_state.flapping = len(new_times) > settings.alert_flap_threshold
 
         self._rule_states[rule_id] = new_state
         await self._persist_state(rule_id, new_state)
@@ -391,34 +478,44 @@ class AlertEngine:
 
     async def _maybe_refire(self, rule: dict, value: float, now: datetime) -> None:
         """While in FIRING state and still breached, re-fire only if cooldown elapsed."""
-        rule_id = rule["id"]
-        state = self._rule_states.get(rule_id)
+        state_key = f"{rule['tenant_id']}:{rule['id']}"
+        state = self._rule_states.get(state_key)
         if not state:
             return
 
         cooldown_sec = rule.get("cooldown_sec", settings.alert_default_cooldown_sec)
         if state.last_fired_at and (now - state.last_fired_at).total_seconds() < cooldown_sec:
-            # Still within cooldown — don't re-fire
             return
 
-        # Cooldown elapsed — fire again
         await self._fire_alert(rule, value)
 
     # ------------------------------------------------------------------
     # Fire / Resolve / No-data alerts
     # ------------------------------------------------------------------
 
-    def _is_flapping(self, rule_id: str) -> bool:
-        state = self._rule_states.get(rule_id)
+    def _is_flapping(self, state_key: str) -> bool:
+        state = self._rule_states.get(state_key)
         return bool(state and state.flapping)
 
     async def _fire_alert(self, rule: dict, value: float) -> None:
-        event_id = str(ULID())
-        rule_id = rule["id"]
         message = (
             f"Alert '{rule['name']}': {rule['metric_name']}"
             f" {rule['condition']} {rule['threshold']} (current: {value:.2f})"
         )
+        await self._fire_event(rule, value=value, status="firing", message=message)
+
+    async def _fire_nodata_alert(self, rule: dict) -> None:
+        """Fire a special no-data alert event."""
+        message = (
+            f"Alert '{rule['name']}': no data received for metric"
+            f" '{rule['metric_name']}' in the last {rule['duration_sec']}s"
+        )
+        await self._fire_event(rule, value=0.0, status="nodata", message=message)
+
+    async def _fire_event(self, rule: dict, *, value: float, status: str, message: str) -> None:
+        event_id = str(ULID())
+        rule_id = rule["id"]
+        state_key = f"{rule['tenant_id']}:{rule_id}"
         now = datetime.now(UTC)
 
         pool = await get_pool()
@@ -428,30 +525,30 @@ class AlertEngine:
                 INSERT INTO alert_events
                     (id, tenant_id, rule_id, rule_name, severity,
                      status, value, threshold, message, fired_at)
-                VALUES ($1, $2, $3, $4, $5, 'firing', $6, $7, $8, $9)
+                VALUES ($1, $2, $3, $4, $5, $10, $6, $7, $8, $9)
                 """,
                 event_id, rule["tenant_id"], rule_id,
                 rule["name"], rule["severity"],
                 value, float(rule["threshold"]), message, now,
+                status,
             )
-        await log.awarn(
-            "Alert FIRING",
-            rule_id=rule_id,
-            rule_name=rule["name"],
-            value=value,
-            threshold=float(rule["threshold"]),
-        )
 
-        # Update last_fired_at in state
-        state = self._rule_states.get(rule_id)
+        log_label = "Alert FIRING" if status == "firing" else "Alert NODATA"
+        log_kwargs: dict = {"rule_id": rule_id, "rule_name": rule["name"]}
+        if status == "firing":
+            log_kwargs["value"] = value
+            log_kwargs["threshold"] = float(rule["threshold"])
+        await log.awarn(log_label, **log_kwargs)
+
+        state = self._rule_states.get(state_key)
         if state:
             state.last_fired_at = now
-            await self._persist_state(rule_id, state)
+            await self._persist_state(state_key, state)
 
-        # Flapping check — suppress notifications but keep evaluating
-        if self._is_flapping(rule_id):
+        if self._is_flapping(state_key):
+            flap_label = f"Alert flapping{' (nodata)' if status == 'nodata' else ''} — notification suppressed"
             await log.awarn(
-                "Alert flapping — notification suppressed",
+                flap_label,
                 rule_id=rule_id,
                 rule_name=rule["name"],
                 transition_count=state.transition_count if state else 0,
@@ -474,7 +571,7 @@ class AlertEngine:
             threshold=float(rule["threshold"]),
             current_value=value,
             severity=rule["severity"],
-            status="firing",
+            status=status,
             message=message,
             tenant_id=rule["tenant_id"],
             fired_at=now,
@@ -485,84 +582,12 @@ class AlertEngine:
             self._notifications_sent += 1
         except Exception as e:
             self._notifications_failed += 1
-            await log.aerror("Notification dispatch failed", error=str(e))
-
-    async def _fire_nodata_alert(self, rule: dict) -> None:
-        """Fire a special no-data alert event."""
-        event_id = str(ULID())
-        rule_id = rule["id"]
-        message = (
-            f"Alert '{rule['name']}': no data received for metric"
-            f" '{rule['metric_name']}' in the last {rule['duration_sec']}s"
-        )
-        now = datetime.now(UTC)
-
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO alert_events
-                    (id, tenant_id, rule_id, rule_name, severity,
-                     status, value, threshold, message, fired_at)
-                VALUES ($1, $2, $3, $4, $5, 'nodata', $6, $7, $8, $9)
-                """,
-                event_id, rule["tenant_id"], rule_id,
-                rule["name"], rule["severity"],
-                0.0, float(rule["threshold"]), message, now,
-            )
-        await log.awarn(
-            "Alert NODATA",
-            rule_id=rule_id,
-            rule_name=rule["name"],
-        )
-
-        # Update last_fired_at in state
-        state = self._rule_states.get(rule_id)
-        if state:
-            state.last_fired_at = now
-            await self._persist_state(rule_id, state)
-
-        # Flapping check
-        if self._is_flapping(rule_id):
-            await log.awarn(
-                "Alert flapping (nodata) — notification suppressed",
-                rule_id=rule_id,
-                rule_name=rule["name"],
-                transition_count=state.transition_count if state else 0,
-            )
-            return
-
-        notif = rule["notification"]
-        if isinstance(notif, str):
-            notif = orjson.loads(notif) if notif else {}
-
-        raw_tags = rule["tags_filter"]
-        tags_filter = orjson.loads(raw_tags) if isinstance(raw_tags, str) else raw_tags
-
-        payload = AlertPayload(
-            event_id=event_id,
-            rule_id=rule_id,
-            rule_name=rule["name"],
-            metric_name=rule["metric_name"],
-            condition=rule["condition"],
-            threshold=float(rule["threshold"]),
-            current_value=0.0,
-            severity=rule["severity"],
-            status="nodata",
-            message=message,
-            tenant_id=rule["tenant_id"],
-            fired_at=now,
-            tags_filter=tags_filter,
-        )
-        try:
-            await dispatch_firing(payload, notif)
-            self._notifications_sent += 1
-        except Exception as e:
-            self._notifications_failed += 1
-            await log.aerror("Nodata notification dispatch failed", error=str(e))
+            err_label = "Notification dispatch failed" if status == "firing" else "Nodata notification dispatch failed"
+            await log.aerror(err_label, error=str(e))
 
     async def _resolve_alert(self, rule: dict, value: float) -> None:
         now = datetime.now(UTC)
+        state_key = f"{rule['tenant_id']}:{rule['id']}"
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -581,9 +606,8 @@ class AlertEngine:
             value=value,
         )
 
-        # Flapping check — suppress notifications
-        if self._is_flapping(rule["id"]):
-            state = self._rule_states.get(rule["id"])
+        if self._is_flapping(state_key):
+            state = self._rule_states.get(state_key)
             await log.awarn(
                 "Alert flapping — resolve notification suppressed",
                 rule_id=rule["id"],
@@ -624,7 +648,9 @@ class AlertEngine:
 
 
 class _RuleState:
-    __slots__ = ("status", "entered_at", "last_value", "last_fired_at", "transition_count", "flapping")
+    # breach_eval_count: in-memory only, NOT persisted to alert_rule_states.
+    # On restart during sustained breach, resets to 0 — rule needs required_evals more cycles before firing.
+    __slots__ = ("status", "entered_at", "last_value", "last_fired_at", "transition_count", "flapping", "breach_eval_count", "transition_times")
 
     def __init__(
         self,
@@ -634,6 +660,8 @@ class _RuleState:
         last_fired_at: datetime | None = None,
         transition_count: int = 0,
         flapping: bool = False,
+        breach_eval_count: int = 0,
+        transition_times: deque | None = None,
     ) -> None:
         self.status = status
         self.entered_at = entered_at
@@ -641,6 +669,8 @@ class _RuleState:
         self.last_fired_at = last_fired_at
         self.transition_count = transition_count
         self.flapping = flapping
+        self.breach_eval_count = breach_eval_count
+        self.transition_times = transition_times if transition_times is not None else deque()
 
 
 # TODO(production): Single-worker singleton; needs distributed leader election for multi-worker

@@ -3,6 +3,8 @@
 import asyncio
 import contextlib
 
+from botocore.exceptions import ClientError, EndpointConnectionError
+
 from neoguard.core.logging import log
 from neoguard.models.aws import AWSAccount
 from neoguard.models.resources import (
@@ -14,6 +16,44 @@ from neoguard.models.resources import (
 from neoguard.services.aws.credentials import get_client
 from neoguard.services.resources.crud import upsert_resource
 
+_PAGINATION_CONFIG = {"MaxItems": 5000}
+_PAGINATION_CAP = _PAGINATION_CONFIG["MaxItems"]
+_PAGINATION_WARN_THRESHOLD = int(_PAGINATION_CAP * 0.9)  # 4500
+
+
+async def _warn_if_near_cap(
+    count: int, resource_type: str, account_id: str, region: str, tenant_id: str,
+) -> None:
+    """Heuristic: warns when count approaches MaxItems cap.
+
+    Not proof of truncation (boto3 returns whole pages, so exact count varies),
+    but a signal that the account may have more resources than we enumerate.
+    """
+    if count >= _PAGINATION_WARN_THRESHOLD:
+        await log.awarn(
+            "Discovery approaching pagination cap — resources may be incomplete",
+            resource_type=resource_type,
+            account_id=account_id,
+            region=region,
+            tenant_id=tenant_id,
+            count=count,
+            cap=_PAGINATION_CAP,
+        )
+
+
+def _classify_aws_error(e: Exception) -> tuple[str, str]:
+    """Classify an AWS exception into (error_class, error_code)."""
+    if isinstance(e, ClientError):
+        code = e.response.get("Error", {}).get("Code", "Unknown")
+        if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation"):
+            return "auth", code
+        if code in ("Throttling", "ThrottlingException", "RequestLimitExceeded", "TooManyRequestsException"):
+            return "throttle", code
+        return "api_error", code
+    if isinstance(e, EndpointConnectionError):
+        return "connectivity", "EndpointConnectionError"
+    return "unknown", type(e).__name__
+
 
 async def discover_all(account: AWSAccount, region: str, tenant_id: str) -> dict:
     """Run all discovery functions for an account+region. Returns counts."""
@@ -22,8 +62,18 @@ async def discover_all(account: AWSAccount, region: str, tenant_id: str) -> dict
         try:
             count = await func(account, region, tenant_id)
             results[name] = count
+            await _warn_if_near_cap(count, name, account.account_id, region, tenant_id)
         except Exception as e:
-            await log.aerror("Discovery failed", service=name, region=region, error=str(e))
+            error_class, error_code = _classify_aws_error(e)
+            log_method = log.awarn if error_class == "throttle" else log.aerror
+            await log_method(
+                "Discovery failed",
+                service=name,
+                region=region,
+                error=str(e),
+                error_class=error_class,
+                error_code=error_code,
+            )
             results[name] = -1
     return results
 
@@ -43,7 +93,7 @@ async def _discover_ec2(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = ec2.get_paginator("describe_instances")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for reservation in page["Reservations"]:
             for inst in reservation["Instances"]:
@@ -127,7 +177,7 @@ async def _discover_ebs(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = ec2.get_paginator("describe_volumes")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for vol in page["Volumes"]:
             tags = _aws_tags_to_dict(vol.get("Tags"))
@@ -183,7 +233,7 @@ async def _discover_rds(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = rds.get_paginator("describe_db_instances")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for db in page["DBInstances"]:
             tags = _aws_tags_to_dict(db.get("TagList"))
@@ -271,7 +321,7 @@ async def _discover_lambda(account: AWSAccount, region: str, tenant_id: str) -> 
     paginator = lam.get_paginator("list_functions")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for fn in page["Functions"]:
             tags_resp = {}
@@ -334,7 +384,7 @@ async def _discover_alb(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = elb.get_paginator("describe_load_balancers")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for lb in page["LoadBalancers"]:
             lb_type = lb.get("Type", "application")
@@ -382,7 +432,7 @@ async def _discover_dynamodb(account: AWSAccount, region: str, tenant_id: str) -
     paginator = ddb.get_paginator("list_tables")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for table_name in page["TableNames"]:
             desc = (await asyncio.to_thread(ddb.describe_table, TableName=table_name))["Table"]
@@ -622,7 +672,7 @@ async def _discover_elasticache(
     paginator = ec.get_paginator("describe_cache_clusters")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate(ShowCacheNodeInfo=True)))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(ShowCacheNodeInfo=True, PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for cluster in page["CacheClusters"]:
             nodes = cluster.get("CacheNodes", [])
@@ -713,9 +763,6 @@ async def _discover_s3(account: AWSAccount, region: str, tenant_id: str) -> int:
     s3 = get_client(account, region, "s3")
     count = 0
 
-    if region != account.regions[0]:
-        return 0
-
     resp = await asyncio.to_thread(s3.list_buckets)
     for bucket in resp.get("Buckets", []):
         bucket_name = bucket["Name"]
@@ -798,7 +845,7 @@ async def _discover_sns(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = sns.get_paginator("list_topics")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for topic in page.get("Topics", []):
             arn = topic["TopicArn"]
@@ -861,7 +908,7 @@ async def _discover_cloudfront(
     paginator = cf.get_paginator("list_distributions")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         dist_list = page.get("DistributionList", {})
         for dist in dist_list.get("Items", []):
@@ -929,7 +976,7 @@ async def _discover_api_gateway(
     count = 0
 
     paginator = apigw.get_paginator("get_rest_apis")
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for api in page.get("items", []):
             endpoint_config = api.get("endpointConfiguration", {})
@@ -973,7 +1020,7 @@ async def _discover_kinesis(account: AWSAccount, region: str, tenant_id: str) ->
     paginator = kinesis.get_paginator("list_streams")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for stream_name in page.get("StreamNames", []):
             desc = {}
@@ -1035,7 +1082,7 @@ async def _discover_redshift(account: AWSAccount, region: str, tenant_id: str) -
     paginator = rs.get_paginator("describe_clusters")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for cluster in page.get("Clusters", []):
             cid = cluster["ClusterIdentifier"]
@@ -1191,7 +1238,7 @@ async def _discover_step_functions(
     paginator = sfn.get_paginator("list_state_machines")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for sm in page.get("stateMachines", []):
             sm_arn = sm["stateMachineArn"]
@@ -1246,7 +1293,7 @@ async def _discover_nat_gateway(
     paginator = ec2.get_paginator("describe_nat_gateways")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for ngw in page.get("NatGateways", []):
             tags = _aws_tags_to_dict(ngw.get("Tags"))
@@ -1304,7 +1351,7 @@ async def _discover_route53(account: AWSAccount, region: str, tenant_id: str) ->
     count = 0
 
     paginator = r53.get_paginator("list_hosted_zones")
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for zone in page.get("HostedZones", []):
             zone_id = zone["Id"].rsplit("/", 1)[-1]
@@ -1352,7 +1399,7 @@ async def _discover_efs(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = efs.get_paginator("describe_file_systems")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for fs in page.get("FileSystems", []):
             tags = _aws_tags_to_dict(fs.get("Tags"))
@@ -1439,7 +1486,7 @@ async def _discover_fsx(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = fsx.get_paginator("describe_file_systems")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for fs in page.get("FileSystems", []):
             tags = _aws_tags_to_dict(fs.get("Tags"))
@@ -1505,7 +1552,7 @@ async def _discover_elb(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = elb.get_paginator("describe_load_balancers")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for lb in page.get("LoadBalancerDescriptions", []):
             azs = lb.get("AvailabilityZones", [])
@@ -1567,7 +1614,7 @@ async def _discover_eks(account: AWSAccount, region: str, tenant_id: str) -> int
     paginator = eks.get_paginator("list_clusters")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for cluster_name in page.get("clusters", []):
             desc = {}
@@ -1656,7 +1703,7 @@ async def _discover_aurora(account: AWSAccount, region: str, tenant_id: str) -> 
     paginator = rds.get_paginator("describe_db_clusters")
     count = 0
 
-    pages = await asyncio.to_thread(lambda: list(paginator.paginate()))
+    pages = await asyncio.to_thread(lambda: list(paginator.paginate(PaginationConfig=_PAGINATION_CONFIG)))
     for page in pages:
         for cluster in page.get("DBClusters", []):
             cid = cluster["DBClusterIdentifier"]

@@ -17,6 +17,12 @@ class MetricBatchWriter:
 
     Uses COPY for maximum insert throughput. Flushes when the buffer hits
     batch_size OR flush_interval elapses — whichever comes first.
+
+    Retry semantics (COLL-004): on flush failure, retries up to max_retries
+    with exponential backoff. ACK-lost scenario: COPY may succeed server-side
+    while client sees failure — retry can create duplicate rows. COUNT/SUM
+    aggregations may over-count by ~0.1% under network failures. P2: add
+    batch_request_id column + ON CONFLICT for exactly-once semantics.
     """
 
     def __init__(self) -> None:
@@ -26,7 +32,11 @@ class MetricBatchWriter:
         self._running = False
         self._total_written = 0
         self._total_dropped = 0
+        self._total_rejected = 0
         self._flush_count = 0
+        self._flush_retries_total = 0
+        self._flush_retries_exhausted = 0
+        self._flush_retry_in_progress = False
         self._last_flush_duration_ms: float = 0.0
         self._last_flush_at: float = 0.0
 
@@ -49,6 +59,12 @@ class MetricBatchWriter:
                         total_dropped=self._total_dropped)
 
     async def write(self, tenant_id: str, points: list[MetricPoint]) -> int:
+        # Backpressure: reject writes only when flush is actively failing AND buffer is full
+        if (self._flush_retry_in_progress
+                and len(self._buffer) >= settings.metric_buffer_max_size):
+            self._total_rejected += len(points)
+            return 0
+
         now = datetime.now(UTC)
         rows = []
         for p in points:
@@ -84,19 +100,37 @@ class MetricBatchWriter:
             self._buffer = []
 
         flush_start = time.monotonic()
+        max_retries = settings.metric_flush_max_retries
+        base_delay = settings.metric_flush_retry_base_sec
+
         try:
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                await conn.copy_records_to_table(
-                    "metrics",
-                    records=batch,
-                    columns=["time", "tenant_id", "name", "tags", "value", "metric_type"],
-                )
-            self._total_written += len(batch)
-        except (asyncpg.PostgresError, OSError) as e:
-            self._total_dropped += len(batch)
-            await log.aerror("Metric flush failed", error=str(e), dropped=len(batch))
+            for attempt in range(max_retries):
+                try:
+                    pool = await get_pool()
+                    async with pool.acquire() as conn:
+                        await conn.copy_records_to_table(
+                            "metrics",
+                            records=batch,
+                            columns=["time", "tenant_id", "name", "tags", "value", "metric_type"],
+                        )
+                    self._total_written += len(batch)
+                    break
+                except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError) as e:
+                    if attempt < max_retries - 1:
+                        self._flush_retries_total += 1
+                        self._flush_retry_in_progress = True
+                        delay = base_delay * (2 ** attempt)
+                        await log.awarn("Metric flush retry",
+                                       attempt=attempt + 1, delay=delay, error=str(e))
+                        await asyncio.sleep(delay)
+                    else:
+                        self._flush_retries_total += 1
+                        self._flush_retries_exhausted += 1
+                        self._total_dropped += len(batch)
+                        await log.aerror("Metric flush failed after retries",
+                                        attempts=max_retries, error=str(e), dropped=len(batch))
         finally:
+            self._flush_retry_in_progress = False
             self._flush_count += 1
             self._last_flush_duration_ms = (time.monotonic() - flush_start) * 1000
             self._last_flush_at = time.monotonic()
@@ -107,7 +141,11 @@ class MetricBatchWriter:
             "buffer_size": len(self._buffer),
             "total_written": self._total_written,
             "total_dropped": self._total_dropped,
+            "total_rejected": self._total_rejected,
             "flush_count": self._flush_count,
+            "flush_retries_total": self._flush_retries_total,
+            "flush_retries_exhausted": self._flush_retries_exhausted,
+            "flush_retry_in_progress": self._flush_retry_in_progress,
             "last_flush_duration_ms": round(self._last_flush_duration_ms, 2),
             "last_flush_at": self._last_flush_at,
         }
