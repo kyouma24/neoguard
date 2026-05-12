@@ -156,7 +156,12 @@ class TestListAnnotations:
         sql = mock_conn.fetch.call_args[0][0]
         assert "tenant_id = $1" in sql
 
-    async def test_no_tenant_filter_when_none(self):
+    async def test_service_omits_tenant_filter_when_none(self):
+        """Service layer handles tenant_id=None (no WHERE tenant_id).
+
+        Routes use get_query_tenant_id which never passes None to services,
+        but the service supports it for internal/background callers.
+        """
         mock_conn = AsyncMock()
         mock_conn.fetch.return_value = [_make_row()]
         mock_pool = _mock_pool_with_conn(mock_conn)
@@ -265,7 +270,12 @@ class TestGetAnnotation:
 
         assert result is None
 
-    async def test_skips_tenant_filter_when_none(self):
+    async def test_service_omits_tenant_filter_when_none(self):
+        """Service layer handles tenant_id=None for get_annotation.
+
+        Routes enforce tenant context; this tests service-level None handling
+        for internal callers (alert engine, background jobs).
+        """
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = _make_row()
         mock_pool = _mock_pool_with_conn(mock_conn)

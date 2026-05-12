@@ -92,3 +92,16 @@ async def system_stats(
         },
         "process": process_info,
     }
+
+
+@router.get("/feature-flags")
+async def get_feature_flags() -> dict[str, bool]:
+    from neoguard.services.feature_flags import get_all_flags
+    return await get_all_flags()
+
+
+@router.put("/feature-flags/{flag_name}", dependencies=[Depends(require_scope("admin"))])
+async def set_feature_flag(flag_name: str, enabled: bool) -> dict:
+    from neoguard.services.feature_flags import set_flag
+    await set_flag(flag_name, enabled)
+    return {"flag": flag_name, "enabled": enabled}

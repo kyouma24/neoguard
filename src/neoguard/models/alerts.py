@@ -85,7 +85,15 @@ class SilenceCreate(BaseModel):
 class SilenceUpdate(BaseModel):
     name: str | None = None
     comment: str | None = None
+    rule_ids: list[str] | None = None
+    matchers: dict[str, str] | None = None
+    starts_at: datetime | None = None
     ends_at: datetime | None = None
+    timezone: str | None = None
+    recurring: bool | None = None
+    recurrence_days: list[SilenceScheduleDay] | None = None
+    recurrence_start_time: str | None = None
+    recurrence_end_time: str | None = None
     enabled: bool | None = None
 
 

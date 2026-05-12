@@ -8,6 +8,11 @@ from botocore.config import Config as BotoConfig
 
 from neoguard.models.aws import AWSAccount
 
+# TODO(production): Process-local cache; needs Redis-backed shared session cache for multi-worker
+# Current: In-memory dict per worker with TTL
+# Cloud: Redis hash with TTL, or centralized credential rotation
+# Migration risk: Low — STS assume-role is idempotent
+# Reference: docs/cloud_migration.md#credential-caches
 _session_cache: dict[str, tuple[Any, float]] = {}
 SESSION_TTL = 3500  # refresh 100s before the 1hr STS expiry
 

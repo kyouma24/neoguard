@@ -23,6 +23,7 @@ vi.mock("../../contexts/AuthContext", () => ({
 vi.mock("../../services/api", () => ({
   api: {
     annotations: { list: vi.fn().mockResolvedValue([]) },
+    alerts: { listEvents: vi.fn().mockResolvedValue([]) },
     mql: { query: vi.fn().mockResolvedValue([]) },
     metrics: { query: vi.fn().mockResolvedValue([]) },
     dashboards: { update: vi.fn() },
@@ -120,6 +121,26 @@ vi.mock("../../utils/layoutMigrations", () => ({
 
 vi.mock("../../utils/sanitize", () => ({
   isSafeHref: () => true,
+}));
+
+const flagDefaults: Record<string, boolean> = {
+  "dashboards.batch_queries": true,
+  "dashboards.viewport_loading": true,
+  "metrics.cardinality_denylist": true,
+  "mql.streaming_batch": true,
+};
+vi.mock("../../hooks/useFeatureFlags", () => ({
+  useFeatureFlag: (flag: string) => flagDefaults[flag] ?? true,
+  useFeatureFlags: () => flagDefaults,
+}));
+
+vi.mock("../../hooks/useVisiblePanels", () => ({
+  useVisiblePanels: ({ panels }: { panels: Array<{ id: string }> }) =>
+    new Set(panels.map((p) => p.id)),
+}));
+
+vi.mock("../../hooks/useBatchPanelQueries", () => ({
+  useBatchPanelQueries: () => ({}),
 }));
 
 import { DashboardViewer } from "./DashboardViewer";

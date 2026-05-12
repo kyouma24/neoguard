@@ -35,9 +35,9 @@ beforeEach(() => {
 describe("LoginPage", () => {
   it("renders the login form with all fields", () => {
     renderPage();
-    expect(screen.getByText("NeoGuard")).toBeInTheDocument();
-    expect(screen.getByText("Sign in to your account")).toBeInTheDocument();
-    expect(screen.getByText("Email")).toBeInTheDocument();
+    expect(screen.getByText("Welcome back")).toBeInTheDocument();
+    expect(screen.getByText("Sign in to your NeoGuard account")).toBeInTheDocument();
+    expect(screen.getByText("Email address")).toBeInTheDocument();
     expect(screen.getByText("Password")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("you@company.com")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Enter your password")).toBeInTheDocument();
@@ -46,13 +46,13 @@ describe("LoginPage", () => {
 
   it("has link to signup page", () => {
     renderPage();
-    const link = screen.getByText("Create one");
+    const link = screen.getByText("Create an account");
     expect(link).toHaveAttribute("href", "/signup");
   });
 
   it("has link to forgot password page", () => {
     renderPage();
-    const link = screen.getByText("Forgot your password?");
+    const link = screen.getByText("Forgot password?");
     expect(link).toHaveAttribute("href", "/forgot-password");
   });
 
@@ -61,6 +61,11 @@ describe("LoginPage", () => {
     const input = screen.getByPlaceholderText("you@company.com");
     expect(input).toHaveAttribute("type", "email");
     expect(input).toBeRequired();
+  });
+
+  it("has NeoGuard branding on left panel", () => {
+    renderPage();
+    expect(screen.getByText("NeoGuard")).toBeInTheDocument();
   });
 
   it("password input has correct type, minLength, and required", () => {

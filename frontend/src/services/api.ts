@@ -479,6 +479,7 @@ export const api = {
 
   system: {
     stats: () => request<SystemStats>(`${BASE}/system/stats`),
+    featureFlags: () => request<Record<string, boolean>>(`${BASE}/system/feature-flags`),
   },
 
   dashboards: {

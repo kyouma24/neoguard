@@ -22,6 +22,12 @@ Stale-while-revalidate:
 Tenant isolation:
     ``tenant_id`` is the FIRST component of the key — belt-and-suspenders
     on top of the SQL-level tenant filter.
+
+TODO(production): Single-process cache assumption; needs cache stampede protection
+Current: Stale-while-revalidate flag triggers background refresh in same worker
+Cloud: Multiple workers may simultaneously refresh same stale key (thundering herd)
+Migration risk: Medium — high QPS queries can cause DB load spikes on cache expiry
+Reference: docs/cloud_migration.md#cache-coordination
 """
 
 from __future__ import annotations

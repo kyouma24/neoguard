@@ -123,10 +123,18 @@ class TestCompiledSQLTenantIsolation:
         assert TENANT_A not in result_b.params
         assert TENANT_B not in result_a.params
 
-    def test_super_admin_none_tenant_omits_filter(self):
+    def test_cross_tenant_with_flag_omits_filter(self):
+        """Compiler with allow_cross_tenant=True omits tenant WHERE clause."""
         q = MQLQuery(aggregator="avg", metric_name="cpu")
-        result = compile_query(q, tenant_id=None, start=START, end=END)
+        result = compile_query(q, tenant_id=None, start=START, end=END, allow_cross_tenant=True)
         assert "tenant_id" not in result.sql
+
+    def test_none_tenant_without_flag_raises(self):
+        """Compiler rejects tenant_id=None without explicit cross-tenant flag."""
+        from neoguard.services.mql.compiler import CompilerError
+        q = MQLQuery(aggregator="avg", metric_name="cpu")
+        with pytest.raises(CompilerError):
+            compile_query(q, tenant_id=None, start=START, end=END)
 
     def test_tenant_id_is_parameterized_not_interpolated(self):
         q = MQLQuery(aggregator="avg", metric_name="cpu")

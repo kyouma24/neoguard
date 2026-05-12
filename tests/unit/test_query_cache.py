@@ -35,8 +35,9 @@ class TestMakeCacheKey:
         assert parts[1] == "my-tenant"
 
     def test_global_key_for_none_tenant(self):
+        """Cache keys with tenant_id=None use CROSS_TENANT sentinel."""
         key = make_cache_key(None, "SELECT 1", 1000, 2000, 60)
-        assert ":\x00__platform__:" in key
+        assert ":CROSS_TENANT:" in key
 
     def test_different_queries_produce_different_keys(self):
         k1 = make_cache_key("t1", "SELECT avg FROM m1", 1000, 2000, 60)

@@ -97,14 +97,16 @@ describe("WidgetRenderer", () => {
       render(<WidgetRenderer panel={panel} from={FROM} to={TO} interval="1m" height={200} />);
 
       await waitFor(() => {
-        expect(api.metrics.query).toHaveBeenCalledWith({
-          name: "aws.rds.cpu",
-          tags: {},
-          start: FROM.toISOString(),
-          end: TO.toISOString(),
-          interval: "1m",
-          aggregation: "avg",
-        });
+        expect(api.metrics.query).toHaveBeenCalledTimes(1);
+      });
+      const [metricsFirstArg] = (api.metrics.query as Mock).mock.calls[0];
+      expect(metricsFirstArg).toEqual({
+        name: "aws.rds.cpu",
+        tags: {},
+        start: FROM.toISOString(),
+        end: TO.toISOString(),
+        interval: "1m",
+        aggregation: "avg",
       });
     });
 
@@ -160,12 +162,14 @@ describe("WidgetRenderer", () => {
       render(<WidgetRenderer panel={panel} from={FROM} to={TO} interval="1m" height={200} />);
 
       await waitFor(() => {
-        expect(api.mql.query).toHaveBeenCalledWith({
-          query: "avg:aws.rds.cpu{env:prod}",
-          start: FROM.toISOString(),
-          end: TO.toISOString(),
-          interval: "1m",
-        });
+        expect(api.mql.query).toHaveBeenCalledTimes(1);
+      });
+      const [mqlFirstArg] = (api.mql.query as Mock).mock.calls[0];
+      expect(mqlFirstArg).toEqual({
+        query: "avg:aws.rds.cpu{env:prod}",
+        start: FROM.toISOString(),
+        end: TO.toISOString(),
+        interval: "1m",
       });
       expect(api.metrics.query).not.toHaveBeenCalled();
     });

@@ -8,6 +8,12 @@ Implements spec 02-dashboards-technical.md Part F:
 
 For now the stream only sends heartbeats and connection lifecycle events.
 Actual metric data push will be wired via Redis pub/sub in a later sprint.
+
+TODO(production): Heartbeat-only; needs Redis pub/sub fan-out for real-time push
+Current: SSE stream sends only heartbeat + lifecycle events, client must poll
+Cloud: Redis pub/sub channel per dashboard/tenant, worker subscribes and forwards events
+Migration risk: Medium — requires Redis Streams or pub/sub + connection affinity
+Reference: docs/cloud_migration.md#sse-realtime
 """
 
 from __future__ import annotations

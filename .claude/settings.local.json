@@ -256,7 +256,31 @@
       "Bash(NEOGUARD_DB_PORT=5433 NEOGUARD_DEBUG=true nohup python -m uvicorn neoguard.main:app --host 0.0.0.0 --port 8000 --reload)",
       "Bash(echo \"Started PID: $!\")",
       "Bash(PGPASSWORD=neoguard psql *)",
-      "Bash(NEOGUARD_DB_PORT=5433 NEOGUARD_DEBUG=true python -m pytest tests/unit/ --tb=short -q)"
+      "Bash(NEOGUARD_DB_PORT=5433 NEOGUARD_DEBUG=true python -m pytest tests/unit/ --tb=short -q)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "WebFetch(domain:www.dynatrace.com)",
+      "WebFetch(domain:docs.honeycomb.io)",
+      "WebFetch(domain:www.honeycomb.io)",
+      "WebFetch(domain:newrelic.com)",
+      "WebFetch(domain:opentelemetry.io)",
+      "WebFetch(domain:www.splunk.com)",
+      "WebFetch(domain:www.axiom.co)",
+      "WebFetch(domain:www.shoreline.io)",
+      "WebFetch(domain:www.komodor.com)",
+      "WebFetch(domain:www.elastic.co)",
+      "Bash(NEOGUARD_DB_PORT=5433 NEOGUARD_DEBUG=true python -m neoguard.cli seed-logs --tenant-id \"019df1ab-3cc5-7441-82a6-2caab9d4105c\" --count 5000 --hours 48)",
+      "Bash(NEOGUARD_DB_PORT=5433 NEOGUARD_DEBUG=true python -m neoguard.cli seed-logs --tenant-id \"019de4b2-dc9b-7421-b8fd-b4cfecd3b45a\" --count 3000 --hours 24)",
+      "Bash(NEOGUARD_DB_PORT=5433 NEOGUARD_DEBUG=true python *)",
+      "Bash(node node_modules/vitest/vitest.mjs run src/hooks/useBatchPanelQueries.test.ts)",
+      "Bash(NEOGUARD_DEBUG=true python -c \"from neoguard.api.deps import get_query_tenant_id; from neoguard.services.mql.compiler import compile_query, CompilerError; print\\('Imports OK'\\)\")",
+      "Bash(NEOGUARD_DEBUG=true python *)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx vitest run --exclude=\"**/DashboardsPage.viewer.test.tsx\" --exclude=\"**/DashboardsPage.mql.test.tsx\")",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx vitest run --exclude=\"**/DashboardsPage.viewer.test.tsx\" --exclude=\"**/DashboardsPage.mql.test.tsx\" --reporter=json)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "ruflo"
+  ],
+  "enableAllProjectMcpServers": true
 }

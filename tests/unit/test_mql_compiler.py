@@ -16,8 +16,16 @@ START = datetime(2026, 5, 1, 0, 0, 0, tzinfo=timezone.utc)
 END = datetime(2026, 5, 1, 1, 0, 0, tzinfo=timezone.utc)
 
 
-def _compile(query: MQLQuery, tenant_id: str | None = "t1", interval: str = "1m") -> CompiledQuery:
-    return compile_query(query, tenant_id=tenant_id, start=START, end=END, interval=interval)
+def _compile(
+    query: MQLQuery,
+    tenant_id: str | None = "t1",
+    interval: str = "1m",
+    allow_cross_tenant: bool = False,
+) -> CompiledQuery:
+    return compile_query(
+        query, tenant_id=tenant_id, start=START, end=END,
+        interval=interval, allow_cross_tenant=allow_cross_tenant,
+    )
 
 
 class TestBasicCompilation:
@@ -40,10 +48,22 @@ class TestBasicCompilation:
         assert "my-tenant" in result.params
         assert "tenant_id =" in result.sql
 
-    def test_no_tenant_id(self):
+    def test_no_tenant_id_omits_where_clause(self):
+        """Compiler omits tenant WHERE when tenant_id=None + allow_cross_tenant.
+
+        Routes enforce tenant context via get_query_tenant_id (never pass None),
+        but the compiler supports cross-tenant for internal/background callers.
+        """
         q = MQLQuery(aggregator="avg", metric_name="cpu")
-        result = _compile(q, tenant_id=None)
+        result = _compile(q, tenant_id=None, allow_cross_tenant=True)
         assert "tenant_id" not in result.sql
+
+    def test_no_tenant_id_without_flag_raises(self):
+        """Compiler rejects tenant_id=None without explicit allow_cross_tenant."""
+        from neoguard.services.mql.compiler import CompilerError
+        q = MQLQuery(aggregator="avg", metric_name="cpu")
+        with pytest.raises(CompilerError, match="tenant_id is required"):
+            _compile(q, tenant_id=None)
 
     def test_time_range_in_params(self):
         q = MQLQuery(aggregator="avg", metric_name="cpu")

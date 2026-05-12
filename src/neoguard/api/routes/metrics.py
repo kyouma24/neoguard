@@ -118,22 +118,53 @@ async def list_tag_values(
     import re
     import json as _json
 
-    # Layer 1: Denylist (fast-fail)
-    if tag in settings.high_cardinality_tag_denylist:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": {
-                    "code": "high_cardinality_tag",
-                    "message": (
-                        f"Tag '{tag}' has too high cardinality for value enumeration. "
-                        f"Consider using a more specific tag (e.g., 'service' or 'endpoint'). "
-                        f"If this tag legitimately needs enumeration, contact your administrator."
-                    ),
-                    "tag": tag,
-                }
-            },
-        )
+    # Layer 1a: Hardcoded denylist (fast-fail) — gated by feature flag
+    from neoguard.services.feature_flags import Flag, is_enabled
+    if await is_enabled(Flag.METRICS_CARDINALITY_DENYLIST):
+        if tag in settings.high_cardinality_tag_denylist:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "code": "high_cardinality_tag",
+                        "message": (
+                            f"Tag '{tag}' has too high cardinality for value enumeration. "
+                            f"Consider using a more specific tag (e.g., 'service' or 'endpoint'). "
+                            f"If this tag legitimately needs enumeration, contact your administrator."
+                        ),
+                        "tag": tag,
+                    }
+                },
+            )
+
+        # Layer 1b: Adaptive denylist — check runtime observations
+        from neoguard.services.metrics.cardinality import is_high_cardinality
+        try:
+            if await is_high_cardinality(tenant_id, tag):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": {
+                            "code": "high_cardinality_tag",
+                            "message": (
+                                f"Tag '{tag}' has been observed with very high cardinality "
+                                f"(>10,000 distinct values in the last 24h). "
+                                f"Value enumeration is disabled for this tag."
+                            ),
+                            "tag": tag,
+                            "source": "adaptive",
+                        }
+                    },
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "adaptive_cardinality_check_failed",
+                extra={"tenant_id": tenant_id, "tag_key": tag},
+                exc_info=True,
+            )
 
     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_\-]*$", tag) or len(tag) > 128:
         raise HTTPException(400, "Invalid tag key")

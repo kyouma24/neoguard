@@ -117,15 +117,12 @@ class TestGetQueryTenantId:
         result = get_query_tenant_id(request)
         assert result == "tenant-123"
 
-    def test_super_admin_without_override_raises_400(self):
-        from fastapi import HTTPException
+    def test_super_admin_without_override_falls_back_to_session_tenant(self):
         from neoguard.api.deps import get_query_tenant_id
 
-        request = self._make_request(is_super_admin=True, query_params={})
-        with pytest.raises(HTTPException) as exc_info:
-            get_query_tenant_id(request)
-        assert exc_info.value.status_code == 400
-        assert "tenant_context_required" in str(exc_info.value.detail)
+        request = self._make_request(is_super_admin=True, tenant_id="session-tenant", query_params={})
+        result = get_query_tenant_id(request)
+        assert result == "session-tenant"
 
     def test_super_admin_with_override_returns_override(self):
         from neoguard.api.deps import get_query_tenant_id

@@ -7,6 +7,11 @@ from azure.identity import ClientSecretCredential
 
 from neoguard.models.azure import AzureSubscription
 
+# TODO(production): Process-local cache; needs Redis-backed shared credential cache for multi-worker
+# Current: In-memory dict per worker with TTL
+# Cloud: Redis hash with TTL, or centralized credential service
+# Migration risk: Low — credential refresh is idempotent
+# Reference: docs/cloud_migration.md#credential-caches
 _credential_cache: dict[str, tuple[ClientSecretCredential, float]] = {}
 CREDENTIAL_TTL = 3500
 

@@ -35,6 +35,12 @@ vi.mock("../components/TimeSeriesChart", () => ({
   ),
 }));
 
+const mockAuthValue = {
+  user: { id: "u1", email: "test@test.com", is_super_admin: false },
+  tenant: { id: "t1", name: "Test" },
+};
+vi.mock("../contexts/AuthContext", () => ({ useAuth: () => mockAuthValue }));
+
 function renderPage() {
   return render(
     <MemoryRouter>

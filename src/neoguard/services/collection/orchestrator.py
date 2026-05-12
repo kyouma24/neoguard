@@ -95,6 +95,11 @@ def _extract_metric_tags(res) -> dict[str, str]:
     return tags
 
 
+# TODO(production): Process-local cache; needs Redis-backed region cache for multi-worker
+# Current: In-memory dict per worker with 1h TTL
+# Cloud: Redis hash with TTL, shared across workers
+# Migration risk: Low — region lookup is read-only
+# Reference: docs/cloud_migration.md#credential-caches
 _enabled_region_cache: dict[str, tuple[list[str], float]] = {}
 _REGION_CACHE_TTL = 3600  # re-check enabled regions every hour
 
@@ -392,4 +397,9 @@ class CollectionOrchestrator:
                     )
 
 
+# TODO(production): Single-worker singleton; needs distributed leader election for multi-worker
+# Current: Each worker runs its own discovery/collection loop
+# Cloud: Redis-based distributed lock (Redlock) — only leader runs collection
+# Migration risk: High — concurrent discovery causes duplicate API calls and race conditions
+# Reference: docs/cloud_migration.md#background-singletons
 orchestrator = CollectionOrchestrator()

@@ -28,9 +28,11 @@ interface Props {
   preloadedResult?: PanelBatchResult;
   /** Explicit tenant context for super admin cross-tenant viewing */
   queryTenantId?: string;
+  /** Pre-fetched alert events from viewer level (avoids per-panel duplicate fetches) */
+  sharedAlertEvents?: AlertEvent[];
 }
 
-export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: dashInterval, height, refreshKey, variables, onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onDataReady, preloadedResult, queryTenantId }: Props) {
+export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: dashInterval, height, refreshKey, variables, onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onDataReady, preloadedResult, queryTenantId, sharedAlertEvents }: Props) {
   const [data, setData] = useState<MetricQueryResult[] | null>(null);
   const [comparisonData, setComparisonData] = useState<MetricQueryResult[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -175,27 +177,12 @@ export function WidgetRenderer({ panel, from: dashFrom, to: dashTo, interval: da
     return () => { cancelled = true; };
   }, [comparePeriodMs, rawMql, variablesJson, resolvedTags, panel.metric_name, panel.aggregation, panel.panel_type, hasMql, hasLegacy, from.getTime(), to.getTime(), interval, refreshKey, queryTenantId]);
 
-  const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const isChartPanel = panel.panel_type === "timeseries" || panel.panel_type === "area";
-
-  useEffect(() => {
-    if (!isChartPanel || !panel.metric_name) {
-      setAlertEvents([]);
-      return;
-    }
-    let cancelled = false;
-    api.alerts
-      .listEvents({
-        start: from.toISOString(),
-        end: to.toISOString(),
-        limit: 50,
-      }, queryTenantId ? { tenantId: queryTenantId } : undefined)
-      .then((events) => {
-        if (!cancelled) setAlertEvents(events);
-      })
-      .catch(() => { if (!cancelled) setAlertEvents([]); });
-    return () => { cancelled = true; };
-  }, [isChartPanel, panel.metric_name, from.getTime(), to.getTime(), refreshKey, queryTenantId]);
+  // MQL panels intentionally get no alert events: alert rules are keyed by metric_name,
+  // not MQL queries. MQL panels would need alert-rule-to-query matching (future work).
+  const alertEvents = sharedAlertEvents && isChartPanel && panel.metric_name
+    ? sharedAlertEvents
+    : [];
 
   const definition = getWidgetDefinition(panel.panel_type);
   const opts = panel.display_options;

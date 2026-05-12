@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { Annotation, Dashboard, MetricQueryResult, PanelDefinition, PanelGroup } from "../../types";
+import type { AlertEvent, Annotation, Dashboard, MetricQueryResult, PanelDefinition, PanelGroup } from "../../types";
 import { WidgetRenderer } from "../../components/dashboard/WidgetRenderer";
 import { WidgetErrorBoundary } from "../../components/dashboard/WidgetErrorBoundary";
 import { TimeRangePicker, getTimeRange, getIntervalForRange } from "../../components/dashboard/TimeRangePicker";
@@ -20,6 +20,9 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useLiveStream } from "../../hooks/useLiveStream";
 import { useChangeIntelligence } from "../../hooks/useChangeIntelligence";
 import { useBatchPanelQueries } from "../../hooks/useBatchPanelQueries";
+import { useVisiblePanels } from "../../hooks/useVisiblePanels";
+import { useFeatureFlag } from "../../hooks/useFeatureFlags";
+import { PanelPlaceholder } from "../../components/dashboard/PanelPlaceholder";
 import { Button, EmptyState } from "../../design-system";
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Code2, Edit2, GitCompareArrows, Info, Layers, LayoutDashboard, Maximize2, MessageSquarePlus, Monitor, RefreshCw, Settings } from "lucide-react";
 import { DashboardGrid } from "../../components/dashboard/DashboardGrid";
@@ -93,6 +96,7 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
   const [widgetErrorCount, setWidgetErrorCount] = useState(0);
   const [inspectPanel, setInspectPanel] = useState<PanelDefinition | null>(null);
   const [panelDataMap, setPanelDataMap] = useState<Record<string, MetricQueryResult[] | null>>({});
+  const [forceAllPanels, setForceAllPanels] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
   const tabVisibleRef = useRef(true);
@@ -166,6 +170,18 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
     refreshIntervalRef.current = id;
     return () => clearInterval(id);
   }, [autoRefreshKey]);
+
+  // Force all panels visible on print so browser doesn't capture skeletons
+  useEffect(() => {
+    const onBeforePrint = () => setForceAllPanels(true);
+    const onAfterPrint = () => setForceAllPanels(false);
+    window.addEventListener("beforeprint", onBeforePrint);
+    window.addEventListener("afterprint", onAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", onBeforePrint);
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
+  }, []);
 
   useEffect(() => {
     const handler = () => {
@@ -253,7 +269,16 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
   const rangeDurationMs = to.getTime() - from.getTime();
   const comparePeriodMs = compareEnabled ? rangeDurationMs : undefined;
 
-  // Batch panel queries: single streaming request for all eligible panels
+  // Viewport-based panel loading: only fetch/render panels visible in viewport
+  const viewportLoadingEnabled = useFeatureFlag("dashboards.viewport_loading");
+  const visiblePanelIds = useVisiblePanels({
+    panels: dashboard.panels,
+    containerRef,
+    forceAll: forceAllPanels || !viewportLoadingEnabled,
+  });
+
+  // Batch panel queries: single streaming request for visible eligible panels
+  const batchQueriesEnabled = useFeatureFlag("dashboards.batch_queries");
   const batchResults = useBatchPanelQueries({
     panels: dashboard.panels,
     from,
@@ -263,8 +288,25 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
     refreshKey,
     dashboardId: dashboard.id,
     queryTenantId,
-    enabled: dashboard.panels.length > 0,
+    visiblePanelIds,
+    enabled: dashboard.panels.length > 0 && batchQueriesEnabled,
   });
+
+  // Shared alert events fetch: single request for all chart panels (avoids N duplicates)
+  const [sharedAlertEvents, setSharedAlertEvents] = useState<AlertEvent[]>([]);
+  useEffect(() => {
+    const hasChartPanels = dashboard.panels.some(
+      (p) => (p.panel_type === "timeseries" || p.panel_type === "area") && p.metric_name,
+    );
+    if (!hasChartPanels) { setSharedAlertEvents([]); return; }
+    const controller = new AbortController();
+    const tenantOpts = queryTenantId ? { tenantId: queryTenantId } : undefined;
+    api.alerts
+      .listEvents({ start: from.toISOString(), end: to.toISOString(), limit: 50 }, tenantOpts)
+      .then((events) => { if (!controller.signal.aborted) setSharedAlertEvents(events); })
+      .catch(() => { if (!controller.signal.aborted) setSharedAlertEvents([]); });
+    return () => { controller.abort(); };
+  }, [from.getTime(), to.getTime(), refreshKey, queryTenantId, dashboard.panels.length]);
 
   // Change Intelligence: fetch current/previous period averages for all panels when comparison is active
   const changeIntelligencePanels = useChangeIntelligence({
@@ -547,7 +589,9 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
                 onFilterChange={handleFilterChange}
                 onPanelDataReady={handlePanelDataReady}
                 batchResults={batchResults}
+                visiblePanelIds={visiblePanelIds}
                 queryTenantId={queryTenantId}
+                sharedAlertEvents={sharedAlertEvents}
               />
             ) : (
               <DashboardGrid
@@ -555,32 +599,42 @@ export function DashboardViewer({ dashboard: rawDashboard, onBack, onEdit, onSet
                 width={containerWidth}
                 editable={false}
               >
-                {dashboard.panels.map((panel) => (
-                  <div key={panel.id} className="dashboard-panel" data-panel-id={panel.id}>
-                    <PanelHeader panel={panel} onFullscreen={() => setFullscreenPanel(panel)} onInspect={() => setInspectPanel(panel)} />
-                    <div className="dashboard-panel-body">
-                      <WidgetErrorBoundary title={panel.title} height={panelContentHeight(panel)} resetKey={`${refreshKey}-${timeRangeKey}`}>
-                        <WidgetRenderer
-                          panel={panel}
-                          from={from}
-                          to={to}
-                          interval={interval}
-                          height={panelContentHeight(panel)}
-                          refreshKey={refreshKey}
-                          variables={varValues}
-                          onTimeRangeChange={handleTimeRangeChange}
-                          comparePeriodMs={comparePeriodMs}
-                          annotations={annotationsEnabled ? annotations : undefined}
-                          onAnnotate={handleAnnotate}
-                          onFilterChange={handleFilterChange}
-                          onDataReady={(d) => handlePanelDataReady(panel.id, d)}
-                          preloadedResult={batchResults[panel.id]}
-                          queryTenantId={queryTenantId}
-                        />
-                      </WidgetErrorBoundary>
+                {dashboard.panels.map((panel) => {
+                  const isVisible = visiblePanelIds.has(panel.id);
+                  return (
+                    <div key={panel.id} className="dashboard-panel" data-panel-id={panel.id}>
+                      {isVisible ? (
+                        <>
+                          <PanelHeader panel={panel} onFullscreen={() => setFullscreenPanel(panel)} onInspect={() => setInspectPanel(panel)} />
+                          <div className="dashboard-panel-body">
+                            <WidgetErrorBoundary title={panel.title} height={panelContentHeight(panel)} resetKey={`${refreshKey}-${timeRangeKey}`}>
+                              <WidgetRenderer
+                                panel={panel}
+                                from={from}
+                                to={to}
+                                interval={interval}
+                                height={panelContentHeight(panel)}
+                                refreshKey={refreshKey}
+                                variables={varValues}
+                                onTimeRangeChange={handleTimeRangeChange}
+                                comparePeriodMs={comparePeriodMs}
+                                annotations={annotationsEnabled ? annotations : undefined}
+                                onAnnotate={handleAnnotate}
+                                onFilterChange={handleFilterChange}
+                                onDataReady={(d) => handlePanelDataReady(panel.id, d)}
+                                preloadedResult={batchResults[panel.id]}
+                                queryTenantId={queryTenantId}
+                                sharedAlertEvents={sharedAlertEvents}
+                              />
+                            </WidgetErrorBoundary>
+                          </div>
+                        </>
+                      ) : (
+                        <PanelPlaceholder height={panelContentHeight(panel) + 36} title={panel.title} />
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </DashboardGrid>
             )}
           </div>
@@ -655,7 +709,9 @@ interface GroupedPanelGridProps {
   onFilterChange?: (key: string, value: string) => void;
   onPanelDataReady?: (panelId: string, data: MetricQueryResult[] | null) => void;
   batchResults: Record<string, import("../../hooks/useBatchPanelQueries").PanelBatchResult>;
+  visiblePanelIds: Set<string>;
   queryTenantId?: string;
+  sharedAlertEvents?: AlertEvent[];
 }
 
 function GroupedPanelGrid({
@@ -663,7 +719,7 @@ function GroupedPanelGrid({
   containerWidth,
   from, to, interval, refreshKey, variables, onFullscreen, onInspect,
   onTimeRangeChange, comparePeriodMs, annotations, onAnnotate, onFilterChange, onPanelDataReady,
-  batchResults, queryTenantId,
+  batchResults, visiblePanelIds, queryTenantId, sharedAlertEvents,
 }: GroupedPanelGridProps) {
   const groupedPanelIds = new Set(groups.flatMap((g) => g.panel_ids));
   const ungroupedPanels = panels.filter((p) => !groupedPanelIds.has(p.id));
@@ -713,32 +769,42 @@ function GroupedPanelGrid({
                   width={containerWidth}
                   editable={false}
                 >
-                  {groupPanels.map((panel) => (
-                    <div key={panel.id} className="dashboard-panel" data-panel-id={panel.id}>
-                      <PanelHeader panel={panel} onFullscreen={() => onFullscreen(panel)} onInspect={() => onInspect(panel)} />
-                      <div className="dashboard-panel-body">
-                        <WidgetErrorBoundary title={panel.title} height={panelContentHeight(panel)} resetKey={`${refreshKey}-${interval}`}>
-                          <WidgetRenderer
-                            panel={panel}
-                            from={from}
-                            to={to}
-                            interval={interval}
-                            height={panelContentHeight(panel)}
-                            refreshKey={refreshKey}
-                            variables={variables}
-                            onTimeRangeChange={onTimeRangeChange}
-                            comparePeriodMs={comparePeriodMs}
-                            annotations={annotations}
-                            onAnnotate={onAnnotate}
-                            onFilterChange={onFilterChange}
-                            onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
-                            preloadedResult={batchResults[panel.id]}
-                            queryTenantId={queryTenantId}
-                          />
-                        </WidgetErrorBoundary>
+                  {groupPanels.map((panel) => {
+                    const isVisible = visiblePanelIds.has(panel.id);
+                    return (
+                      <div key={panel.id} className="dashboard-panel" data-panel-id={panel.id}>
+                        {isVisible ? (
+                          <>
+                            <PanelHeader panel={panel} onFullscreen={() => onFullscreen(panel)} onInspect={() => onInspect(panel)} />
+                            <div className="dashboard-panel-body">
+                              <WidgetErrorBoundary title={panel.title} height={panelContentHeight(panel)} resetKey={`${refreshKey}-${interval}`}>
+                                <WidgetRenderer
+                                  panel={panel}
+                                  from={from}
+                                  to={to}
+                                  interval={interval}
+                                  height={panelContentHeight(panel)}
+                                  refreshKey={refreshKey}
+                                  variables={variables}
+                                  onTimeRangeChange={onTimeRangeChange}
+                                  comparePeriodMs={comparePeriodMs}
+                                  annotations={annotations}
+                                  onAnnotate={onAnnotate}
+                                  onFilterChange={onFilterChange}
+                                  onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
+                                  preloadedResult={batchResults[panel.id]}
+                                  queryTenantId={queryTenantId}
+                                  sharedAlertEvents={sharedAlertEvents}
+                                />
+                              </WidgetErrorBoundary>
+                            </div>
+                          </>
+                        ) : (
+                          <PanelPlaceholder height={panelContentHeight(panel) + 36} title={panel.title} />
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </DashboardGrid>
               )}
             </div>
@@ -751,32 +817,42 @@ function GroupedPanelGrid({
               width={containerWidth}
               editable={false}
             >
-              {ungroupedPanels.map((panel) => (
-                <div key={panel.id} className="dashboard-panel" data-panel-id={panel.id}>
-                  <PanelHeader panel={panel} onFullscreen={() => onFullscreen(panel)} onInspect={() => onInspect(panel)} />
-                  <div className="dashboard-panel-body">
-                    <WidgetErrorBoundary title={panel.title} height={panelContentHeight(panel)} resetKey={`${refreshKey}-${interval}`}>
-                      <WidgetRenderer
-                        panel={panel}
-                        from={from}
-                        to={to}
-                        interval={interval}
-                        height={panelContentHeight(panel)}
-                        refreshKey={refreshKey}
-                        variables={variables}
-                        onTimeRangeChange={onTimeRangeChange}
-                        comparePeriodMs={comparePeriodMs}
-                        annotations={annotations}
-                        onAnnotate={onAnnotate}
-                        onFilterChange={onFilterChange}
-                        onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
-                        preloadedResult={batchResults[panel.id]}
-                        queryTenantId={queryTenantId}
-                      />
-                    </WidgetErrorBoundary>
+              {ungroupedPanels.map((panel) => {
+                const isVisible = visiblePanelIds.has(panel.id);
+                return (
+                  <div key={panel.id} className="dashboard-panel" data-panel-id={panel.id}>
+                    {isVisible ? (
+                      <>
+                        <PanelHeader panel={panel} onFullscreen={() => onFullscreen(panel)} onInspect={() => onInspect(panel)} />
+                        <div className="dashboard-panel-body">
+                          <WidgetErrorBoundary title={panel.title} height={panelContentHeight(panel)} resetKey={`${refreshKey}-${interval}`}>
+                            <WidgetRenderer
+                              panel={panel}
+                              from={from}
+                              to={to}
+                              interval={interval}
+                              height={panelContentHeight(panel)}
+                              refreshKey={refreshKey}
+                              variables={variables}
+                              onTimeRangeChange={onTimeRangeChange}
+                              comparePeriodMs={comparePeriodMs}
+                              annotations={annotations}
+                              onAnnotate={onAnnotate}
+                              onFilterChange={onFilterChange}
+                              onDataReady={(d) => onPanelDataReady?.(panel.id, d)}
+                              preloadedResult={batchResults[panel.id]}
+                              queryTenantId={queryTenantId}
+                              sharedAlertEvents={sharedAlertEvents}
+                            />
+                          </WidgetErrorBoundary>
+                        </div>
+                      </>
+                    ) : (
+                      <PanelPlaceholder height={panelContentHeight(panel) + 36} title={panel.title} />
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </DashboardGrid>
           </div>
         );

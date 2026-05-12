@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     alert_flap_threshold: int = 6
     alert_flap_window_sec: int = 3600
 
+    # TODO(production): Single Redis instance; needs Sentinel/Cluster for HA
+    # Current: localhost single-instance, no failover
+    # Cloud: Redis Cluster or ElastiCache with read replicas + Sentinel
+    # Migration risk: Medium — redis.asyncio supports cluster mode but connection code needs changes
+    # Reference: docs/cloud_migration.md#redis-ha
     redis_url: str = "redis://localhost:6379/0"
 
     auth_enabled: bool = True
@@ -56,6 +61,11 @@ class Settings(BaseSettings):
     telemetry_enabled: bool = True
     telemetry_interval_sec: int = 15
 
+    # TODO(production): Hardcoded global denylist; needs per-tenant configurable list backed by DB
+    # Current: Static config list, same for all tenants
+    # Cloud: DB table (tag_cardinality_observations) + admin UI per tenant + adaptive detection
+    # Migration risk: Low — add DB lookup alongside static list, merge results
+    # Reference: docs/cloud_migration.md#cardinality-denylist
     high_cardinality_tag_denylist: list[str] = [
         "request_id",
         "trace_id",

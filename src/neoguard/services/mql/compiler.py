@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 from neoguard.services.mql.ast_nodes import (
     AbsFunc,
@@ -66,6 +69,14 @@ def compile_query(
         raise CompilerError(
             "tenant_id is required for query compilation. "
             "Cross-tenant queries require explicit allow_cross_tenant=True."
+        )
+
+    if allow_cross_tenant:
+        from neoguard.core.telemetry import registry
+        registry.counter("mql.cross_tenant_compilation_total").inc()
+        logger.info(
+            "cross_tenant_compilation",
+            extra={"metric_name": query.metric_name, "caller": "compile_query"},
         )
 
     # If the caller specifies a widget width, use the planner to pick

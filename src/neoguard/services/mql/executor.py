@@ -24,7 +24,35 @@ import math
 QUERY_TIMEOUT_SECONDS = 30.0
 
 
-async def execute(compiled: CompiledQuery) -> list[MetricQueryResult]:
+async def execute(
+    compiled: CompiledQuery,
+    *,
+    tenant_id: str | None = None,
+    from_ts: int | None = None,
+    to_ts: int | None = None,
+    interval_sec: int | None = None,
+) -> list[MetricQueryResult]:
+    can_dedup = all(v is not None for v in (tenant_id, from_ts, to_ts, interval_sec))
+
+    if can_dedup:
+        from neoguard.services.feature_flags import Flag, is_enabled
+        from neoguard.services.mql.identity import QueryIdentity
+        from neoguard.services.mql.singleflight import singleflight as sf
+
+        if await is_enabled(Flag.MQL_SINGLEFLIGHT):
+            identity = QueryIdentity.from_compiled(
+                tenant_id=tenant_id,
+                compiled=compiled,
+                from_ts=from_ts,  # type: ignore[arg-type]
+                to_ts=to_ts,  # type: ignore[arg-type]
+                interval_sec=interval_sec,  # type: ignore[arg-type]
+            )
+            return await sf(identity.singleflight_key, lambda: _execute_inner(compiled))
+
+    return await _execute_inner(compiled)
+
+
+async def _execute_inner(compiled: CompiledQuery) -> list[MetricQueryResult]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await asyncio.wait_for(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import {
   Badge,
@@ -10,6 +10,7 @@ import {
 } from "../../design-system";
 import type {
   AlertRule,
+  Silence,
   SilenceCreate,
 } from "../../types";
 
@@ -42,19 +43,22 @@ interface SilenceCreateModalProps {
   rules: AlertRule[];
   saving: boolean;
   error: string | null;
+  editSilence?: Silence | null;
   onSave: (data: SilenceCreate) => void;
   onClose: () => void;
 }
 
-export function SilenceCreateModal({ isOpen, mode, rules, saving, error, onSave, onClose }: SilenceCreateModalProps) {
-  const isRecurring = mode === "create-recurring";
+const toLocalISO = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+export function SilenceCreateModal({ isOpen, mode, rules, saving, error, editSilence, onSave, onClose }: SilenceCreateModalProps) {
+  const isEditing = !!editSilence;
+  const isRecurring = isEditing ? editSilence.recurring : mode === "create-recurring";
   const now = new Date();
   const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
   const oneYearLater = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
-  const toLocalISO = (d: Date) => {
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
 
   const [name, setName] = useState("");
   const [comment, setComment] = useState("");
@@ -68,6 +72,33 @@ export function SilenceCreateModal({ isOpen, mode, rules, saving, error, onSave,
   const [recStartTime, setRecStartTime] = useState("21:00");
   const [recEndTime, setRecEndTime] = useState("09:00");
   const [timezone, setTimezone] = useState("UTC");
+
+  useEffect(() => {
+    if (isOpen && editSilence) {
+      setName(editSilence.name);
+      setComment(editSilence.comment);
+      setSelectedRuleIds(editSilence.rule_ids);
+      setMatchers(editSilence.matchers);
+      setTimezone(editSilence.timezone);
+      setStartsAt(toLocalISO(new Date(editSilence.starts_at)));
+      setEndsAt(toLocalISO(new Date(editSilence.ends_at)));
+      setSelectedDays(editSilence.recurrence_days);
+      setRecStartTime(editSilence.recurrence_start_time ?? "21:00");
+      setRecEndTime(editSilence.recurrence_end_time ?? "09:00");
+    } else if (isOpen && !editSilence) {
+      setName("");
+      setComment("");
+      setSelectedRuleIds([]);
+      setMatchers({});
+      setTimezone("UTC");
+      setStartsAt(toLocalISO(now));
+      setEndsAt(toLocalISO(isRecurring ? oneYearLater : twoHoursLater));
+      setSelectedDays(isRecurring ? ["mon", "tue", "wed", "thu", "fri"] : []);
+      setRecStartTime("21:00");
+      setRecEndTime("09:00");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, editSilence]);
 
   const toggleDay = (day: string) => { setSelectedDays((prev) => prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]); };
   const toggleRule = (ruleId: string) => { setSelectedRuleIds((prev) => prev.includes(ruleId) ? prev.filter((id) => id !== ruleId) : [...prev, ruleId]); };
@@ -88,10 +119,10 @@ export function SilenceCreateModal({ isOpen, mode, rules, saving, error, onSave,
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isRecurring ? "Create Recurring Silence" : "Create One-Time Silence"} size="lg" footer={
+    <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? `Edit Silence: ${editSilence.name}` : isRecurring ? "Create Recurring Silence" : "Create One-Time Silence"} size="lg" footer={
       <div style={{ display: "flex", gap: 8 }}>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={handleSubmit} disabled={!isValid || saving}>{saving ? "Creating..." : "Create Silence"}</Button>
+        <Button variant="primary" onClick={handleSubmit} disabled={!isValid || saving}>{saving ? "Saving..." : isEditing ? "Update Silence" : "Create Silence"}</Button>
       </div>
     }>
       {error && <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid var(--color-danger-500)", borderRadius: "var(--border-radius-sm)", padding: "8px 12px", marginBottom: 16, fontSize: "var(--typography-font-size-sm)", color: "var(--color-danger-500)" }}>{error}</div>}

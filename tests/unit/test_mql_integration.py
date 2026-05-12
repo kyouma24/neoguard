@@ -11,9 +11,12 @@ START = datetime(2026, 5, 1, 0, 0, 0, tzinfo=timezone.utc)
 END = datetime(2026, 5, 1, 1, 0, 0, tzinfo=timezone.utc)
 
 
-def _e2e(mql: str, tenant_id: str | None = "t1", interval: str = "1m"):
+def _e2e(mql: str, tenant_id: str | None = "t1", interval: str = "1m", allow_cross_tenant: bool = False):
     ast = parse(mql)
-    return compile_query(ast, tenant_id=tenant_id, start=START, end=END, interval=interval)
+    return compile_query(
+        ast, tenant_id=tenant_id, start=START, end=END,
+        interval=interval, allow_cross_tenant=allow_cross_tenant,
+    )
 
 
 class TestE2ESpecExamples:
@@ -61,8 +64,12 @@ class TestE2ETenantIsolation:
         assert "tenant_id =" in c.sql
         assert "tenant-abc" in c.params
 
-    def test_super_admin_no_tenant(self):
-        c = _e2e("avg:cpu", tenant_id=None)
+    def test_compiler_no_tenant_omits_filter(self):
+        """Parser→compiler chain handles tenant_id=None with allow_cross_tenant.
+
+        Routes enforce explicit tenant context — this tests compiler-level behavior only.
+        """
+        c = _e2e("avg:cpu", tenant_id=None, allow_cross_tenant=True)
         assert "tenant_id" not in c.sql
 
     def test_tenant_id_not_injectable(self):

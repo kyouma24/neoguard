@@ -643,4 +643,9 @@ class _RuleState:
         self.flapping = flapping
 
 
+# TODO(production): Single-worker singleton; needs distributed leader election for multi-worker
+# Current: Each worker runs its own alert evaluation loop with in-memory state
+# Cloud: Redis distributed lock — only leader evaluates rules. State stored in DB.
+# Migration risk: High — concurrent evaluation causes duplicate alerts and inconsistent state
+# Reference: docs/cloud_migration.md#background-singletons
 alert_engine = AlertEngine()

@@ -34,8 +34,12 @@ export function LogFacetsSidebar({ start, end, query, service, severity, onFilte
     fetchFacets();
   }, [fetchFacets]);
 
-  if (loading && severityFacets.length === 0) {
-    return <div style={styles.sidebar}><div style={styles.loading}>Loading...</div></div>;
+  if (loading && severityFacets.length === 0 && serviceFacets.length === 0) {
+    return <div style={styles.sidebar}><div style={styles.loading}>Loading facets...</div></div>;
+  }
+
+  if (!loading && severityFacets.length === 0 && serviceFacets.length === 0) {
+    return null;
   }
 
   const maxSevCount = Math.max(...severityFacets.map((f) => f.count), 1);

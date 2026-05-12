@@ -36,6 +36,13 @@ def main() -> None:
     sl.add_argument("--count", type=int, default=5000, help="Number of logs to generate (default: 5000)")
     sl.add_argument("--hours", type=int, default=24, help="Spread logs over this many hours back (default: 24)")
 
+    sa = subparsers.add_parser(
+        "seed-alerts",
+        help="Generate demo alert rules, events, and silences",
+        description="Seed TimescaleDB with realistic alert rules, historical events, and maintenance silences.",
+    )
+    sa.add_argument("--tenant-id", required=True, help="Tenant ID to assign alerts to")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -48,6 +55,10 @@ def main() -> None:
     elif args.command == "seed-logs":
         from neoguard.cli.seed_logs import run_seed_logs
         run_seed_logs(args.tenant_id, args.count, args.hours)
+
+    elif args.command == "seed-alerts":
+        from neoguard.cli.seed_alerts import run_seed
+        run_seed(args.tenant_id)
 
 
 main()

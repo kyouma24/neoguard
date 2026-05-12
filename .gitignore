@@ -28,3 +28,24 @@ Thumbs.db
 
 docs/specs/
 .claude/commands/
+
+# Working docs / internal comms (not for repo)
+technical_workflow/
+NeoGuardStatusUpdate.md
+PHASE_-1_FOLLOW_UPS.md
+TEST_DEBT.md
+docs/PRODUCT_ROADMAP_2026.md
+"NeoGuard Product Roadmap.docx"
+superadmin.txt
+vitest_results.txt
+frontend/vitest_errors.txt
+frontend/vitest_output.txt
+
+# Junk files from shell escaping issues
+$3
+5
+NOW()
+`
+dict[str
+{,
+NeoGuard Product Roadmap.docx

@@ -31,26 +31,17 @@ def get_query_tenant_id(request: Request) -> str:
     """Tenant resolution for METRIC QUERY endpoints.
 
     - Regular user: returns session tenant_id
-    - Super admin: REQUIRES explicit ?tenant_id=X query param. No fallback.
+    - Super admin: uses ?tenant_id=X if provided, falls back to session tenant_id
     - Auth disabled (dev): returns settings.default_tenant_id
     """
     if _is_platform_admin(request):
         override = request.query_params.get("tenant_id")
-        if not override:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": {
-                        "code": "tenant_context_required",
-                        "message": (
-                            "Super admin queries require explicit ?tenant_id=X. "
-                            "If viewing a dashboard, ensure the frontend passes "
-                            "the dashboard's tenant_id."
-                        ),
-                    }
-                },
-            )
-        return override
+        if override:
+            return override
+        session_tid = getattr(request.state, "tenant_id", None)
+        if session_tid:
+            return session_tid
+        return settings.default_tenant_id
 
     tenant_id = getattr(request.state, "tenant_id", None)
     if tenant_id:

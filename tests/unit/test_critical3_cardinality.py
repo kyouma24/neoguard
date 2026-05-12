@@ -123,14 +123,15 @@ class TestHardLimits:
 class TestTenantScoping:
     """Metadata and metrics routes enforce tenant context via get_query_tenant_id."""
 
-    async def test_super_admin_without_tenant_gets_400_on_metadata(self):
-        """Super admin without ?tenant_id → 400 tenant_context_required."""
+    async def test_super_admin_without_tenant_id_falls_back_to_session_on_metadata(self):
+        """Super admin without ?tenant_id falls back to session tenant_id."""
         app = _make_app(scopes=["read", "write", "admin"], is_super_admin=True)
-        with patch("neoguard.api.routes.metadata.get_metric_names", AsyncMock(return_value=[])):
+        with patch("neoguard.api.routes.metadata.get_metric_names", AsyncMock(return_value=["cpu"])) as mock_fn:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.get("/api/v1/metadata/metrics")
-        assert resp.status_code == 400
-        assert "tenant_context_required" in resp.text
+        assert resp.status_code == 200
+        # Falls back to session tenant_id (TENANT_A) instead of raising 400
+        assert mock_fn.call_args.kwargs["tenant_id"] == TENANT_A
 
     async def test_super_admin_with_tenant_succeeds_on_metadata(self):
         """Super admin with ?tenant_id=X → 200."""
@@ -141,13 +142,27 @@ class TestTenantScoping:
         assert resp.status_code == 200
         assert resp.json() == ["cpu"]
 
-    async def test_super_admin_without_tenant_gets_400_on_metrics_names(self):
-        """Super admin without ?tenant_id on /metrics/names → 400."""
+    async def test_super_admin_without_tenant_id_falls_back_to_session_on_metrics_names(self):
+        """Super admin without ?tenant_id on /metrics/names falls back to session tenant_id."""
+        from contextlib import asynccontextmanager
+
         app = _make_app(scopes=["read", "write", "admin"], is_super_admin=True)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.get("/api/v1/metrics/names")
-        assert resp.status_code == 400
-        assert "tenant_context_required" in resp.text
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[{"name": "cpu"}])
+
+        mock_pool = MagicMock()
+
+        @asynccontextmanager
+        async def mock_acquire():
+            yield mock_conn
+
+        mock_pool.acquire = mock_acquire
+
+        with patch("neoguard.db.timescale.connection.get_pool", AsyncMock(return_value=mock_pool)):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.get("/api/v1/metrics/names")
+        assert resp.status_code == 200
 
     async def test_regular_user_metadata_passes_tenant(self):
         """Regular user gets their tenant_id injected automatically."""
@@ -167,19 +182,31 @@ class TestTenantScoping:
 class TestGetQueryTenantIdRegression:
     """CRITICAL-2 regression: super admin behavior on metrics endpoints."""
 
-    def test_super_admin_without_tenant_raises_400(self):
-        """Super admin without ?tenant_id on /metrics/names → 400."""
+    def test_super_admin_without_tenant_id_falls_back_to_session(self):
+        """Super admin without ?tenant_id falls back to session tenant_id."""
         from neoguard.api.deps import get_query_tenant_id
 
         request = MagicMock()
         request.state.is_super_admin = True
         request.state.scopes = ["read", "write", "admin"]
+        request.state.tenant_id = TENANT_A
         request.query_params = {}
 
-        with pytest.raises(HTTPException) as exc_info:
-            get_query_tenant_id(request)
-        assert exc_info.value.status_code == 400
-        assert "tenant_context_required" in str(exc_info.value.detail)
+        result = get_query_tenant_id(request)
+        assert result == TENANT_A
+
+    def test_super_admin_without_session_tenant_falls_back_to_default(self):
+        """Super admin without ?tenant_id and no session tenant uses default_tenant_id."""
+        from neoguard.api.deps import get_query_tenant_id
+
+        request = MagicMock()
+        request.state.is_super_admin = True
+        request.state.scopes = ["read", "write", "admin"]
+        request.state.tenant_id = None
+        request.query_params = {}
+
+        result = get_query_tenant_id(request)
+        assert result == settings.default_tenant_id
 
     def test_super_admin_with_tenant_succeeds(self):
         """Super admin with ?tenant_id returns the override."""

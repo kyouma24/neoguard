@@ -33,39 +33,43 @@ beforeEach(() => {
 });
 
 describe("SignupPage", () => {
-  it("renders the signup form", () => {
+  it("renders the signup form with all fields", () => {
     renderPage();
     expect(screen.getByText("NeoGuard")).toBeInTheDocument();
     expect(screen.getByText("Create your account")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("John Doe")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("you@company.com")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Min 8 characters")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Re-enter your password")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Acme Corp")).toBeInTheDocument();
   });
 
-  it("has organization name field", () => {
+  it("shows required asterisks on all fields", () => {
     renderPage();
-    expect(screen.getByPlaceholderText("Acme Corp")).toBeInTheDocument();
+    const asterisks = screen.getAllByText("*");
+    expect(asterisks.length).toBe(5);
   });
 
   it("has link to login page", () => {
     renderPage();
-    const link = screen.getByText("Sign in");
+    const link = screen.getByText("Sign in instead");
     expect(link).toHaveAttribute("href", "/login");
   });
 
-  it("calls signup with all fields on submit", async () => {
+  it("calls signup with all fields on successful submit", async () => {
     mockSignup.mockResolvedValue(undefined);
     const user = userEvent.setup();
     renderPage();
 
     await user.type(screen.getByPlaceholderText("John Doe"), "Test User");
     await user.type(screen.getByPlaceholderText("you@company.com"), "test@test.com");
-    await user.type(screen.getByPlaceholderText("Min 8 characters"), "password123");
+    await user.type(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number"), "Password1");
+    await user.type(screen.getByPlaceholderText("Re-enter your password"), "Password1");
     await user.type(screen.getByPlaceholderText("Acme Corp"), "Acme Corp");
     await user.click(screen.getByRole("button", { name: /Create account/ }));
 
     await waitFor(() => {
-      expect(mockSignup).toHaveBeenCalledWith("test@test.com", "password123", "Test User", "Acme Corp");
+      expect(mockSignup).toHaveBeenCalledWith("test@test.com", "Password1", "Test User", "Acme Corp");
       expect(mockNavigate).toHaveBeenCalledWith("/");
     });
   });
@@ -77,7 +81,8 @@ describe("SignupPage", () => {
 
     await user.type(screen.getByPlaceholderText("John Doe"), "Test");
     await user.type(screen.getByPlaceholderText("you@company.com"), "t@t.com");
-    await user.type(screen.getByPlaceholderText("Min 8 characters"), "pass1234");
+    await user.type(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number"), "Password1");
+    await user.type(screen.getByPlaceholderText("Re-enter your password"), "Password1");
     await user.type(screen.getByPlaceholderText("Acme Corp"), "TestOrg");
     await user.click(screen.getByRole("button", { name: /Create account/ }));
 
@@ -91,7 +96,8 @@ describe("SignupPage", () => {
 
     await user.type(screen.getByPlaceholderText("John Doe"), "Test");
     await user.type(screen.getByPlaceholderText("you@company.com"), "t@t.com");
-    await user.type(screen.getByPlaceholderText("Min 8 characters"), "pass1234");
+    await user.type(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number"), "Password1");
+    await user.type(screen.getByPlaceholderText("Re-enter your password"), "Password1");
     await user.type(screen.getByPlaceholderText("Acme Corp"), "TestOrg");
     await user.click(screen.getByRole("button", { name: /Create account/ }));
 
@@ -105,9 +111,96 @@ describe("SignupPage", () => {
     expect(screen.getByPlaceholderText("John Doe")).toHaveFocus();
   });
 
-  it("password field requires minimum 8 characters", () => {
+  it("validates required name field", async () => {
+    const user = userEvent.setup();
     renderPage();
-    const input = screen.getByPlaceholderText("Min 8 characters");
-    expect(input).toHaveAttribute("minLength", "8");
+
+    await user.click(screen.getByRole("button", { name: /Create account/ }));
+
+    expect(screen.getByText("Full name is required")).toBeInTheDocument();
+    expect(mockSignup).not.toHaveBeenCalled();
+  });
+
+  it("validates email format", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByPlaceholderText("John Doe"), "Test");
+    await user.type(screen.getByPlaceholderText("you@company.com"), "not-an-email");
+    await user.click(screen.getByRole("button", { name: /Create account/ }));
+
+    expect(screen.getByText("Enter a valid email address")).toBeInTheDocument();
+    expect(mockSignup).not.toHaveBeenCalled();
+  });
+
+  it("validates password minimum length", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByPlaceholderText("John Doe"), "Test");
+    await user.type(screen.getByPlaceholderText("you@company.com"), "t@t.com");
+    await user.type(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number"), "Short1");
+    await user.click(screen.getByRole("button", { name: /Create account/ }));
+
+    expect(screen.getByText("Password must be at least 8 characters")).toBeInTheDocument();
+    expect(mockSignup).not.toHaveBeenCalled();
+  });
+
+  it("validates password requires uppercase", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByPlaceholderText("John Doe"), "Test");
+    await user.type(screen.getByPlaceholderText("you@company.com"), "t@t.com");
+    await user.type(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number"), "lowercase1");
+    await user.click(screen.getByRole("button", { name: /Create account/ }));
+
+    expect(screen.getByText("Password must contain at least one uppercase letter")).toBeInTheDocument();
+    expect(mockSignup).not.toHaveBeenCalled();
+  });
+
+  it("validates password requires number", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByPlaceholderText("John Doe"), "Test");
+    await user.type(screen.getByPlaceholderText("you@company.com"), "t@t.com");
+    await user.type(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number"), "Nonumber");
+    await user.click(screen.getByRole("button", { name: /Create account/ }));
+
+    expect(screen.getByText("Password must contain at least one number")).toBeInTheDocument();
+    expect(mockSignup).not.toHaveBeenCalled();
+  });
+
+  it("validates passwords must match", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByPlaceholderText("John Doe"), "Test");
+    await user.type(screen.getByPlaceholderText("you@company.com"), "t@t.com");
+    await user.type(screen.getByPlaceholderText("Min 8 chars, 1 uppercase, 1 number"), "Password1");
+    await user.type(screen.getByPlaceholderText("Re-enter your password"), "Different1");
+    await user.type(screen.getByPlaceholderText("Acme Corp"), "TestOrg");
+    await user.click(screen.getByRole("button", { name: /Create account/ }));
+
+    expect(screen.getByText("Passwords do not match")).toBeInTheDocument();
+    expect(mockSignup).not.toHaveBeenCalled();
+  });
+
+  it("clears field error when user types in that field", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /Create account/ }));
+    expect(screen.getByText("Full name is required")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("John Doe"), "A");
+    expect(screen.queryByText("Full name is required")).not.toBeInTheDocument();
+  });
+
+  it("has NeoGuard branding on left panel", () => {
+    renderPage();
+    expect(screen.getByText("NeoGuard")).toBeInTheDocument();
+    expect(screen.getByText(/Start monitoring your cloud/)).toBeInTheDocument();
   });
 });

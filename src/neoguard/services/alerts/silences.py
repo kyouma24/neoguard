@@ -78,11 +78,14 @@ async def update_silence(
     if not updates:
         return await get_silence(tenant_id, silence_id)
 
+    json_fields = {"rule_ids", "matchers", "recurrence_days"}
     set_parts = []
     params: list = []
     idx = 3
 
     for field, value in updates.items():
+        if field in json_fields:
+            value = orjson.dumps(value).decode()
         set_parts.append(f"{field} = ${idx}")
         params.append(value)
         idx += 1

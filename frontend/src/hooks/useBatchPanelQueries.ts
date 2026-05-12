@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { api } from "../services/api";
 import type {
   PanelDefinition,
@@ -75,19 +75,9 @@ export function useBatchPanelQueries({
   visiblePanelIds,
   enabled = true,
 }: UseBatchPanelQueriesOptions) {
-  // Initialize with loading state for all eligible panels so WidgetRenderer
-  // sees preloadedResult={status:"loading"} on first render and skips individual fetch.
-  const [results, setResults] = useState<Record<string, PanelBatchResult>>(() => {
-    if (!enabled) return {};
-    const init: Record<string, PanelBatchResult> = {};
-    for (const p of panels) {
-      if (isBatchEligible(p) && (!visiblePanelIds || visiblePanelIds.has(p.id))) {
-        init[p.id] = { status: "loading" };
-      }
-    }
-    return init;
-  });
+  const [results, setResults] = useState<Record<string, PanelBatchResult>>({});
   const abortRef = useRef<AbortController | null>(null);
+  const fetchedPanelIdsRef = useRef<Set<string>>(new Set());
   const variablesJson = JSON.stringify(variables);
 
   // Stabilize Date deps as timestamps to prevent re-triggering on every render
@@ -96,31 +86,47 @@ export function useBatchPanelQueries({
   // Stable panel IDs key (panels array reference changes but IDs don't)
   const panelIdsKey = panels.map((p) => p.id).join(",");
 
-  const runBatch = useCallback(async () => {
+  // Stabilize visiblePanelIds — Set reference changes every render but contents may not.
+  // Convert to a sorted string key so useCallback/useEffect deps are stable.
+  const visibleIdsKey = useMemo(() => {
+    if (!visiblePanelIds) return "";
+    return [...visiblePanelIds].sort().join(",");
+  }, [visiblePanelIds]);
+
+  // Reset fetched tracking when query parameters change (time range, variables, refresh).
+  // This ensures auto-refresh and time range changes re-fetch visible panels.
+  const invalidationKey = `${fromMs}:${toMs}:${interval}:${variablesJson}:${refreshKey}:${queryTenantId ?? ""}`;
+  const prevInvalidationRef = useRef(invalidationKey);
+
+  useEffect(() => {
+    if (prevInvalidationRef.current !== invalidationKey) {
+      prevInvalidationRef.current = invalidationKey;
+      fetchedPanelIdsRef.current = new Set();
+    }
+  }, [invalidationKey]);
+
+  const runBatch = useCallback(async (panelIdsToFetch: string[]) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const eligiblePanels = panels.filter((p) => {
-      if (!isBatchEligible(p)) return false;
-      if (visiblePanelIds && !visiblePanelIds.has(p.id)) return false;
-      return true;
+    const eligiblePanels = panels.filter((p) =>
+      panelIdsToFetch.includes(p.id) && isBatchEligible(p)
+    );
+
+    if (eligiblePanels.length === 0) return;
+
+    // Set loading state for newly-fetching panels WITHOUT wiping existing results
+    setResults((prev) => {
+      const next = { ...prev };
+      for (const p of eligiblePanels) {
+        next[p.id] = { status: "loading" };
+      }
+      return next;
     });
-
-    if (eligiblePanels.length === 0) {
-      setResults({});
-      return;
-    }
-
-    const initialState: Record<string, PanelBatchResult> = {};
-    for (const p of eligiblePanels) {
-      initialState[p.id] = { status: "loading" };
-    }
-    setResults(initialState);
 
     const queries: BatchQueryItem[] = [];
     const vars = JSON.parse(variablesJson) as Record<string, string>;
-
     const startIso = new Date(fromMs).toISOString();
     const endIso = new Date(toMs).toISOString();
 
@@ -138,10 +144,7 @@ export function useBatchPanelQueries({
       });
     }
 
-    if (queries.length === 0) {
-      setResults({});
-      return;
-    }
+    if (queries.length === 0) return;
 
     try {
       const stream = api.mql.batchQueryStream(
@@ -158,6 +161,8 @@ export function useBatchPanelQueries({
         if (controller.signal.aborted) break;
         if (msg.type === "query_result") {
           const line = msg as BatchQueryResultLine;
+          // Mark as fetched
+          fetchedPanelIdsRef.current.add(line.id);
           setResults((prev) => ({
             ...prev,
             [line.id]: {
@@ -182,16 +187,56 @@ export function useBatchPanelQueries({
         return next;
       });
     }
-  }, [panelIdsKey, fromMs, toMs, interval, variablesJson, dashboardId, queryTenantId, visiblePanelIds]);
+  }, [panelIdsKey, fromMs, toMs, interval, variablesJson, dashboardId, queryTenantId]);
 
+  // Refs to hold latest values for the effect (avoids unstable deps)
+  const panelsRef = useRef(panels);
+  panelsRef.current = panels;
+  const visibleIdsRef = useRef(visiblePanelIds);
+  visibleIdsRef.current = visiblePanelIds;
+
+  // Main effect: determine which panels need fetching and trigger batch
   useEffect(() => {
     if (!enabled) {
       setResults({});
+      fetchedPanelIdsRef.current = new Set();
       return;
     }
-    runBatch();
+
+    const currentPanels = panelsRef.current;
+    const currentVisibleIds = visibleIdsRef.current;
+
+    // Determine which panels are eligible and visible
+    const targetPanels = currentPanels.filter((p) => {
+      if (!isBatchEligible(p)) return false;
+      if (currentVisibleIds && !currentVisibleIds.has(p.id)) return false;
+      return true;
+    });
+
+    // On invalidation (refresh/time change), all visible panels need re-fetch.
+    // On visibility change only, fetch only newly-visible panels not yet fetched.
+    const panelsToFetch = targetPanels.filter(
+      (p) => !fetchedPanelIdsRef.current.has(p.id)
+    );
+
+    if (panelsToFetch.length > 0) {
+      // Set initial loading state for panels that have no result yet
+      setResults((prev) => {
+        const next = { ...prev };
+        for (const p of panelsToFetch) {
+          if (!next[p.id]) {
+            next[p.id] = { status: "loading" };
+          }
+        }
+        return next;
+      });
+      runBatch(panelsToFetch.map((p) => p.id));
+    }
+
     return () => { abortRef.current?.abort(); };
-  }, [runBatch, enabled, refreshKey]);
+  // visibleIdsKey/panelIdsKey are stable string representations that trigger re-evaluation
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, panelIdsKey, visibleIdsKey, invalidationKey, runBatch]);
 
   return results;
 }

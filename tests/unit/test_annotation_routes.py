@@ -282,12 +282,14 @@ class TestTenantIsolation:
                 await client.get("/api/v1/annotations")
             assert mock_list.call_args[0][0] == "t-other"
 
-    async def test_super_admin_sees_all_tenants(self):
+    async def test_super_admin_without_tenant_id_falls_back_to_session(self):
         app = _make_admin_app()
         with patch("neoguard.api.routes.annotations.list_annotations", AsyncMock(return_value=[])) as mock_list:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                await client.get("/api/v1/annotations")
-            assert mock_list.call_args[0][0] is None
+                resp = await client.get("/api/v1/annotations")
+        assert resp.status_code == 200
+        # Falls back to session tenant_id (TENANT_ID) instead of raising 400
+        assert mock_list.call_args[0][0] == TENANT_ID
 
     async def test_super_admin_scopes_with_query_param(self):
         app = _make_admin_app()

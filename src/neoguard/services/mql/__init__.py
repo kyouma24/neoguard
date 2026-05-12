@@ -28,6 +28,8 @@ from neoguard.services.mql.parser import parse
 from neoguard.services.mql.compiler import compile_query, CompiledQuery, CompilerError
 from neoguard.services.mql.executor import execute
 from neoguard.services.mql.planner import plan_rollup
+from neoguard.services.mql.identity import QueryIdentity
+from neoguard.services.mql.cost import QueryCost, QueryObservation, estimate_cost
 from neoguard.services.mql.variables import substitute_variables, VariableSubstitutionError
 
 __all__ = [
@@ -61,6 +63,10 @@ __all__ = [
     "CompilerError",
     "execute",
     "plan_rollup",
+    "QueryIdentity",
+    "QueryCost",
+    "QueryObservation",
+    "estimate_cost",
     "substitute_variables",
     "VariableSubstitutionError",
 ]

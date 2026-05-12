@@ -103,7 +103,7 @@ class TestMQLTenantIsolation:
 
             assert mock_compile.call_args.kwargs["tenant_id"] == TENANT_B
 
-    async def test_super_admin_gets_none_tenant(self):
+    async def test_super_admin_without_tenant_id_falls_back_to_session(self):
         app = _make_app(is_super_admin=True, scopes=["admin"])
         with patch("neoguard.api.routes.mql.compile_query") as mock_compile, \
              _mock_execute():
@@ -116,7 +116,27 @@ class TestMQLTenantIsolation:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post("/api/v1/mql/query", json=QUERY_BODY)
 
-            assert mock_compile.call_args.kwargs["tenant_id"] is None
+        # Falls back to session tenant_id (TENANT_A) instead of raising 400
+        assert resp.status_code == 200
+        assert mock_compile.call_args.kwargs["tenant_id"] == TENANT_A
+
+    async def test_super_admin_with_explicit_tenant_id_succeeds(self):
+        app = _make_app(is_super_admin=True, scopes=["admin"])
+        with patch("neoguard.api.routes.mql.compile_query") as mock_compile, \
+             _mock_execute():
+            mock_compile.return_value = AsyncMock()
+            mock_compile.return_value.post_processors = ()
+            mock_compile.return_value.metric_name = "cpu"
+            mock_compile.return_value.sql = "SELECT 1"
+            mock_compile.return_value.params = ()
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    f"/api/v1/mql/query?tenant_id={TENANT_B}", json=QUERY_BODY
+                )
+
+            assert resp.status_code == 200
+            assert mock_compile.call_args.kwargs["tenant_id"] == TENANT_B
 
 
 class TestMQLCompilerTenantIsolation:
@@ -137,7 +157,12 @@ class TestMQLCompilerTenantIsolation:
         assert "tenant_id =" in compiled.sql
         assert TENANT_A in compiled.params
 
-    def test_super_admin_query_has_no_tenant_filter(self):
+    def test_compiler_omits_tenant_filter_when_cross_tenant(self):
+        """Compiler-level: tenant_id=None + allow_cross_tenant omits WHERE clause.
+
+        Routes no longer pass None (get_query_tenant_id enforces explicit context),
+        but compiler supports cross-tenant for internal callers and background jobs.
+        """
         from neoguard.services.mql.parser import parse
         from neoguard.services.mql.compiler import compile_query
         from datetime import datetime, timezone
@@ -148,6 +173,7 @@ class TestMQLCompilerTenantIsolation:
             tenant_id=None,
             start=datetime(2026, 5, 1, tzinfo=timezone.utc),
             end=datetime(2026, 5, 1, 1, tzinfo=timezone.utc),
+            allow_cross_tenant=True,
         )
         assert "tenant_id" not in compiled.sql
 
@@ -188,7 +214,9 @@ class TestMQLInternalMetricProtection:
         with _mock_execute():
             body = {**QUERY_BODY, "query": "avg:neoguard.api.requests"}
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/v1/mql/query", json=body)
+                resp = await client.post(
+                    f"/api/v1/mql/query?tenant_id={TENANT_A}", json=body
+                )
             assert resp.status_code == 200
 
     async def test_neoguard_metric_blocked_in_batch(self):

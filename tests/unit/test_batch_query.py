@@ -145,17 +145,17 @@ class TestStreamBatchValidation:
             resp = await client.post(STREAM_BATCH_URL, json=body)
         assert resp.status_code == 422
 
-    async def test_over_50_queries_rejected(self):
+    async def test_over_max_batch_queries_rejected(self):
         app = _make_app()
-        items = [{**QUERY_ITEM, "id": f"q_{i:03d}"} for i in range(51)]
+        items = [{**QUERY_ITEM, "id": f"q_{i:03d}"} for i in range(201)]
         body = {"queries": items}
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(STREAM_BATCH_URL, json=body)
         assert resp.status_code == 422
 
-    async def test_50_queries_accepted(self):
+    async def test_max_batch_queries_accepted(self):
         app = _make_app()
-        items = [{**QUERY_ITEM, "id": f"q_{i:03d}"} for i in range(50)]
+        items = [{**QUERY_ITEM, "id": f"q_{i:03d}"} for i in range(200)]
         body = {"queries": items}
         with _mock_execute():
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -386,7 +386,7 @@ class TestStreamBatchTenantIsolation:
             mock_compile.assert_called_once()
             assert mock_compile.call_args.kwargs["tenant_id"] == TENANT_A
 
-    async def test_super_admin_gets_none_tenant(self):
+    async def test_super_admin_without_tenant_id_falls_back_to_session(self):
         app = _make_app(is_super_admin=True, scopes=["admin"])
         body = {"queries": [QUERY_ITEM]}
 
@@ -401,7 +401,29 @@ class TestStreamBatchTenantIsolation:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post(STREAM_BATCH_URL, json=body)
 
-            assert mock_compile.call_args.kwargs["tenant_id"] is None
+        # Falls back to session tenant_id (TENANT_A) instead of raising 400
+        assert resp.status_code == 200
+        assert mock_compile.call_args.kwargs["tenant_id"] == TENANT_A
+
+    async def test_super_admin_with_explicit_tenant_id_succeeds(self):
+        app = _make_app(is_super_admin=True, scopes=["admin"])
+        body = {"queries": [QUERY_ITEM]}
+
+        with patch("neoguard.api.routes.mql.compile_query") as mock_compile, \
+             _mock_execute():
+            mock_compile.return_value = AsyncMock()
+            mock_compile.return_value.post_processors = ()
+            mock_compile.return_value.metric_name = "cpu"
+            mock_compile.return_value.sql = "SELECT 1"
+            mock_compile.return_value.params = ()
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    f"{STREAM_BATCH_URL}?tenant_id={TENANT_A}", json=body
+                )
+
+            assert resp.status_code == 200
+            assert mock_compile.call_args.kwargs["tenant_id"] == TENANT_A
 
 
 class TestStreamBatchNDJSONFormat:

@@ -454,4 +454,185 @@ describe("useBatchPanelQueries", () => {
     expect(callArgs.queries).toHaveLength(1);
     expect(callArgs.queries[0].id).toBe("p1");
   });
+
+  it("retains results for panels that leave viewport (no flicker on scroll-up)", async () => {
+    const panels = [
+      makePanel({ id: "p1" }),
+      makePanel({ id: "p2", metric_name: "aws.ec2.networkout" }),
+    ];
+
+    const firstStream = async function* () {
+      yield {
+        type: "query_result" as const,
+        id: "p1",
+        status: "ok" as const,
+        series: [{ name: "test", tags: {}, datapoints: [] }],
+        meta: { total_series: 1, truncated_series: false, max_points: 500 },
+      };
+      yield { type: "batch_complete" as const, took_ms: 50, total: 1 };
+    };
+    const secondStream = async function* () {
+      yield {
+        type: "query_result" as const,
+        id: "p2",
+        status: "ok" as const,
+        series: [{ name: "second", tags: {}, datapoints: [] }],
+        meta: { total_series: 1, truncated_series: false, max_points: 500 },
+      };
+      yield { type: "batch_complete" as const, took_ms: 50, total: 1 };
+    };
+    mockBatchQueryStream.mockReturnValueOnce(firstStream());
+    mockBatchQueryStream.mockReturnValueOnce(secondStream());
+
+    const { result, rerender } = renderHook(
+      (props) => useBatchPanelQueries(props),
+      {
+        initialProps: {
+          ...baseOptions,
+          panels,
+          visiblePanelIds: new Set(["p1"]),
+        },
+      }
+    );
+
+    await waitFor(() => {
+      expect(result.current["p1"]?.status).toBe("ok");
+    });
+
+    // p1 leaves viewport (only p2 visible now) — p1's result should be retained
+    rerender({
+      ...baseOptions,
+      panels,
+      visiblePanelIds: new Set(["p2"]),
+    });
+
+    await waitFor(() => {
+      expect(result.current["p2"]?.status).toBe("ok");
+    });
+
+    // p1 result should NOT be cleared even though p1 left viewport
+    expect(result.current["p1"]?.status).toBe("ok");
+    expect(result.current["p1"]?.data).toHaveLength(1);
+  });
+
+  it("refetches all visible panels on refreshKey change", async () => {
+    const panels = [
+      makePanel({ id: "p1" }),
+      makePanel({ id: "p2", metric_name: "aws.ec2.networkout" }),
+    ];
+
+    const firstStream = async function* () {
+      yield {
+        type: "query_result" as const,
+        id: "p1",
+        status: "ok" as const,
+        series: [{ name: "first", tags: {}, datapoints: [] }],
+        meta: { total_series: 1, truncated_series: false, max_points: 500 },
+      };
+      yield { type: "batch_complete" as const, took_ms: 50, total: 1 };
+    };
+    const secondStream = async function* () {
+      yield {
+        type: "query_result" as const,
+        id: "p1",
+        status: "ok" as const,
+        series: [{ name: "refreshed", tags: {}, datapoints: [] }],
+        meta: { total_series: 1, truncated_series: false, max_points: 500 },
+      };
+      yield { type: "batch_complete" as const, took_ms: 50, total: 1 };
+    };
+
+    mockBatchQueryStream.mockReturnValueOnce(firstStream());
+    mockBatchQueryStream.mockReturnValueOnce(secondStream());
+
+    const { result, rerender } = renderHook(
+      (props) => useBatchPanelQueries(props),
+      {
+        initialProps: {
+          ...baseOptions,
+          panels,
+          visiblePanelIds: new Set(["p1"]),
+          refreshKey: 0,
+        },
+      }
+    );
+
+    await waitFor(() => {
+      expect(result.current["p1"]?.status).toBe("ok");
+    });
+
+    // Trigger refresh — should re-fetch p1 even though it's already fetched
+    rerender({
+      ...baseOptions,
+      panels,
+      visiblePanelIds: new Set(["p1"]),
+      refreshKey: 1,
+    });
+
+    await waitFor(() => {
+      expect(mockBatchQueryStream).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("incrementally fetches only newly-visible panels", async () => {
+    const panels = [
+      makePanel({ id: "p1" }),
+      makePanel({ id: "p2", metric_name: "aws.ec2.networkout" }),
+      makePanel({ id: "p3", metric_name: "aws.ec2.networkin" }),
+    ];
+
+    const firstStream = async function* () {
+      yield {
+        type: "query_result" as const,
+        id: "p1",
+        status: "ok" as const,
+        series: [{ name: "first", tags: {}, datapoints: [] }],
+        meta: { total_series: 1, truncated_series: false, max_points: 500 },
+      };
+      yield { type: "batch_complete" as const, took_ms: 50, total: 1 };
+    };
+    const secondStream = async function* () {
+      yield {
+        type: "query_result" as const,
+        id: "p2",
+        status: "ok" as const,
+        series: [{ name: "second", tags: {}, datapoints: [] }],
+        meta: { total_series: 1, truncated_series: false, max_points: 500 },
+      };
+      yield { type: "batch_complete" as const, took_ms: 50, total: 1 };
+    };
+
+    mockBatchQueryStream.mockReturnValueOnce(firstStream());
+    mockBatchQueryStream.mockReturnValueOnce(secondStream());
+
+    const { result, rerender } = renderHook(
+      (props) => useBatchPanelQueries(props),
+      {
+        initialProps: {
+          ...baseOptions,
+          panels,
+          visiblePanelIds: new Set(["p1"]),
+        },
+      }
+    );
+
+    await waitFor(() => {
+      expect(result.current["p1"]?.status).toBe("ok");
+    });
+
+    // p2 scrolls into view — only p2 should be fetched, not p1 again
+    rerender({
+      ...baseOptions,
+      panels,
+      visiblePanelIds: new Set(["p1", "p2"]),
+    });
+
+    await waitFor(() => {
+      expect(mockBatchQueryStream).toHaveBeenCalledTimes(2);
+    });
+
+    const secondCallArgs = mockBatchQueryStream.mock.calls[1][0];
+    expect(secondCallArgs.queries).toHaveLength(1);
+    expect(secondCallArgs.queries[0].id).toBe("p2");
+  });
 });
