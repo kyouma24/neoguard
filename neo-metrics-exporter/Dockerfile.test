@@ -1,0 +1,17 @@
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 ca-certificates procps iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/neoguard
+
+COPY neoguard-agent-linux /opt/neoguard/neoguard-agent
+RUN chmod +x /opt/neoguard/neoguard-agent
+
+COPY test-config.yaml /opt/neoguard/agent.yaml
+COPY mock-ingest.py /opt/neoguard/mock-ingest.py
+
+EXPOSE 9999
+
+CMD ["bash", "-c", "python3 /opt/neoguard/mock-ingest.py & sleep 1 && /opt/neoguard/neoguard-agent run --config /opt/neoguard/agent.yaml"]

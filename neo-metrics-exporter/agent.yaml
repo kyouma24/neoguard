@@ -1,0 +1,123 @@
+# NeoGuard Agent Configuration
+# All values shown are defaults unless noted otherwise.
+# Supports ${ENV_VAR} and ${ENV_VAR:-default} syntax for env var expansion.
+
+# Required: API key for authenticating with the NeoGuard ingest endpoint
+api_key: ${NEOGUARD_API_KEY:-obl_live_v2_YOUR_KEY_HERE}
+
+# Required: NeoGuard ingest API URL
+endpoint: ${NEOGUARD_ENDPOINT:-https://ingest.yourdomain.com}
+
+# Cloud provider detection: "auto" (AWS/Azure IMDS) or "skip" (bare metal/on-prem)
+cloud_detection: auto
+
+# Extra tags added to every metric point (e.g., environment, team, datacenter)
+extra_tags:
+  environment: production
+  team: platform
+
+# CPU collector options
+cpu:
+  # Emit per-core × per-mode breakdown (default: false, aggregate only)
+  per_core: false
+  # Emit per-core frequency (default: false, summary min/max/avg only)
+  per_core_frequency: false
+
+# Collection intervals
+collection:
+  # Main collection interval in seconds (10-300)
+  interval_seconds: 60
+  # Process collector interval in seconds (10-300)
+  process_interval_seconds: 30
+  # Slow collectors (sensors, entropy, pressure, conntrack) interval (30-600)
+  slow_interval_seconds: 120
+
+# Transport / batching
+transport:
+  # Max points per batch sent to ingest API (100-10000)
+  batch_max_size: 5000
+  # Max seconds between batch transmissions
+  batch_max_interval_seconds: 10
+  # HTTP request timeout in seconds (5-120)
+  request_timeout_seconds: 30
+
+# Buffer (in-memory ring + optional disk WAL for crash resilience)
+buffer:
+  # Max metric points held in memory before drop-oldest (1000-1000000)
+  memory_max_items: 100000
+  # Directory for write-ahead log (WAL). Metrics survive agent restarts.
+  # Leave empty for memory-only buffer. Falls back to memory if disk fails.
+  wal_dir: /var/lib/neoguard/wal
+
+# Disable specific collectors by name
+# Available: cpu, memory, disk, diskio, network, system, netstat, process,
+#            portmap, container, filewatch, sensors, healthscore, saturation,
+#            correlation, vmstat, sockstat, filefd, cpustat, entropy,
+#            pressure, conntrack
+collectors:
+  disabled: []
+
+# Disk collector exclusions
+disk:
+  exclude_mounts:
+    - /proc
+    - /sys
+    - /dev
+    - /run
+    - /snap
+  exclude_fstypes:
+    - tmpfs
+    - devtmpfs
+    - squashfs
+    - overlay
+
+# Network collector exclusions (supports glob patterns)
+network:
+  exclude_interfaces:
+    - lo
+    - "docker*"
+    - "veth*"
+    - "br-*"
+
+# Process collector
+process:
+  # Number of top processes to report (sorted by CPU, then memory)
+  top_n: 20
+  # Regex allowlist — if set, only matching process names are reported
+  allow_regex: []
+  # Regex denylist — matching process names are always excluded
+  deny_regex: []
+
+# Saturation projection (system.*.full_in_hours metrics)
+saturation:
+  # Number of samples to keep per key for linear regression (default 30)
+  window_size: 30
+
+# File watch collector — monitors specific files for existence, size, growth
+file_watch:
+  # File paths or glob patterns to watch
+  paths: []
+  #  - /var/log/syslog
+  #  - /var/log/nginx/error.log
+  #  - /tmp/*.pid
+  # Max files to track after glob expansion (default 50)
+  max_files: 50
+
+# Logging
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+  # Log format: json, text
+  format: json
+
+# Health/status HTTP server (for K8s probes and Prometheus scraping)
+health:
+  # Enable the health server
+  enabled: false
+  # Listen port (binds to 127.0.0.1 only)
+  port: 8282
+  # Endpoints:
+  #   GET /health  — liveness probe (always 200)
+  #   GET /ready   — readiness probe (200 after first collection, 503 during shutdown)
+  #   GET /status  — JSON agent stats (uptime, buffer, errors, goroutines)
+  #   GET /metrics — Prometheus exposition format (latest collected metrics)

@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Vet
+        run: go vet ./...
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Unit tests with race detector
+        run: go test -race -count=1 -timeout 180s ./...
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          SUFFIX=""
+          if [ "$GOOS" = "windows" ]; then SUFFIX=".exe"; fi
+          go build -trimpath -ldflags="-s -w -X main.version=ci-${{ github.sha }} -X main.gitCommit=${{ github.sha }}" \
+            -o bin/neoguard-agent-${GOOS}-${GOARCH}${SUFFIX} ./cmd/neoguard-agent
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neoguard-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin/neoguard-agent-*
+          retention-days: 14
+
+  package:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+      - name: Build Linux binary
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X main.version=${{ github.sha }}" \
+            -o bin/neoguard-agent-linux-amd64 ./cmd/neoguard-agent
+      - name: Build deb package
+        run: VERSION=0.2.0 GOARCH=amd64 nfpm package --packager deb --target bin/
+      - name: Build rpm package
+        run: VERSION=0.2.0 GOARCH=amd64 nfpm package --packager rpm --target bin/
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            bin/*.deb
+            bin/*.rpm
+          retention-days: 14
