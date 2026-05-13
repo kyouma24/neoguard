@@ -276,11 +276,12 @@
       "Bash(NEOGUARD_DEBUG=true python -c \"from neoguard.api.deps import get_query_tenant_id; from neoguard.services.mql.compiler import compile_query, CompilerError; print\\('Imports OK'\\)\")",
       "Bash(NEOGUARD_DEBUG=true python *)",
       "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx vitest run --exclude=\"**/DashboardsPage.viewer.test.tsx\" --exclude=\"**/DashboardsPage.mql.test.tsx\")",
-      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx vitest run --exclude=\"**/DashboardsPage.viewer.test.tsx\" --exclude=\"**/DashboardsPage.mql.test.tsx\" --reporter=json)"
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx vitest run --exclude=\"**/DashboardsPage.viewer.test.tsx\" --exclude=\"**/DashboardsPage.mql.test.tsx\" --reporter=json)",
+      "Bash(git stash *)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "ruflo"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

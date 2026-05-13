@@ -35,6 +35,7 @@ NeoGuardStatusUpdate.md
 PHASE_-1_FOLLOW_UPS.md
 TEST_DEBT.md
 docs/PRODUCT_ROADMAP_2026.md
+docs/neo-metrics-exporter*
 "NeoGuard Product Roadmap.docx"
 superadmin.txt
 vitest_results.txt
@@ -49,3 +50,5 @@ NOW()
 dict[str
 {,
 NeoGuard Product Roadmap.docx
+
+.claude/plan_review.md
