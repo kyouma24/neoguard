@@ -2067,3 +2067,84 @@ Go RSS noise floor on a 2-vCPU Linux host is typically 2-4 MB drift over 24h due
 | Ticket | Priority | Status | Summary |
 |--------|----------|--------|---------|
 | SOAK-001 | P0 | Blocked (awaiting execution) | v1 release soak and operational validation (8 scenarios) |
+| DIST-BUG-001 | P0 | In Progress | Relocate agent workflows to repository root for monorepo execution |
+
+---
+
+## Ticket DIST-BUG-001: Relocate Agent Workflows to Repository Root
+
+- **Status:** In Progress
+- **Priority:** P0
+- **Phase:** 6 - Distribution (bug fix)
+- **Discovered:** 2026-05-17 during RC tag attempt
+- **Root cause:** GitHub Actions only processes workflows from `.github/workflows/` at the repository root. Nested workflows under `neo-metrics-exporter/.github/workflows/` are inert.
+
+### Defect Impact
+
+All three agent workflows committed in Phase 6 are non-functional:
+
+1. `neo-metrics-exporter/.github/workflows/release.yml` (DIST-002) — release automation never triggers on tag push
+2. `neo-metrics-exporter/.github/workflows/chaos.yml` (DIST-006) — nightly chaos tests never run
+3. `neo-metrics-exporter/.github/workflows/ci.yml` (DIST-007) — agent CI/perf regression never runs
+
+### Goal
+
+Create functional root-level workflows that execute agent build/test/release from the monorepo layout. The RC tag `v0.3.0-rc2` must produce real artifacts after this fix.
+
+### Scope
+
+1. Create `.github/workflows/agent-release.yml` at repo root:
+   - Trigger: `push: tags: ['v*']`
+   - All jobs use `working-directory: neo-metrics-exporter`
+   - Build binaries from `neo-metrics-exporter/cmd/neoguard-agent`
+   - nfpm packaging from `neo-metrics-exporter/` (nfpm.yaml lives there)
+   - Docker context: `neo-metrics-exporter/` (Dockerfile lives there)
+   - Artifact paths: `neo-metrics-exporter/bin/`
+   - Cosign signing preserved
+
+2. Create `.github/workflows/agent-chaos.yml` at repo root:
+   - Trigger: `schedule: cron '0 3 * * *'` + `workflow_dispatch`
+   - All jobs use `working-directory: neo-metrics-exporter`
+   - Run chaos scripts from `neo-metrics-exporter/test/chaos/`
+
+3. Create `.github/workflows/agent-ci.yml` at repo root:
+   - Trigger: `push: paths: ['neo-metrics-exporter/**', '.github/workflows/agent-ci.yml', '.github/workflows/agent-release.yml', '.github/workflows/agent-chaos.yml']` + same for `pull_request`
+   - Go test, build, perf regression
+   - `working-directory: neo-metrics-exporter`
+
+4. Remove or annotate nested workflow files:
+   - Delete `neo-metrics-exporter/.github/workflows/` directory entirely
+   - These are now superseded by root workflows
+
+### Files
+
+| Action | Path |
+|--------|------|
+| Create | `.github/workflows/agent-release.yml` |
+| Create | `.github/workflows/agent-chaos.yml` |
+| Create | `.github/workflows/agent-ci.yml` |
+| Delete | `neo-metrics-exporter/.github/workflows/release.yml` |
+| Delete | `neo-metrics-exporter/.github/workflows/chaos.yml` |
+| Delete | `neo-metrics-exporter/.github/workflows/ci.yml` |
+
+### Acceptance Tests
+
+1. Push a `v0.3.0-rc2` tag → `agent-release.yml` triggers and all jobs start
+2. Release job produces: linux-amd64 binary, linux-arm64 binary, windows-amd64 binary, .deb (amd64+arm64), .rpm (amd64+arm64), checksums.txt, cosign bundles, GitHub Release
+3. Docker job pushes multi-arch image to ghcr.io
+4. `agent-ci.yml` triggers on push to `neo-metrics-exporter/**` paths
+5. `agent-chaos.yml` can be triggered via `workflow_dispatch`
+
+### Verification Gate (release-critical — do not close until validated)
+
+1. Push commit to master → confirm `Agent CI` workflow starts (visible in GitHub Actions tab)
+2. Create tag `v0.3.0-rc2` on that commit → confirm `Agent Release` workflow starts
+3. All release jobs succeed: binaries, packages, checksums, cosign, Docker image, GitHub Release created
+4. Do not reuse or move `v0.3.0-rc1` — it is inert and remains as historical evidence of the defect
+
+### Non-Goals
+
+- Do not modify the existing root `ci.yml` (Python/frontend CI)
+- Do not change agent source code
+- Do not change nfpm.yaml, Dockerfile, or deploy/ scripts (only workflow paths)
+- Do not address the root CI failures (Python lint, TS types, integration tests are pre-existing monorepo issues — tracked separately as FINDING-ROOT-CI-001)

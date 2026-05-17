@@ -1,13 +1,27 @@
-name: CI
+name: Agent CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [master]
+    paths:
+      - 'neo-metrics-exporter/**'
+      - '.github/workflows/agent-ci.yml'
+      - '.github/workflows/agent-release.yml'
+      - '.github/workflows/agent-chaos.yml'
   pull_request:
-    branches: [main, master]
+    branches: [master]
+    paths:
+      - 'neo-metrics-exporter/**'
+      - '.github/workflows/agent-ci.yml'
+      - '.github/workflows/agent-release.yml'
+      - '.github/workflows/agent-chaos.yml'
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: neo-metrics-exporter
 
 jobs:
   lint:
@@ -17,8 +31,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - name: Vet
-        run: go vet ./...
+          cache-dependency-path: neo-metrics-exporter/go.sum
+      - run: go vet ./...
 
   test:
     runs-on: ubuntu-latest
@@ -28,8 +42,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - name: Unit tests with race detector
-        run: go test -race -count=1 -timeout 180s ./...
+          cache-dependency-path: neo-metrics-exporter/go.sum
+      - run: go test -race -count=1 -timeout 180s ./...
 
   build:
     runs-on: ubuntu-latest
@@ -48,6 +62,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+          cache-dependency-path: neo-metrics-exporter/go.sum
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
@@ -58,57 +73,52 @@ jobs:
           if [ "$GOOS" = "windows" ]; then SUFFIX=".exe"; fi
           go build -trimpath -ldflags="-s -w -X main.version=ci-${{ github.sha }} -X main.gitCommit=${{ github.sha }}" \
             -o bin/neoguard-agent-${GOOS}-${GOARCH}${SUFFIX} ./cmd/neoguard-agent
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: neoguard-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: bin/neoguard-agent-*
+          path: neo-metrics-exporter/bin/neoguard-agent-*
           retention-days: 14
 
   perf:
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+          cache-dependency-path: neo-metrics-exporter/go.sum
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build Linux binary for size check
-        run: |
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-            -ldflags="-s -w" -o bin/neoguard-agent-linux-amd64 ./cmd/neoguard-agent
-      - name: Run performance regression check
+      - name: Build for size check
+        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/neoguard-agent-linux-amd64 ./cmd/neoguard-agent
+      - name: Performance regression check
         run: bash test/perf/check_regression.sh test/perf/baselines.json
 
   package:
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+          cache-dependency-path: neo-metrics-exporter/go.sum
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
       - name: Build Linux binary
-        run: |
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-            -ldflags="-s -w -X main.version=${{ github.sha }}" \
-            -o bin/neoguard-agent-linux-amd64 ./cmd/neoguard-agent
-      - name: Build deb package
-        run: VERSION=0.2.0 GOARCH=amd64 nfpm package --packager deb --target bin/
-      - name: Build rpm package
-        run: VERSION=0.2.0 GOARCH=amd64 nfpm package --packager rpm --target bin/
-      - name: Upload packages
-        uses: actions/upload-artifact@v4
+        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${{ github.sha }}" -o bin/neoguard-agent-linux-amd64 ./cmd/neoguard-agent
+      - name: Build deb
+        run: VERSION=0.3.0 GOARCH=amd64 nfpm package --packager deb --target bin/
+      - name: Build rpm
+        run: VERSION=0.3.0 GOARCH=amd64 nfpm package --packager rpm --target bin/
+      - uses: actions/upload-artifact@v4
         with:
           name: packages
           path: |
-            bin/*.deb
-            bin/*.rpm
+            neo-metrics-exporter/bin/*.deb
+            neo-metrics-exporter/bin/*.rpm
           retention-days: 14

@@ -163,3 +163,22 @@
 - **Evidence**: Frontend needs to know -1 means "not projecting to fill"
 - **Impact**: UI confusion if not handled
 - **Date**: 2026-05-13
+
+---
+
+## Monorepo CI Findings (2026-05-17)
+
+### FINDING-ROOT-CI-001: Root monorepo CI is red on master
+
+- **Priority**: P1 (release readiness — not blocking agent release, but indicates monorepo health)
+- **Status**: Open
+- **Date**: 2026-05-17
+- **Evidence**: GitHub Actions run 25983384198 on commit 98d8f3c (master push)
+- **Failed jobs**:
+  1. `backend-lint` — Ruff lint errors in `src/` or `tests/`
+  2. `frontend` — TypeScript type check errors (`npx tsc --noEmit`)
+  3. `backend-integration` — Integration test failures (requires TimescaleDB + ClickHouse services)
+- **Root cause**: Pre-existing monorepo code drift. The 144-file agent consolidation commit did not modify Python or TypeScript source. These failures are pre-existing from uncommitted/broken monorepo code that was already on master before the agent work.
+- **Impact**: Root CI red makes it impossible to enforce "green master" as a release gate for the full product. Agent release is isolated (agent-release.yml has its own test job), but product-level release readiness requires this resolved.
+- **Recommendation**: Separate ticket for monorepo CI repair. Does not block DIST-BUG-001 or agent v0.3.0-rc2. Should be resolved before any product-level release claim.
+- **Blocks**: Nothing in Phase 6.5 agent soak. Would block any future monorepo-wide release gate.

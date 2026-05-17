@@ -1,4 +1,4 @@
-name: Release
+name: Agent Release
 
 on:
   push:
@@ -9,6 +9,10 @@ permissions:
   packages: write
   id-token: write
 
+defaults:
+  run:
+    working-directory: neo-metrics-exporter
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -17,8 +21,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - name: Run tests with race detector
-        run: go test -race -count=1 -timeout 180s ./...
+          cache-dependency-path: neo-metrics-exporter/go.sum
+      - run: go test -race -count=1 -timeout 180s ./...
 
   build:
     runs-on: ubuntu-latest
@@ -37,6 +41,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+          cache-dependency-path: neo-metrics-exporter/go.sum
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
@@ -51,11 +56,10 @@ jobs:
           go build -trimpath \
             -ldflags="-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${{ github.sha }}" \
             -o bin/neoguard-agent-${GOOS}-${GOARCH}${SUFFIX} ./cmd/neoguard-agent
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: bin/neoguard-agent-*
+          path: neo-metrics-exporter/bin/neoguard-agent-*
           retention-days: 1
 
   package:
@@ -69,29 +73,29 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+          cache-dependency-path: neo-metrics-exporter/go.sum
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
       - name: Download Linux binary
         uses: actions/download-artifact@v4
         with:
           name: binary-linux-${{ matrix.goarch }}
-          path: bin/
+          path: neo-metrics-exporter/bin/
       - name: Normalize version
         id: version
         run: |
           TAG="${{ github.ref_name }}"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-      - name: Build deb package
+      - name: Build deb
         run: VERSION=${{ steps.version.outputs.version }} GOARCH=${{ matrix.goarch }} nfpm package --packager deb --target bin/
-      - name: Build rpm package
+      - name: Build rpm
         run: VERSION=${{ steps.version.outputs.version }} GOARCH=${{ matrix.goarch }} nfpm package --packager rpm --target bin/
-      - name: Upload packages
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.goarch }}
           path: |
-            bin/*.deb
-            bin/*.rpm
+            neo-metrics-exporter/bin/*.deb
+            neo-metrics-exporter/bin/*.rpm
           retention-days: 1
 
   release:
@@ -128,6 +132,7 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'rc') }}
 
   docker:
     runs-on: ubuntu-latest
@@ -155,7 +160,7 @@ jobs:
         id: docker-push
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: neo-metrics-exporter
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |

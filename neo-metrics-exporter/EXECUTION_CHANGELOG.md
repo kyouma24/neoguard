@@ -686,3 +686,44 @@ Use `CHANGELOG.md` for product/release changes. Use this file for work-managemen
 - ✅ EXECUTION_CHANGELOG.md entry added
 
 **Workflow gap resolved:** AGENT-015 previously had no TICKETS.md entry (tracked only via PHASE_TRACKER.md + standalone spec). Formal ticket entry added to maintain consistent audit trail per CLAUDE_EXECUTION_HOOKS.md.
+
+---
+
+### 2026-05-17 — DIST-BUG-001: Workflow Relocation (In Progress)
+
+**Ticket:** DIST-BUG-001
+**Status:** In Progress → awaiting push + tag validation
+
+**Problem:** GitHub Actions only processes workflows from `<repo-root>/.github/workflows/`. All 3 agent workflows committed in Phase 6 under `neo-metrics-exporter/.github/workflows/` are inert. Tag `v0.3.0-rc1` pushed but release workflow never triggered.
+
+**Implementation:**
+
+1. Created `.github/workflows/agent-ci.yml` at repo root:
+   - Path-scoped trigger: `neo-metrics-exporter/**` + all 3 agent workflow files
+   - Jobs: lint, test, build (3 platforms), perf, package
+   - `defaults.run.working-directory: neo-metrics-exporter`
+
+2. Created `.github/workflows/agent-release.yml` at repo root:
+   - Tag trigger: `v*`
+   - Jobs: test, build (3 platforms), package (deb+rpm, 2 arches), release (checksums + cosign), docker (multi-arch + cosign)
+   - Docker context: `neo-metrics-exporter`
+   - Artifact paths: repo-root-relative for upload-artifact
+   - `prerelease: contains(github.ref_name, 'rc')`
+
+3. Created `.github/workflows/agent-chaos.yml` at repo root:
+   - Schedule + workflow_dispatch triggers
+   - Self-hosted runner, 5 chaos test scripts
+
+4. Deleted inert nested workflows:
+   - `neo-metrics-exporter/.github/workflows/release.yml`
+   - `neo-metrics-exporter/.github/workflows/chaos.yml`
+   - `neo-metrics-exporter/.github/workflows/ci.yml`
+   - `neo-metrics-exporter/.github/` directory removed
+
+**Verification gate (not yet executed):**
+- [ ] Push to master → Agent CI starts
+- [ ] Tag v0.3.0-rc2 → Agent Release starts
+- [ ] All release jobs succeed (binaries, packages, Docker, cosign)
+- [ ] Do not reuse v0.3.0-rc1
+
+**Separate finding recorded:** FINDING-ROOT-CI-001 — root monorepo CI red on master (pre-existing, not caused by agent work). Tracked independently. Does not block agent release.
