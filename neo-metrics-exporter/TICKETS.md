@@ -2191,3 +2191,49 @@ This is a production defect: any external caller of `SaveCheckpoint()` (graceful
 - Do not change CursorStore or Cursor struct
 - Do not add locking to file I/O operations (only cursor state)
 - Do not touch any files outside `internal/collector/logtail/tailer.go`
+
+---
+
+## Ticket DIST-BUG-002: Fix nfpm binary source resolution in monorepo release packaging
+
+- **Status:** In Progress
+- **Priority:** P1
+- **Phase:** 6.5 - Release Qualification
+- **Depends on:** None
+- **Discovered by:** Agent CI run 25984513074 package job (ID 76379388145)
+
+### Defect
+
+`nfpm.yaml` references `bin/neoguard-agent-linux-${GOARCH}` in `contents[].src`. nfpm does not expand shell environment variables in content source paths. The package job sets `GOARCH=amd64` as an env var before calling `nfpm package`, but nfpm looks for the literal filename `bin/neoguard-agent-linux-${GOARCH}` which does not exist.
+
+Error: `glob failed: bin/neoguard-agent-linux-${GOARCH}: no matching files`
+
+This affects both `agent-ci.yml` (package job) and `agent-release.yml` (package job).
+
+### Files
+
+- `nfpm.yaml` — change `contents[].src` to stable path `bin/neoguard-agent`
+- `.github/workflows/agent-ci.yml` — rename binary to stable name before nfpm
+- `.github/workflows/agent-release.yml` — rename binary to stable name before nfpm
+
+### Requirements
+
+- Change nfpm.yaml `contents[0].src` from `bin/neoguard-agent-linux-${GOARCH}` to `bin/neoguard-agent`
+- Keep `arch: ${GOARCH}` and `version: ${VERSION}` as env-driven metadata (nfpm does expand these in metadata fields)
+- In agent-ci.yml package job: after building or downloading the binary, copy it to `bin/neoguard-agent`
+- In agent-release.yml package job: after downloading the arch-specific artifact, copy it to `bin/neoguard-agent`
+- Do not change the build job output filenames (they remain arch-specific for artifact upload)
+
+### Acceptance Tests
+
+1. Agent CI package job passes (builds .deb and .rpm)
+2. Agent CI overall is green (all jobs pass)
+3. Agent Release package job passes for both amd64 and arm64
+4. Agent Release overall produces: binaries, .deb, .rpm, checksums, cosign bundles, GitHub Release
+
+### Non-Goals
+
+- Do not change binary output filenames in build jobs
+- Do not change Docker build process
+- Do not modify agent source code
+- Do not change the release job or cosign signing

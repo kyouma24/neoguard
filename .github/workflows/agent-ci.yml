@@ -111,6 +111,8 @@ jobs:
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
       - name: Build Linux binary
         run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${{ github.sha }}" -o bin/neoguard-agent-linux-amd64 ./cmd/neoguard-agent
+      - name: Prepare binary for nfpm
+        run: cp bin/neoguard-agent-linux-amd64 bin/neoguard-agent
       - name: Build deb
         run: VERSION=0.3.0 GOARCH=amd64 nfpm package --packager deb --target bin/
       - name: Build rpm

@@ -9,7 +9,7 @@ homepage: https://github.com/neoguard/neo-metrics-exporter
 license: Proprietary
 
 contents:
-  - src: bin/neoguard-agent-linux-${GOARCH}
+  - src: bin/neoguard-agent
     dst: /usr/bin/neoguard-agent
     file_info:
       mode: 0755

@@ -81,6 +81,8 @@ jobs:
         with:
           name: binary-linux-${{ matrix.goarch }}
           path: neo-metrics-exporter/bin/
+      - name: Prepare binary for nfpm
+        run: cp bin/neoguard-agent-linux-${{ matrix.goarch }} bin/neoguard-agent
       - name: Normalize version
         id: version
         run: |
