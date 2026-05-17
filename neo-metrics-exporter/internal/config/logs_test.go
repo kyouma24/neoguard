@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -26,15 +27,15 @@ logs:
 
 // LOGS-001 AT-2: Config validation requires service field
 func TestLogsConfigRequiresServiceField(t *testing.T) {
-	path := writeTestConfig(t, `
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: ""
-`)
+`, testAbsLogPath()))
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for missing service field")
@@ -46,17 +47,17 @@ logs:
 
 // LOGS-001: Validate parser mode enum
 func TestLogsConfigInvalidParserMode(t *testing.T) {
-	path := writeTestConfig(t, `
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
       parser:
         mode: invalid_mode
-`)
+`, testAbsLogPath()))
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid parser mode")
@@ -68,16 +69,16 @@ logs:
 
 // LOGS-001: Validate start_position enum
 func TestLogsConfigInvalidStartPosition(t *testing.T) {
-	path := writeTestConfig(t, `
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
       start_position: middle
-`)
+`, testAbsLogPath()))
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid start_position")
@@ -89,19 +90,19 @@ logs:
 
 // LOGS-001: Validate multiline mode enum
 func TestLogsConfigInvalidMultilineMode(t *testing.T) {
-	path := writeTestConfig(t, `
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
       multiline:
         enabled: true
         mode: invalid_mode
         pattern: "^\\d{4}"
-`)
+`, testAbsLogPath()))
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid multiline mode")
@@ -113,6 +114,7 @@ logs:
 
 // LOGS-001: Validate spool limits
 func TestLogsConfigInvalidSpoolLimits(t *testing.T) {
+	logPath := testAbsLogPath()
 	tests := []struct {
 		name   string
 		config string
@@ -120,47 +122,47 @@ func TestLogsConfigInvalidSpoolLimits(t *testing.T) {
 	}{
 		{
 			name: "negative_max_size",
-			config: `
+			config: fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
   spool:
     max_size_mb: -100
-`,
+`, logPath),
 			errMsg: "logs.spool.max_size_mb must be",
 		},
 		{
 			name: "invalid_high_watermark",
-			config: `
+			config: fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
   spool:
     high_watermark_pct: 150
-`,
+`, logPath),
 			errMsg: "logs.spool.high_watermark_pct must be",
 		},
 		{
 			name: "invalid_critical_watermark",
-			config: `
+			config: fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
   spool:
     critical_watermark_pct: 50
-`,
+`, logPath),
 			errMsg: "logs.spool.critical_watermark_pct must be",
 		},
 	}
@@ -181,13 +183,14 @@ logs:
 
 // LOGS-001: Valid logs config loads successfully
 func TestLogsConfigValid(t *testing.T) {
-	path := writeTestConfig(t, `
+	logPath := testAbsLogPath()
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
       start_position: end
       parser:
@@ -200,7 +203,7 @@ logs:
     max_size_mb: 2048
     high_watermark_pct: 80
     critical_watermark_pct: 95
-`)
+`, logPath))
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("valid logs config should load: %v", err)
@@ -211,8 +214,8 @@ logs:
 	if len(cfg.Logs.Sources) != 1 {
 		t.Errorf("sources count = %d, want 1", len(cfg.Logs.Sources))
 	}
-	if cfg.Logs.Sources[0].Path != `C:\logs\app.log` {
-		t.Errorf("source path = %q", cfg.Logs.Sources[0].Path)
+	if cfg.Logs.Sources[0].Path != logPath {
+		t.Errorf("source path = %q, want %q", cfg.Logs.Sources[0].Path, logPath)
 	}
 	if cfg.Logs.Sources[0].Service != "web-api" {
 		t.Errorf("source service = %q", cfg.Logs.Sources[0].Service)
@@ -224,15 +227,15 @@ logs:
 
 // LOGS-001: Redaction default is true
 func TestLogsConfigRedactionDefaultTrue(t *testing.T) {
-	path := writeTestConfig(t, `
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
-`)
+`, testAbsLogPath()))
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("config load failed: %v", err)
@@ -247,17 +250,17 @@ logs:
 
 // LOGS-001: Explicit redaction: false is preserved
 func TestLogsConfigRedactionExplicitFalsePreserved(t *testing.T) {
-	path := writeTestConfig(t, `
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
   redaction:
     enabled: false
-`)
+`, testAbsLogPath()))
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("config load failed: %v", err)
@@ -272,15 +275,15 @@ logs:
 
 // LOGS-001: Defaults are applied correctly
 func TestLogsConfigDefaults(t *testing.T) {
-	path := writeTestConfig(t, `
+	path := writeTestConfig(t, fmt.Sprintf(`
 api_key: obl_live_v2_testkey123456
 endpoint: http://localhost:8000
 logs:
   enabled: true
   sources:
-    - path: C:\logs\app.log
+    - path: %s
       service: web-api
-`)
+`, testAbsLogPath()))
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("config load failed: %v", err)

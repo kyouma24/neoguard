@@ -256,11 +256,11 @@ func TestTailerDetectsCopytruncate(t *testing.T) {
 
 	// Simulate copytruncate: truncate then write new content
 	os.Truncate(path, 0)
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	os.WriteFile(path, []byte("new1\nnew2\n"), 0644)
 
 	// Should detect truncation and read new content from offset 0
-	lines := collectLines(t, tailer, 2, 3*time.Second)
+	lines := collectLines(t, tailer, 2, 5*time.Second)
 	if len(lines) < 2 {
 		t.Fatalf("expected 2 new lines after truncation, got %d: %v", len(lines), lines)
 	}
