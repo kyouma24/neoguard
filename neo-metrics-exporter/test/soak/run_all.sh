@@ -9,6 +9,12 @@ EVIDENCE_ROOT="${SCRIPT_DIR}/evidence"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 SUMMARY_FILE="${EVIDENCE_ROOT}/summary_${TIMESTAMP}.txt"
 
+# Source release-specific env if present (e.g. NEOGUARD_DOCKER_IMAGE for S7)
+if [ -f "${SCRIPT_DIR}/.release-env" ]; then
+    # shellcheck source=/dev/null
+    source "${SCRIPT_DIR}/.release-env"
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "FAIL: Must run as root"
     exit 1

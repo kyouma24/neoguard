@@ -1,0 +1,5 @@
+# Per-deployment release configuration (not committed — deployment-specific)
+.release-env
+
+# Evidence collected during soak runs
+evidence/
