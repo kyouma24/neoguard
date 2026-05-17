@@ -57,18 +57,19 @@ func (o *TailerOptions) startPosition() string {
 }
 
 type Tailer struct {
-	path    string
-	opts    *TailerOptions
-	lines   chan Line
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	cursor  *Cursor
-	store   *CursorStore
-	file    *os.File
-	reader  *bufio.Reader
-	active  atomic.Int32
-	metrics *tailerMetrics
+	path     string
+	opts     *TailerOptions
+	lines    chan Line
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	cursorMu sync.Mutex
+	cursor   *Cursor
+	store    *CursorStore
+	file     *os.File
+	reader   *bufio.Reader
+	active   atomic.Int32
+	metrics  *tailerMetrics
 }
 
 type tailerMetrics struct {
@@ -289,17 +290,21 @@ func (t *Tailer) openFile() error {
 		return fmt.Errorf("seek: %w", err)
 	}
 
-	t.file = f
-	t.reader = bufio.NewReaderSize(f, 65536)
-	t.cursor = &Cursor{
+	newCursor := &Cursor{
 		ConfiguredPath:       t.path,
 		PlatformFileIdentity: *identity,
 		Offset:               offset,
 		LastCheckpoint:       time.Now().UTC(),
 	}
 	if fi, err := f.Stat(); err == nil {
-		t.cursor.FileSize = fi.Size()
+		newCursor.FileSize = fi.Size()
 	}
+
+	t.file = f
+	t.reader = bufio.NewReaderSize(f, 65536)
+	t.cursorMu.Lock()
+	t.cursor = newCursor
+	t.cursorMu.Unlock()
 
 	return nil
 }
@@ -339,9 +344,11 @@ func (t *Tailer) readLine() (string, error) {
 		return "", io.EOF
 	}
 
+	t.cursorMu.Lock()
 	if t.cursor != nil {
 		t.cursor.Offset += int64(len(raw))
 	}
+	t.cursorMu.Unlock()
 	return trimNewline(raw), nil
 }
 
@@ -363,13 +370,20 @@ func (t *Tailer) detectRotation() bool {
 		return false
 	}
 
-	if fi.Size() < t.cursor.Offset {
+	t.cursorMu.Lock()
+	cursorOffset := t.cursor.Offset
+	cursorIdentity := t.cursor.PlatformFileIdentity
+	t.cursorMu.Unlock()
+
+	if fi.Size() < cursorOffset {
 		slog.Warn("truncation detected, resetting to offset 0", "path", t.path)
 		t.metrics.truncations.Add(1)
 		t.file.Seek(0, io.SeekStart)
 		t.reader.Reset(t.file)
+		t.cursorMu.Lock()
 		t.cursor.Offset = 0
 		t.cursor.FileSize = fi.Size()
+		t.cursorMu.Unlock()
 		return true
 	}
 
@@ -386,8 +400,8 @@ func (t *Tailer) detectRotation() bool {
 		return false
 	}
 
-	if currentIdentity.Device != t.cursor.PlatformFileIdentity.Device ||
-		currentIdentity.Inode != t.cursor.PlatformFileIdentity.Inode {
+	if currentIdentity.Device != cursorIdentity.Device ||
+		currentIdentity.Inode != cursorIdentity.Inode {
 		slog.Info("rename rotation detected", "path", t.path)
 		t.metrics.rotations.Add(1)
 
@@ -396,8 +410,10 @@ func (t *Tailer) detectRotation() bool {
 
 		t.file = nil
 		t.reader = nil
+		t.cursorMu.Lock()
 		t.cursor.Offset = 0
 		t.cursor.PlatformFileIdentity = *currentIdentity
+		t.cursorMu.Unlock()
 
 		if err := t.openFileAtOffset(0); err != nil {
 			slog.Warn("failed to open new file after rotation", "path", t.path, "error", err)
@@ -406,7 +422,9 @@ func (t *Tailer) detectRotation() bool {
 		return true
 	}
 
+	t.cursorMu.Lock()
 	t.cursor.FileSize = fi.Size()
+	t.cursorMu.Unlock()
 	return false
 }
 
@@ -442,26 +460,38 @@ func (t *Tailer) openFileAtOffset(offset int64) error {
 		return err
 	}
 
-	t.file = f
-	t.reader = bufio.NewReaderSize(f, 65536)
-	t.cursor = &Cursor{
+	newCursor := &Cursor{
 		ConfiguredPath:       t.path,
 		PlatformFileIdentity: *identity,
 		Offset:               offset,
 		LastCheckpoint:       time.Now().UTC(),
 	}
 	if fi, err := f.Stat(); err == nil {
-		t.cursor.FileSize = fi.Size()
+		newCursor.FileSize = fi.Size()
 	}
+
+	t.file = f
+	t.reader = bufio.NewReaderSize(f, 65536)
+	t.cursorMu.Lock()
+	t.cursor = newCursor
+	t.cursorMu.Unlock()
 	return nil
 }
 
 func (t *Tailer) saveCheckpoint() {
-	if t.store == nil || t.cursor == nil {
+	if t.store == nil {
 		return
 	}
-	t.cursor.LastCheckpoint = time.Now().UTC()
-	if err := t.store.Save(t.path, t.cursor); err != nil {
+	t.cursorMu.Lock()
+	if t.cursor == nil {
+		t.cursorMu.Unlock()
+		return
+	}
+	snapshot := *t.cursor
+	snapshot.LastCheckpoint = time.Now().UTC()
+	t.cursorMu.Unlock()
+
+	if err := t.store.Save(t.path, &snapshot); err != nil {
 		slog.Warn("failed to save cursor checkpoint", "path", t.path, "error", err)
 	}
 }

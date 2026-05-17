@@ -2148,3 +2148,46 @@ Create functional root-level workflows that execute agent build/test/release fro
 - Do not change agent source code
 - Do not change nfpm.yaml, Dockerfile, or deploy/ scripts (only workflow paths)
 - Do not address the root CI failures (Python lint, TS types, integration tests are pre-existing monorepo issues — tracked separately as FINDING-ROOT-CI-001)
+
+---
+
+## Ticket LOGS-BUG-001: Synchronize tailer checkpoint state under concurrent SaveCheckpoint
+
+- **Status:** In Progress
+- **Priority:** P1
+- **Phase:** 6.5 - Release Qualification
+- **Depends on:** None (standalone race fix)
+- **Discovered by:** Agent CI run 25983910616 / Agent Release run 25983913580 (`-race` detector)
+
+### Defect
+
+`SaveCheckpoint()` is a public method documented as callable while the tailer is active. `TestTailerDetectsCopytruncate` calls it from the test goroutine while `run()` concurrently mutates `t.cursor.Offset` in `readLine()` and `t.cursor.LastCheckpoint` in the internal `saveCheckpoint()`. The race detector correctly identifies unsynchronized writes at `tailer.go:463`.
+
+This is a production defect: any external caller of `SaveCheckpoint()` (graceful shutdown handler, periodic flush) races with the active tailer loop.
+
+### Files
+
+- `internal/collector/logtail/tailer.go` — add `cursorMu sync.Mutex`, protect all `t.cursor` accesses
+
+### Requirements
+
+- Add `cursorMu sync.Mutex` to Tailer struct
+- Protect all `t.cursor` field reads/writes in: `readLine()`, `detectRotation()`, `openFile()`, `openFileAtOffset()`, `saveCheckpoint()`
+- In `saveCheckpoint()`: lock, copy snapshot, unlock, persist snapshot (no I/O under lock)
+- In `openFile()` / `openFileAtOffset()`: build Cursor locally, lock only for `t.cursor = &newCursor` assignment
+- Core invariant: never access `t.cursor` fields without `cursorMu`; persist copied snapshot, not live pointer
+
+### Acceptance Tests
+
+1. `go test -race -count=1 ./internal/collector/logtail/` passes on Linux CI (no race warnings)
+2. `go test -count=1 -timeout 180s ./...` passes (full suite)
+3. `go build ./...` succeeds
+4. Agent CI workflow (triggered by push) goes green
+5. Agent Release workflow (triggered by v0.3.0-rc4 tag) goes green and produces artifacts
+
+### Non-Goals
+
+- Do not modify test logic in `tailer_test.go`
+- Do not change CursorStore or Cursor struct
+- Do not add locking to file I/O operations (only cursor state)
+- Do not touch any files outside `internal/collector/logtail/tailer.go`
