@@ -49,8 +49,8 @@ func TestDiskBufferWriteAndDrain(t *testing.T) {
 	if err != nil {
 		t.Fatal("WAL file should exist:", err)
 	}
-	if info.Size() == 0 {
-		t.Error("WAL file should not be empty after flush")
+	if info.Size() <= walHeaderSize {
+		t.Error("WAL file should have data beyond header after flush")
 	}
 }
 
@@ -172,5 +172,207 @@ func TestDiskBufferOverflow(t *testing.T) {
 	stats := db.Stats()
 	if stats.Dropped == 0 {
 		t.Error("should have dropped some points")
+	}
+}
+
+func TestDiskBufferWALStats(t *testing.T) {
+	dir := t.TempDir()
+	db := NewDiskBuffer(10000, dir)
+	defer db.Close()
+
+	db.Push(testPoints(10))
+	db.Push(testPoints(10))
+
+	ws := db.WALStats()
+	if !ws.DiskEnabled {
+		t.Error("disk should be enabled")
+	}
+	if ws.SizeBytes <= walHeaderSize {
+		t.Errorf("WAL size should be > header after writes, got %d", ws.SizeBytes)
+	}
+	if ws.FramesWritten != 2 {
+		t.Errorf("frames written = %d, want 2", ws.FramesWritten)
+	}
+}
+
+func TestDiskBufferHighWatermark(t *testing.T) {
+	dir := t.TempDir()
+	cfg := WALConfig{
+		Dir:                  dir,
+		MaxSizeMB:            1,
+		HighWatermarkPct:     80,
+		CriticalWatermarkPct: 95,
+	}
+
+	db := NewDiskBufferWithConfig(100000, cfg)
+	defer db.Close()
+
+	// Initially not at high watermark
+	if db.IsAtHighWatermark() {
+		t.Error("should not be at high watermark initially")
+	}
+}
+
+func TestDiskBufferMetrics_AllPresent(t *testing.T) {
+	dir := t.TempDir()
+	db := NewDiskBuffer(1000, dir)
+	defer db.Close()
+
+	db.Push(testPoints(10))
+
+	metrics := db.Metrics(map[string]string{"test": "tag"})
+	if len(metrics) != 5 {
+		t.Fatalf("expected 5 metrics, got %d", len(metrics))
+	}
+
+	expectedNames := map[string]bool{
+		"agent.wal.size_bytes":             false,
+		"agent.wal.frames_total":           false,
+		"agent.wal.corrupted_frames_total": false,
+		"agent.wal.write_rejections_total": false,
+		"agent.wal.dropped_points_total":   false,
+	}
+
+	for _, m := range metrics {
+		if _, ok := expectedNames[m.Name]; ok {
+			expectedNames[m.Name] = true
+		}
+	}
+
+	for name, found := range expectedNames {
+		if !found {
+			t.Errorf("missing metric: %s", name)
+		}
+	}
+}
+
+func TestDiskBufferMetrics_SizeBytes(t *testing.T) {
+	dir := t.TempDir()
+	db := NewDiskBuffer(1000, dir)
+	defer db.Close()
+
+	db.Push(testPoints(50))
+	db.Close()
+
+	walStats := db.WALStats()
+	metrics := db.Metrics(map[string]string{})
+
+	var sizeMetric *model.MetricPoint
+	for i := range metrics {
+		if metrics[i].Name == "agent.wal.size_bytes" {
+			sizeMetric = &metrics[i]
+			break
+		}
+	}
+
+	if sizeMetric == nil {
+		t.Fatal("agent.wal.size_bytes not found")
+	}
+
+	if sizeMetric.Value != float64(walStats.SizeBytes) {
+		t.Errorf("size_bytes = %f, want %f", sizeMetric.Value, float64(walStats.SizeBytes))
+	}
+}
+
+func TestDiskBufferMetrics_FramesWritten(t *testing.T) {
+	dir := t.TempDir()
+	db := NewDiskBuffer(1000, dir)
+	defer db.Close()
+
+	numPushes := 5
+	for i := 0; i < numPushes; i++ {
+		db.Push(testPoints(10))
+	}
+
+	metrics := db.Metrics(map[string]string{})
+	var framesMetric *model.MetricPoint
+	for i := range metrics {
+		if metrics[i].Name == "agent.wal.frames_total" {
+			framesMetric = &metrics[i]
+			break
+		}
+	}
+
+	if framesMetric == nil {
+		t.Fatal("agent.wal.frames_total not found")
+	}
+
+	if int(framesMetric.Value) != numPushes {
+		t.Errorf("frames_total = %f, want %d", framesMetric.Value, numPushes)
+	}
+}
+
+func TestDiskBufferMetrics_WriteRejections(t *testing.T) {
+	dir := t.TempDir()
+	cfg := WALConfig{
+		Dir:                  dir,
+		MaxSizeMB:            1, // 1MB limit
+		HighWatermarkPct:     80,
+		CriticalWatermarkPct: 95,
+	}
+	db := NewDiskBufferWithConfig(10000, cfg)
+	defer db.Close()
+
+	// Write enough data to definitely exceed 1MB and trigger capacity rejection
+	// Each testPoints(100) creates ~100 points, each with name/value/tags
+	// Keep writing until we hit capacity
+	for i := 0; i < 200; i++ {
+		db.Push(testPoints(100))
+		// Check if we've hit capacity
+		if db.WALStats().WriteRejections > 0 {
+			break
+		}
+	}
+
+	metrics := db.Metrics(map[string]string{})
+	var rejectionsMetric *model.MetricPoint
+	for i := range metrics {
+		if metrics[i].Name == "agent.wal.write_rejections_total" {
+			rejectionsMetric = &metrics[i]
+			break
+		}
+	}
+
+	if rejectionsMetric == nil {
+		t.Fatal("agent.wal.write_rejections_total not found")
+	}
+
+	if rejectionsMetric.Value <= 0 {
+		t.Errorf("write_rejections_total = %f, expected > 0 after exceeding 1MB capacity", rejectionsMetric.Value)
+	}
+}
+
+func TestDiskBufferMetrics_Types(t *testing.T) {
+	dir := t.TempDir()
+	db := NewDiskBuffer(1000, dir)
+	defer db.Close()
+
+	db.Push(testPoints(10))
+
+	// Test tag preservation
+	testTags := map[string]string{"hostname": "test-host", "agent_version": "1.0.0"}
+	metrics := db.Metrics(testTags)
+
+	for _, m := range metrics {
+		// Verify tag preservation
+		if m.Tags["hostname"] != "test-host" {
+			t.Errorf("metric %s missing or wrong hostname tag", m.Name)
+		}
+		if m.Tags["agent_version"] != "1.0.0" {
+			t.Errorf("metric %s missing or wrong agent_version tag", m.Name)
+		}
+
+		// Verify types
+		switch m.Name {
+		case "agent.wal.size_bytes":
+			if m.MetricType != model.MetricGauge {
+				t.Errorf("%s should be gauge, got %s", m.Name, m.MetricType)
+			}
+		case "agent.wal.frames_total", "agent.wal.corrupted_frames_total",
+			"agent.wal.write_rejections_total", "agent.wal.dropped_points_total":
+			if m.MetricType != model.MetricCounter {
+				t.Errorf("%s should be counter, got %s", m.Name, m.MetricType)
+			}
+		}
 	}
 }

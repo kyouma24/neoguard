@@ -9,9 +9,15 @@ import (
 	"time"
 )
 
+const (
+	perProviderTimeout  = 2 * time.Second
+	totalResolveTimeout = 30 * time.Second
+)
+
 type Resolver struct {
 	providers []Provider
 	skipCloud bool
+	stateDir  string
 
 	mu       sync.RWMutex
 	cached   *Identity
@@ -20,6 +26,10 @@ type Resolver struct {
 }
 
 func NewResolver(skipCloud bool) *Resolver {
+	return NewResolverWithStateDir(skipCloud, defaultStateDir())
+}
+
+func NewResolverWithStateDir(skipCloud bool, stateDir string) *Resolver {
 	var providers []Provider
 	if !skipCloud {
 		providers = []Provider{
@@ -27,9 +37,12 @@ func NewResolver(skipCloud bool) *Resolver {
 			NewAzureProvider(),
 		}
 	}
+	providers = append(providers, NewMachineIDProvider())
+
 	return &Resolver{
 		providers: providers,
 		skipCloud: skipCloud,
+		stateDir:  stateDir,
 		cacheTTL:  1 * time.Hour,
 	}
 }
@@ -38,6 +51,15 @@ func NewResolverWithProviders(providers []Provider, skipCloud bool) *Resolver {
 	return &Resolver{
 		providers: providers,
 		skipCloud: skipCloud,
+		cacheTTL:  1 * time.Hour,
+	}
+}
+
+func NewResolverFull(providers []Provider, skipCloud bool, stateDir string) *Resolver {
+	return &Resolver{
+		providers: providers,
+		skipCloud: skipCloud,
+		stateDir:  stateDir,
 		cacheTTL:  1 * time.Hour,
 	}
 }
@@ -58,6 +80,14 @@ func (r *Resolver) Resolve(ctx context.Context) (*Identity, error) {
 
 	r.fillHostInfo(id)
 
+	if r.stateDir != "" {
+		checkIdentityChange(r.stateDir, id)
+		id.AgentID = deriveAgentID(r.stateDir, id)
+		if err := savePersistedIdentity(r.stateDir, id); err != nil {
+			slog.Error("failed to persist identity", "error", err)
+		}
+	}
+
 	r.mu.Lock()
 	r.cached = id
 	r.cachedAt = time.Now()
@@ -69,30 +99,45 @@ func (r *Resolver) Resolve(ctx context.Context) (*Identity, error) {
 func (r *Resolver) detect(ctx context.Context) (*Identity, error) {
 	if r.skipCloud {
 		slog.Info("cloud detection skipped, using hostname fallback")
-		return r.fallbackIdentity(), nil
+		id := r.fallbackIdentity()
+		id.ResolvedVia = "hostname-skip"
+		return id, nil
 	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, totalResolveTimeout)
+	defer cancel()
 
 	for _, p := range r.providers {
-		detectCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		if resolveCtx.Err() != nil {
+			break
+		}
+
+		detectCtx, detectCancel := context.WithTimeout(resolveCtx, perProviderTimeout)
 		id, err := p.Detect(detectCtx)
-		cancel()
+		detectCancel()
 
 		if err == nil {
-			slog.Info("cloud identity detected", "provider", p.Name(), "instance_id", id.InstanceID)
+			id.ResolvedVia = string(p.Name()) + "-imds"
+			if p.Name() == ProviderOnPrem {
+				id.ResolvedVia = "machine-id"
+			}
+			slog.Info("identity detected", "provider", p.Name(), "instance_id", id.InstanceID, "resolved_via", id.ResolvedVia)
 			return id, nil
 		}
-		slog.Debug("cloud provider detection failed", "provider", p.Name(), "error", err)
+		slog.Debug("provider detection failed", "provider", p.Name(), "error", err)
 	}
 
-	slog.Info("no cloud provider detected, falling back to hostname", "providers_tried", len(r.providers))
-	return r.fallbackIdentity(), nil
+	slog.Warn("identity_fallback_to_hostname: instability risk", "providers_tried", len(r.providers))
+	id := r.fallbackIdentity()
+	id.ResolvedVia = "hostname-fallback"
+	return id, nil
 }
 
 func (r *Resolver) fallbackIdentity() *Identity {
 	hostname, _ := os.Hostname()
 	return &Identity{
 		CloudProvider: ProviderUnknown,
-		InstanceID:    hostname,
+		InstanceID:    "host-" + hostname,
 		Hostname:      hostname,
 		OS:            runtime.GOOS,
 	}
@@ -111,4 +156,11 @@ func (r *Resolver) InvalidateCache() {
 	r.mu.Lock()
 	r.cached = nil
 	r.mu.Unlock()
+}
+
+func defaultStateDir() string {
+	if runtime.GOOS == "windows" {
+		return `C:\ProgramData\NeoGuard`
+	}
+	return "/var/lib/neoguard"
 }

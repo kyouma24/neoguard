@@ -6,7 +6,7 @@ import (
 )
 
 func TestAgentSelfCollectorName(t *testing.T) {
-	c := NewAgentSelfCollector(&AgentStats{})
+	c := NewAgentSelfCollector(&AgentStats{}, nil, nil)
 	if c.Name() != "agentself" {
 		t.Errorf("name = %q", c.Name())
 	}
@@ -22,7 +22,7 @@ func TestAgentSelfCollectorMetrics(t *testing.T) {
 	stats.PointsSent.Store(1000)
 	stats.SendErrors.Store(2)
 
-	c := NewAgentSelfCollector(stats)
+	c := NewAgentSelfCollector(stats, nil, nil)
 	points, err := c.Collect(context.Background(), map[string]string{"hostname": "test"})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestAgentSelfCollectorMetrics(t *testing.T) {
 }
 
 func TestAgentSelfBaseTagsPreserved(t *testing.T) {
-	c := NewAgentSelfCollector(&AgentStats{})
+	c := NewAgentSelfCollector(&AgentStats{}, nil, nil)
 	points, err := c.Collect(context.Background(), map[string]string{"hostname": "myhost"})
 	if err != nil {
 		t.Fatal(err)

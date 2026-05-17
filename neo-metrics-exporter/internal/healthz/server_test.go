@@ -25,7 +25,7 @@ func (m *mockStats) GetPointsSent() int64      { return m.sent }
 func (m *mockStats) GetSendErrors() int64      { return m.errors }
 
 func newTestServer() *Server {
-	return New(0, &mockStats{}, "test-version")
+	return New("127.0.0.1:0", &mockStats{}, "test-version")
 }
 
 func TestHealthEndpoint(t *testing.T) {
@@ -69,7 +69,7 @@ func TestReadyWhenReady(t *testing.T) {
 
 func TestStatusEndpoint(t *testing.T) {
 	stats := &mockStats{collected: 1234, errors: 2}
-	s := New(0, stats, "test-version")
+	s := New("127.0.0.1:0", stats, "test-version")
 
 	req := httptest.NewRequest("GET", "/status", nil)
 	w := httptest.NewRecorder()
@@ -98,7 +98,7 @@ func TestStatusEndpoint(t *testing.T) {
 }
 
 func TestStartAndShutdown(t *testing.T) {
-	s := New(0, &mockStats{}, "v1")
+	s := New("127.0.0.1:0", &mockStats{}, "v1")
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}

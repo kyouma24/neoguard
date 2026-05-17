@@ -6,7 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/neoguard/neo-metrics-exporter/internal/buffer"
 	"github.com/neoguard/neo-metrics-exporter/internal/model"
+	"github.com/neoguard/neo-metrics-exporter/internal/transport"
 )
 
 type AgentStats struct {
@@ -27,14 +29,18 @@ func (s *AgentStats) GetPointsSent() int64      { return s.PointsSent.Load() }
 func (s *AgentStats) GetSendErrors() int64      { return s.SendErrors.Load() }
 
 type AgentSelfCollector struct {
-	stats     *AgentStats
-	startTime time.Time
+	stats      *AgentStats
+	buf        *buffer.DiskBuffer
+	deadLetter *transport.DeadLetterWriter
+	startTime  time.Time
 }
 
-func NewAgentSelfCollector(stats *AgentStats) *AgentSelfCollector {
+func NewAgentSelfCollector(stats *AgentStats, buf *buffer.DiskBuffer, deadLetter *transport.DeadLetterWriter) *AgentSelfCollector {
 	return &AgentSelfCollector{
-		stats:     stats,
-		startTime: time.Now(),
+		stats:      stats,
+		buf:        buf,
+		deadLetter: deadLetter,
+		startTime:  time.Now(),
 	}
 }
 
@@ -58,6 +64,16 @@ func (c *AgentSelfCollector) Collect(ctx context.Context, baseTags map[string]st
 		model.NewGauge("agent.go.heap_sys_bytes", float64(memStats.HeapSys), baseTags),
 		model.NewGauge("agent.go.gc_pause_ns", float64(memStats.PauseNs[(memStats.NumGC+255)%256]), baseTags),
 		model.NewGauge("agent.go.num_gc", float64(memStats.NumGC), baseTags),
+	}
+
+	// WAL pressure metrics (component-owned)
+	if c.buf != nil {
+		points = append(points, c.buf.Metrics(baseTags)...)
+	}
+
+	// Dead-letter metrics (component-owned)
+	if c.deadLetter != nil {
+		points = append(points, c.deadLetter.Metrics(baseTags)...)
 	}
 
 	return points, nil

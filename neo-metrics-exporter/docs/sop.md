@@ -290,7 +290,156 @@ systemctl restart neoguard-agent
 
 ---
 
-## SOP-010: Bulk Fleet Deployment
+## SOP-010: Troubleshooting — Clock Skew
+
+**Symptom**: Log message `"clock_skew_detected"` appears during agent startup, or agent exits with code 78 and message `"strict_clock_check_failed"`.
+
+### Warning: Clock Skew Detected (|skew| > 60s)
+
+**Log format:**
+```json
+{"level":"WARN","msg":"clock_skew_detected","skew_seconds":75.3,"threshold":60,"recommendation":"synchronize system clock with NTP"}
+```
+
+**Impact:**
+- Metric timestamps are off by the reported skew
+- Rate calculations (e.g., `rate(cpu)`) may be inaccurate
+- Alert timing may be incorrect
+- Charts show data at wrong times
+
+**Resolution:**
+
+1. **Check NTP status:**
+   ```bash
+   # systemd-timesyncd (Ubuntu/Debian)
+   timedatectl status
+
+   # ntpd (RHEL/CentOS)
+   ntpq -p
+
+   # chronyd (modern RHEL/Rocky)
+   chronyc tracking
+   ```
+
+2. **If NTP is disabled, enable it:**
+   ```bash
+   sudo timedatectl set-ntp true
+   ```
+
+3. **Force immediate clock synchronization:**
+   ```bash
+   # systemd-timesyncd
+   sudo systemctl restart systemd-timesyncd
+
+   # ntpd
+   sudo ntpd -gq
+
+   # chronyd
+   sudo chronyc makestep
+   ```
+
+4. **Verify clock is now synchronized:**
+   ```bash
+   timedatectl status
+   # Look for "System clock synchronized: yes"
+   ```
+
+5. **Restart agent to clear warning:**
+   ```bash
+   sudo systemctl restart neoguard-agent
+   ```
+
+**Prevention:** Enable NTP on all monitored hosts before deploying the agent.
+
+### Critical: Strict Clock Check Failed (|skew| > 300s)
+
+**Log format:**
+```json
+{"level":"ERROR","msg":"strict_clock_check_failed","error":"clock skew too large: 350.0s (threshold: 300s)"}
+```
+
+**Exit code:** 78 (EX_CONFIG — configuration error)
+
+**Impact:**
+- Agent refuses to start
+- No metrics are collected
+- System remains unmonitored until clock is corrected
+
+**Resolution:**
+
+This error only appears when `clock.strict_clock_check: true` is set in the config. The agent is protecting data integrity by refusing to emit metrics with severely incorrect timestamps.
+
+1. **Synchronize system clock immediately** (follow steps 1-4 above)
+
+2. **Restart agent after clock correction:**
+   ```bash
+   sudo systemctl restart neoguard-agent
+   ```
+
+3. **Verify agent started successfully:**
+   ```bash
+   systemctl status neoguard-agent
+   # Expected: active (running)
+
+   journalctl -u neoguard-agent --since "1 minute ago" --no-pager
+   # Expected: no "strict_clock_check_failed" errors
+   ```
+
+### Persistent Clock Skew Issues
+
+If clock skew persists after NTP sync:
+
+1. **Check NTP server reachability:**
+   ```bash
+   # Test UDP port 123 connectivity
+   sudo tcpdump -i any port 123 -c 10
+   ```
+
+2. **Check firewall rules:**
+   ```bash
+   # Allow outbound NTP
+   sudo iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
+   ```
+
+3. **Verify NTP server configuration:**
+   ```bash
+   # For systemd-timesyncd
+   cat /etc/systemd/timesyncd.conf
+
+   # For ntpd
+   cat /etc/ntp.conf
+
+   # For chronyd
+   cat /etc/chrony.conf
+   ```
+
+4. **Check for virtualization clock issues:**
+   ```bash
+   # VMware: Ensure VMware Tools is installed
+   vmware-toolbox-cmd timesync status
+
+   # AWS: EC2 instances should use Amazon Time Sync Service
+   # Add to /etc/chrony.conf:
+   # server 169.254.169.123 prefer iburst minpoll 4 maxpoll 4
+   ```
+
+### Configuration Reference
+
+To disable strict clock checking (default):
+```yaml
+clock:
+  strict_clock_check: false  # Agent starts with any clock skew
+```
+
+To enable strict mode (recommended for production):
+```yaml
+clock:
+  strict_clock_check: true   # Exit code 78 if |skew| > 300s
+```
+
+---
+
+## SOP-011: Bulk Fleet Deployment
 
 **When**: Rolling out to many servers at once.
 

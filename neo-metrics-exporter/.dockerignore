@@ -1,0 +1,16 @@
+.git
+bin/
+*.exe
+test-config.yaml
+test-agent.yaml
+TICKETS.md
+PHASE_TRACKER.md
+FINDINGS.md
+EXECUTION_CHANGELOG.md
+CLAUDE_EXECUTION_HOOKS.md
+LOGS-*.md
+*.md
+!agent.yaml
+docs/
+test/
+.github/

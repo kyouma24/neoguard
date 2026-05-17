@@ -4,10 +4,14 @@ package collector
 
 import (
 	"context"
+	"runtime"
 
 	"github.com/neoguard/neo-metrics-exporter/internal/model"
 	"github.com/neoguard/neo-metrics-exporter/internal/procfs"
 )
+
+// Function variable for test overrides
+var readCgroupInfoFunc = procfs.ReadCgroupInfo
 
 type ContainerCollector struct {
 	rate *RateComputer
@@ -22,7 +26,7 @@ func NewContainerCollector() *ContainerCollector {
 func (c *ContainerCollector) Name() string { return "container" }
 
 func (c *ContainerCollector) Collect(ctx context.Context, baseTags map[string]string) ([]model.MetricPoint, error) {
-	info, err := procfs.ReadCgroupInfo()
+	info, err := readCgroupInfoFunc()
 	if err != nil {
 		tags := model.MergeTags(baseTags, map[string]string{
 			"container_runtime": "baremetal",
@@ -40,6 +44,28 @@ func (c *ContainerCollector) Collect(ctx context.Context, baseTags map[string]st
 
 	if info.IsContainer {
 		points = append(points, model.NewGauge("system.container.detected", 1, tags))
+
+		// Emit cgroup version
+		var cgroupVersionValue float64
+		switch info.Version {
+		case procfs.CgroupV1:
+			cgroupVersionValue = 1
+		case procfs.CgroupV2:
+			cgroupVersionValue = 2
+		default:
+			cgroupVersionValue = 0 // unknown
+		}
+		points = append(points,
+			model.NewGauge("system.container.cgroup_version", cgroupVersionValue, tags),
+			model.NewGauge("system.container.gomaxprocs", float64(runtime.GOMAXPROCS(0)), tags),
+		)
+
+		// Emit fallback indicator
+		if info.FallbackUsed {
+			points = append(points, model.NewGauge("system.container.cgroup_fallback", 1, tags))
+		} else {
+			points = append(points, model.NewGauge("system.container.cgroup_fallback", 0, tags))
+		}
 	} else {
 		points = append(points, model.NewGauge("system.container.detected", 0, tags))
 		return points, nil

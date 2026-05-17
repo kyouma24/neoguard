@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -41,23 +38,19 @@ type Client struct {
 	apiKey       string
 	httpClient   *http.Client
 	agentVersion string
+	serializer   Serializer
 }
 
-func NewClient(endpoint, apiKey string, timeout time.Duration, agentVersion string) *Client {
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:        5,
-		MaxIdleConnsPerHost: 2,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		},
-		DisableCompression: true,
+func NewClient(endpoint, apiKey string, timeout time.Duration, agentVersion, caBundlePath string) (*Client, error) {
+	return newClientWithSerializer(endpoint, apiKey, timeout, agentVersion, caBundlePath, JSONSerializer{})
+}
+
+func newClientWithSerializer(endpoint, apiKey string, timeout time.Duration, agentVersion, caBundlePath string, serializer Serializer) (*Client, error) {
+	transport, err := newHTTPTransport(caBundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP transport: %w", err)
 	}
+
 	return &Client{
 		endpoint: endpoint + "/api/v1/metrics/ingest",
 		apiKey:   apiKey,
@@ -66,19 +59,20 @@ func NewClient(endpoint, apiKey string, timeout time.Duration, agentVersion stri
 			Transport: transport,
 		},
 		agentVersion: agentVersion,
-	}
+		serializer:   serializer,
+	}, nil
 }
 
 func (c *Client) Send(ctx context.Context, points []model.MetricPoint) error {
 	batch := model.MetricBatch{Metrics: points}
-	jsonData, err := json.Marshal(batch)
+	data, err := c.serializer.Marshal(batch)
 	if err != nil {
 		return &PermanentError{Message: fmt.Sprintf("marshal: %v", err)}
 	}
 
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(jsonData); err != nil {
+	if _, err := gz.Write(data); err != nil {
 		return &PermanentError{Message: fmt.Sprintf("gzip: %v", err)}
 	}
 	if err := gz.Close(); err != nil {
@@ -91,7 +85,7 @@ func (c *Client) Send(ctx context.Context, points []model.MetricPoint) error {
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", c.serializer.ContentType())
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("X-NeoGuard-Agent-Version", c.agentVersion)
 

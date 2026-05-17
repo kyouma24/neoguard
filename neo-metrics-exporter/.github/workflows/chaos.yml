@@ -1,0 +1,54 @@
+name: Chaos Tests
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Nightly at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      partition_seconds:
+        description: 'Network partition duration (seconds)'
+        required: false
+        default: '300'
+
+jobs:
+  chaos:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    env:
+      NEOGUARD_CHAOS_ENABLED: "1"
+      NEOGUARD_CHAOS_PARTITION_SECS: ${{ github.event.inputs.partition_seconds || '300' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build agent binary
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o bin/neoguard-agent-linux-amd64 ./cmd/neoguard-agent
+
+      - name: Run network partition test
+        run: sudo -E bash test/chaos/network_partition_test.sh
+
+      - name: Run disk full test
+        run: sudo -E bash test/chaos/disk_full_test.sh
+
+      - name: Run OOM test
+        run: sudo -E bash test/chaos/oom_test.sh
+
+      - name: Run crash recovery test
+        run: sudo -E bash test/chaos/crash_recovery_test.sh
+
+      - name: Run log burst test
+        run: sudo -E bash test/chaos/log_burst_test.sh
+
+      - name: Upload agent logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-test-logs
+          path: /tmp/tmp.*/agent*.log
+          retention-days: 7

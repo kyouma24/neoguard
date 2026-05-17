@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime"
 
 	"github.com/neoguard/neo-metrics-exporter/internal/agent"
 	"github.com/neoguard/neo-metrics-exporter/internal/config"
 	"github.com/neoguard/neo-metrics-exporter/internal/svchost"
+	"go.uber.org/automaxprocs/maxprocs"
 )
 
 var (
@@ -16,6 +19,23 @@ var (
 	buildTime = "unknown"
 	gitCommit = "unknown"
 )
+
+func init() {
+	// Set GOMAXPROCS from container CPU quota if detected
+	before := runtime.GOMAXPROCS(0)
+	_, err := maxprocs.Set(maxprocs.Logger(func(s string, i ...interface{}) {
+		slog.Info(fmt.Sprintf(s, i...), "component", "automaxprocs")
+	}))
+	if err != nil {
+		slog.Warn("failed to set GOMAXPROCS from cgroup", "error", err)
+	}
+	after := runtime.GOMAXPROCS(0)
+	if after != before {
+		slog.Info("container CPU quota detected, adjusted GOMAXPROCS", "from", before, "to", after)
+	} else {
+		slog.Info("no container CPU quota detected, GOMAXPROCS unchanged", "value", after)
+	}
+}
 
 func main() {
 	if svchost.IsWindowsService() {
@@ -96,12 +116,22 @@ func loadAgent() *agent.Agent {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	return agent.New(cfg, version, cfgPath)
+	a, err := agent.New(cfg, version, cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	return a
 }
 
 func runAgent() {
 	a := loadAgent()
 	if err := a.Run(context.Background()); err != nil {
+		// Check for strict clock check failure (exit code 78)
+		if errors.Is(err, agent.ErrStrictClockSkew) {
+			fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+			os.Exit(78) // EX_CONFIG from sysexits.h
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}

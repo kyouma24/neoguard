@@ -21,19 +21,28 @@ type StatsProvider interface {
 	GetSendErrors() int64
 }
 
-type Server struct {
-	addr        string
-	stats       StatsProvider
-	version     string
-	ready       atomic.Bool
-	srv         *http.Server
-	uptimeStart time.Time
-	metricStore *MetricStore
+type CollectorHealthProvider interface {
+	HealthyPercent() float64
+	TotalCollectors() int
+	HealthyCollectors() int
+	DegradedCollectors() int
+	DisabledCollectors() int
 }
 
-func New(port int, stats StatsProvider, version string) *Server {
+type Server struct {
+	addr             string
+	stats            StatsProvider
+	version          string
+	ready            atomic.Bool
+	srv              *http.Server
+	uptimeStart      time.Time
+	metricStore      *MetricStore
+	collectorHealth  CollectorHealthProvider
+}
+
+func New(bind string, stats StatsProvider, version string) *Server {
 	s := &Server{
-		addr:        fmt.Sprintf("127.0.0.1:%d", port),
+		addr:        bind,
 		stats:       stats,
 		version:     version,
 		uptimeStart: time.Now(),
@@ -59,6 +68,10 @@ func New(port int, stats StatsProvider, version string) *Server {
 
 func (s *Server) SetReady(ready bool) {
 	s.ready.Store(ready)
+}
+
+func (s *Server) SetCollectorHealth(provider CollectorHealthProvider) {
+	s.collectorHealth = provider
 }
 
 func (s *Server) Start() error {
@@ -96,18 +109,27 @@ func (s *Server) handleReady(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+type collectorHealthResponse struct {
+	HealthyPct float64 `json:"healthy_pct"`
+	Total      int     `json:"total"`
+	Healthy    int     `json:"healthy"`
+	Degraded   int     `json:"degraded"`
+	Disabled   int     `json:"disabled"`
+}
+
 type statusResponse struct {
-	Version              string  `json:"version"`
-	Platform             string  `json:"platform"`
-	UptimeSeconds        float64 `json:"uptime_seconds"`
-	CollectionDurationMs int64   `json:"collection_duration_ms"`
-	PointsCollected      int64   `json:"points_collected"`
-	BufferSize           int64   `json:"buffer_size"`
-	BufferDropped        int64   `json:"buffer_dropped"`
-	PointsSent           int64   `json:"points_sent"`
-	SendErrors           int64   `json:"send_errors"`
-	Goroutines           int     `json:"goroutines"`
-	HeapAllocBytes       uint64  `json:"heap_alloc_bytes"`
+	Version              string                   `json:"version"`
+	Platform             string                   `json:"platform"`
+	UptimeSeconds        float64                  `json:"uptime_seconds"`
+	CollectionDurationMs int64                    `json:"collection_duration_ms"`
+	PointsCollected      int64                    `json:"points_collected"`
+	BufferSize           int64                    `json:"buffer_size"`
+	BufferDropped        int64                    `json:"buffer_dropped"`
+	PointsSent           int64                    `json:"points_sent"`
+	SendErrors           int64                    `json:"send_errors"`
+	Goroutines           int                      `json:"goroutines"`
+	HeapAllocBytes       uint64                   `json:"heap_alloc_bytes"`
+	CollectorHealth      *collectorHealthResponse `json:"collector_health,omitempty"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -126,6 +148,16 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		SendErrors:           s.stats.GetSendErrors(),
 		Goroutines:           runtime.NumGoroutine(),
 		HeapAllocBytes:       mem.HeapAlloc,
+	}
+
+	if s.collectorHealth != nil {
+		resp.CollectorHealth = &collectorHealthResponse{
+			HealthyPct: s.collectorHealth.HealthyPercent(),
+			Total:      s.collectorHealth.TotalCollectors(),
+			Healthy:    s.collectorHealth.HealthyCollectors(),
+			Degraded:   s.collectorHealth.DegradedCollectors(),
+			Disabled:   s.collectorHealth.DisabledCollectors(),
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -1,12 +1,23 @@
 package collector
 
 import (
+	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const defaultStaleTTL = 5 * time.Minute
 const evictCheckInterval = 60 // run eviction every N calls to Compute
+
+var defaultMaxElapsed time.Duration
+var GlobalForwardJumps atomic.Int64
+
+// SetDefaultMaxElapsed sets the forward-jump threshold for all RateComputers
+// created via NewRateComputer(). Must be called before collectors are built.
+func SetDefaultMaxElapsed(d time.Duration) {
+	defaultMaxElapsed = d
+}
 
 type rateSample struct {
 	value    float64
@@ -15,16 +26,27 @@ type rateSample struct {
 }
 
 type RateComputer struct {
-	mu        sync.Mutex
-	samples   map[string]rateSample
-	staleTTL  time.Duration
-	callCount int
+	mu           sync.Mutex
+	samples      map[string]rateSample
+	staleTTL     time.Duration
+	callCount    int
+	maxElapsed   time.Duration
+	ForwardJumps atomic.Int64
 }
 
 func NewRateComputer() *RateComputer {
 	return &RateComputer{
-		samples:  make(map[string]rateSample),
-		staleTTL: defaultStaleTTL,
+		samples:    make(map[string]rateSample),
+		staleTTL:   defaultStaleTTL,
+		maxElapsed: defaultMaxElapsed,
+	}
+}
+
+func NewRateComputerWithMax(maxElapsed time.Duration) *RateComputer {
+	return &RateComputer{
+		samples:    make(map[string]rateSample),
+		staleTTL:   defaultStaleTTL,
+		maxElapsed: maxElapsed,
 	}
 }
 
@@ -47,6 +69,17 @@ func (r *RateComputer) Compute(key string, currentValue float64) (float64, bool)
 
 	elapsed := now.Sub(prev.ts).Seconds()
 	if elapsed <= 0 {
+		return 0, false
+	}
+
+	if r.maxElapsed > 0 && elapsed > r.maxElapsed.Seconds() {
+		r.ForwardJumps.Add(1)
+		GlobalForwardJumps.Add(1)
+		slog.Warn("clock_jump_forward_detected: skipping rate calculation",
+			"key", key,
+			"elapsed_seconds", elapsed,
+			"max_elapsed_seconds", r.maxElapsed.Seconds(),
+		)
 		return 0, false
 	}
 

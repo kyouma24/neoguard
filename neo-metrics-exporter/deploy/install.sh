@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BINARY_NAME="neoguard-agent"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="/usr/bin"
 CONFIG_DIR="/etc/neoguard"
 LOG_DIR="/var/log/neoguard"
 SERVICE_USER="neoguard"

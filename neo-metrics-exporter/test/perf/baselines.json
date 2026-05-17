@@ -1,0 +1,23 @@
+{
+  "_comment": "Baselines populated from CI benchmark runs on ubuntu-latest. Update with: make bench-update",
+  "_threshold_pct": 10,
+  "_bench_count": 5,
+  "benchmarks": {
+    "BenchmarkRingPush": null,
+    "BenchmarkRingPushDrain": null,
+    "BenchmarkWALPush": null,
+    "BenchmarkConfigLoad": null,
+    "BenchmarkRedaction": null,
+    "BenchmarkJSONParse": null,
+    "BenchmarkRegexParse": null,
+    "BenchmarkStartup": null,
+    "BenchmarkMemorySteadyState": null,
+    "BenchmarkCollectionCycle": null
+  },
+  "binary_size_bytes": null,
+  "binary_size_limit_bytes": 15728640,
+  "startup_ms": null,
+  "collection_cycle_p99_ms": null,
+  "memory_steady_state_bytes": null,
+  "log_throughput_lines_per_sec": null
+}

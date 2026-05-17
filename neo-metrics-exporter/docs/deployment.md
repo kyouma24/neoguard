@@ -1,3 +1,8 @@
+---
+Last updated: 2026-05-17
+Verified on version: 0.3.0
+---
+
 # Deployment Guide
 
 ## Prerequisites
@@ -69,7 +74,7 @@ Package includes:
 - Default config at `/etc/neoguard/agent.yaml` (marked noreplace — won't overwrite on upgrade)
 - Systemd unit at `/lib/systemd/system/neoguard-agent.service`
 - Creates `neoguard` user/group via preinstall script
-- Creates `/var/lib/neoguard/wal` and `/var/log/neoguard` directories
+- Creates state directories: `/var/lib/neoguard/{wal,logs-spool,logs-dead-letter,log_cursors}` and `/var/log/neoguard`
 
 ### Option 3: Manual
 
@@ -87,9 +92,9 @@ sudo cp agent.yaml /etc/neoguard/agent.yaml
 sudo chown root:neoguard /etc/neoguard/agent.yaml
 sudo chmod 640 /etc/neoguard/agent.yaml
 
-# Create WAL directory
-sudo mkdir -p /var/lib/neoguard/wal
-sudo chown neoguard:neoguard /var/lib/neoguard/wal
+# Create state directories (WAL + log pipeline)
+sudo mkdir -p /var/lib/neoguard/wal /var/lib/neoguard/logs-spool /var/lib/neoguard/logs-dead-letter /var/lib/neoguard/log_cursors /var/log/neoguard
+sudo chown -R neoguard:neoguard /var/lib/neoguard /var/log/neoguard
 
 # Copy systemd unit
 sudo cp deploy/neoguard-agent.service /lib/systemd/system/
@@ -423,9 +428,9 @@ The systemd unit (`deploy/neoguard-agent.service`) includes 17 hardening directi
 - `PrivateTmp=true`
 - `RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX`
 - `SystemCallFilter=@system-service`
-- `CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_ADMIN CAP_SYS_PTRACE`
+- `CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_DAC_READ_SEARCH`
 - `MemoryMax=256M`
 - `CPUQuota=25%`
-- Read-write only to `/var/lib/neoguard`
+- Read-write only to `/var/log/neoguard` and `/var/lib/neoguard`
 
 Config file should be mode 0640 (owner root, group neoguard). The agent warns on startup if the file is world-readable and refuses to load if world-writable.

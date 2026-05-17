@@ -134,3 +134,100 @@ func TestRateComputerLen(t *testing.T) {
 		t.Errorf("expected 2, got %d", rc.Len())
 	}
 }
+
+func TestRateComputerForwardJumpDetected(t *testing.T) {
+	rc := NewRateComputerWithMax(30 * time.Second)
+	rc.Compute("test", 100)
+
+	// Simulate elapsed of 2x maxElapsed (60s > 30s threshold)
+	rc.mu.Lock()
+	s := rc.samples["test"]
+	s.ts = time.Now().Add(-60 * time.Second)
+	rc.samples["test"] = s
+	rc.mu.Unlock()
+
+	rate, ok := rc.Compute("test", 200)
+	if ok {
+		t.Error("forward jump should return false")
+	}
+	if rate != 0 {
+		t.Errorf("rate = %f, want 0", rate)
+	}
+	if rc.ForwardJumps.Load() != 1 {
+		t.Errorf("forward_jumps = %d, want 1", rc.ForwardJumps.Load())
+	}
+}
+
+func TestRateComputerForwardJumpResetsBaseline(t *testing.T) {
+	rc := NewRateComputerWithMax(30 * time.Second)
+	rc.Compute("test", 100)
+
+	// Simulate forward jump
+	rc.mu.Lock()
+	s := rc.samples["test"]
+	s.ts = time.Now().Add(-60 * time.Second)
+	rc.samples["test"] = s
+	rc.mu.Unlock()
+
+	rc.Compute("test", 500) // Triggers jump, resets baseline to 500
+
+	// Now a normal interval should work
+	rc.mu.Lock()
+	s = rc.samples["test"]
+	s.ts = time.Now().Add(-10 * time.Second)
+	rc.samples["test"] = s
+	rc.mu.Unlock()
+
+	rate, ok := rc.Compute("test", 600)
+	if !ok {
+		t.Fatal("post-jump normal sample should return true")
+	}
+	if math.Abs(rate-10.0) > 1.0 {
+		t.Errorf("rate = %f, want ~10.0", rate)
+	}
+}
+
+func TestRateComputerForwardJumpMultiple(t *testing.T) {
+	rc := NewRateComputerWithMax(30 * time.Second)
+	rc.Compute("a", 100)
+	rc.Compute("b", 200)
+
+	rc.mu.Lock()
+	for _, key := range []string{"a", "b"} {
+		s := rc.samples[key]
+		s.ts = time.Now().Add(-120 * time.Second)
+		rc.samples[key] = s
+	}
+	rc.mu.Unlock()
+
+	rc.Compute("a", 150)
+	rc.Compute("b", 250)
+
+	if rc.ForwardJumps.Load() != 2 {
+		t.Errorf("forward_jumps = %d, want 2", rc.ForwardJumps.Load())
+	}
+}
+
+func TestRateComputerMaxElapsedZeroDisablesCheck(t *testing.T) {
+	rc := NewRateComputer() // maxElapsed = 0
+	rc.Compute("test", 100)
+
+	// Simulate huge elapsed (would trigger forward jump if enabled)
+	rc.mu.Lock()
+	s := rc.samples["test"]
+	s.ts = time.Now().Add(-3600 * time.Second)
+	rc.samples["test"] = s
+	rc.mu.Unlock()
+
+	rate, ok := rc.Compute("test", 200)
+	if !ok {
+		t.Fatal("maxElapsed=0 should not trigger forward jump detection")
+	}
+	// Rate should be ~100/3600 ≈ 0.028
+	if rate <= 0 {
+		t.Errorf("rate = %f, should be positive", rate)
+	}
+	if rc.ForwardJumps.Load() != 0 {
+		t.Error("forward_jumps should be 0 when disabled")
+	}
+}

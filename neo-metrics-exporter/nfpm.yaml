@@ -27,7 +27,35 @@ contents:
       owner: neoguard
       group: neoguard
 
+  - dst: /var/lib/neoguard
+    type: dir
+    file_info:
+      mode: 0750
+      owner: neoguard
+      group: neoguard
+
   - dst: /var/lib/neoguard/wal
+    type: dir
+    file_info:
+      mode: 0750
+      owner: neoguard
+      group: neoguard
+
+  - dst: /var/lib/neoguard/logs-spool
+    type: dir
+    file_info:
+      mode: 0750
+      owner: neoguard
+      group: neoguard
+
+  - dst: /var/lib/neoguard/logs-dead-letter
+    type: dir
+    file_info:
+      mode: 0750
+      owner: neoguard
+      group: neoguard
+
+  - dst: /var/lib/neoguard/log_cursors
     type: dir
     file_info:
       mode: 0750

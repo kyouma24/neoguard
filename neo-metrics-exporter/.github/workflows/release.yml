@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Run tests with race detector
+        run: go test -race -count=1 -timeout 180s ./...
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          SUFFIX=""
+          if [ "$GOOS" = "windows" ]; then SUFFIX=".exe"; fi
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          go build -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${{ github.sha }}" \
+            -o bin/neoguard-agent-${GOOS}-${GOARCH}${SUFFIX} ./cmd/neoguard-agent
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin/neoguard-agent-*
+          retention-days: 1
+
+  package:
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-linux-${{ matrix.goarch }}
+          path: bin/
+      - name: Normalize version
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Build deb package
+        run: VERSION=${{ steps.version.outputs.version }} GOARCH=${{ matrix.goarch }} nfpm package --packager deb --target bin/
+      - name: Build rpm package
+        run: VERSION=${{ steps.version.outputs.version }} GOARCH=${{ matrix.goarch }} nfpm package --packager rpm --target bin/
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.goarch }}
+          path: |
+            bin/*.deb
+            bin/*.rpm
+          retention-days: 1
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build, package]
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: artifacts/
+          merge-multiple: true
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: artifacts/
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: artifacts
+        run: sha256sum * > checksums.txt
+      - name: Sign artifacts
+        working-directory: artifacts
+        run: |
+          for file in *; do
+            if [ "$file" = "checksums.txt" ]; then continue; fi
+            cosign sign-blob --yes --bundle "${file}.bundle" "$file"
+          done
+          cosign sign-blob --yes --bundle "checksums.txt.bundle" checksums.txt
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Normalize version
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: docker-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/neoguard-agent:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/neoguard-agent:latest
+      - name: Sign Docker images
+        run: |
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/neoguard-agent:${{ steps.version.outputs.version }}@${{ steps.docker-push.outputs.digest }}
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/neoguard-agent:latest@${{ steps.docker-push.outputs.digest }}

@@ -1,3 +1,8 @@
+---
+Last updated: 2026-05-17
+Verified on version: 0.3.0
+---
+
 # Metrics Catalog
 
 Complete reference of every metric emitted by the NeoGuard agent.
@@ -190,7 +195,7 @@ All metrics are rate-based.
 ## Processes
 
 **Collector**: `process` | **Platform**: all | **Tier**: normal
-**Tags**: `process_name`, `process_pid`, `process_user`, `process_cmdline`
+**Tags**: `process_name`, `process_pid`, `process_user`, `process_cmdline` (opt-in, see `docs/cardinality.md`)
 
 Reports top N processes (default 20) sorted by CPU usage, then memory.
 
@@ -240,13 +245,24 @@ Requires `file_watch.paths` in config.
 | Metric | Type | Description |
 |---|---|---|
 | `system.container.detected` | gauge | 1 if inside container, 0 if bare metal |
-| `system.container.cpu_limit_cores` | gauge | CPU quota in cores |
+| `system.container.cgroup_version` | gauge | Cgroup version: 0=unknown, 1=v1, 2=v2 |
+| `system.container.gomaxprocs` | gauge | Current runtime.GOMAXPROCS value (OS threads executing Go code) |
+| `system.container.cgroup_fallback` | gauge | 1 if root cgroup used (nested path not found), 0 if nested path resolved |
+| `system.container.cpu_limit_cores` | gauge | CPU quota in cores (from cgroup cpu.cfs_quota_us / cpu.cfs_period_us) |
 | `system.container.cpu_usage_pct` | gauge | CPU usage relative to limit |
-| `system.container.cpu_throttled_count` | gauge | Throttle events |
-| `system.container.cpu_throttled_pct` | gauge | Throttle percentage |
-| `system.container.memory_limit_bytes` | gauge | Memory limit |
-| `system.container.memory_usage_bytes` | gauge | Memory usage |
-| `system.container.memory_usage_pct` | gauge | Memory % of limit |
+| `system.container.cpu_throttled_count` | gauge | Cumulative CPU throttle events |
+| `system.container.cpu_throttled_pct` | gauge | Throttle percentage (throttled periods / total periods) |
+| `system.container.memory_limit_bytes` | gauge | Memory limit from cgroup |
+| `system.container.memory_usage_bytes` | gauge | Current memory usage |
+| `system.container.memory_usage_pct` | gauge | Memory usage as % of limit |
+
+**Tags:**
+- `container_runtime`: Runtime environment — `kubernetes`, `docker`, `containerd`, `lxc`, `container`, `baremetal`
+
+**Notes:**
+- `cgroup_version` values: 0 (unknown, should not occur), 1 (cgroup v1), 2 (cgroup v2)
+- `gomaxprocs`: Number of OS threads that can execute Go code simultaneously (not goroutine count)
+- `cgroup_fallback=1`: Nested cgroup path could not be resolved, using root cgroup (may indicate incomplete cgroup setup or permissions issue)
 
 ---
 
@@ -397,6 +413,86 @@ Uses linear regression over a sliding window to project time-to-full. `-1` means
 | `system.conntrack.entries` | gauge | Current tracked connections |
 | `system.conntrack.max` | gauge | Max tracked connections |
 | `system.conntrack.used_pct` | gauge | Conntrack table utilization % |
+
+---
+
+## Agent WAL Metrics
+
+Metrics from the Write-Ahead Log (WAL) disk buffer:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `agent.wal.size_bytes` | gauge | Current WAL file size in bytes |
+| `agent.wal.frames_total` | counter | Total frames written since agent start |
+| `agent.wal.corrupted_frames_total` | counter | Total corrupted frames detected during replay |
+| `agent.wal.write_rejections_total` | counter | Write attempts rejected due to WAL at capacity |
+| `agent.wal.dropped_points_total` | counter | Total points dropped from buffer ring |
+
+---
+
+## Agent Dead Letter Metrics
+
+Metrics from the dead-letter writer (last-resort persistence):
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `agent.dead_letter.files_written_total` | counter | Total dead-letter files successfully written |
+| `agent.dead_letter.files_evicted_total` | counter | Dead-letter files evicted due to retention limits (max_files or max_total_mb) |
+
+---
+
+## Agent Transmitter Metrics
+
+Metrics from the transmitter tracking replay state:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `agent.transmitter.replay_mode` | gauge | Replay mode active: 0=normal operation, 1=replaying from WAL |
+| `agent.transmitter.replay_count` | gauge | Number of batches in replay queue |
+
+---
+
+## Agent Backpressure Metrics
+
+Metrics from the adaptive backpressure controller:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `agent.backpressure.current_rate_bps` | gauge | Current adaptive replay rate in bytes/sec |
+| `agent.backpressure.signals_success_total` | counter | Total successful backpressure signals |
+| `agent.backpressure.signals_fail_total` | counter | Total failed backpressure signals |
+
+---
+
+## Agent Collector Supervision
+
+Metrics from the collector supervisor tracking health state:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `agent.collector.state` | gauge | Per-collector health state (tagged by collector name): 0=healthy, 1=degraded, 2=disabled |
+| `agent.collectors.healthy` | gauge | Count of healthy collectors |
+| `agent.collectors.degraded` | gauge | Count of degraded collectors |
+| `agent.collectors.disabled` | gauge | Count of disabled collectors |
+| `agent.collectors.healthy_pct` | gauge | Percentage of healthy collectors (0-100) |
+
+---
+
+## Agent Log Pipeline Metrics
+
+Metrics from the log collection pipeline (emitted when `logs.enabled: true`):
+
+| Metric | Type | Tags | Description |
+|--------|------|------|-------------|
+| `agent.logs.rotations` | counter | source, rotation_type | Log file rename-based rotations detected |
+| `agent.logs.truncations` | counter | source | Log file truncations detected (file shrunk) |
+| `agent.logs.missing_files` | counter | source | Poll cycles where source file was not found |
+| `agent.logs.parser_errors` | counter | source, parser_mode | Lines that failed to parse (JSON decode errors, regex non-match) |
+| `agent.logs.multiline_truncations` | counter | source | Multiline messages truncated at max_bytes |
+| `agent.logs.redaction_applied` | counter | pattern | Credential redactions applied (bearer, aws_key, api_key, password) |
+| `agent.logs.buffer_dropped_batches` | counter | reason | Log batches dropped due to critical watermark |
+| `agent.logs.buffer_high_watermark` | counter | — | Times spool reached high watermark threshold |
+| `agent.logs.dead_lettered` | counter | reason | Log entries written to dead-letter (retry exhausted) |
 
 ---
 
